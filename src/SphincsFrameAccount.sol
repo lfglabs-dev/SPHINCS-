@@ -27,9 +27,17 @@ contract SphincsFrameAccount {
     /// @param sig The raw SPHINCS+ C6 signature (3352 bytes)
     /// @param scope Approval scope: 1=sender, 2=payment, 3=both
     function verifyAndApprove(bytes32 sigHash, bytes calldata sig, uint256 scope) external {
-        // Verify SPHINCS+ signature via the external verifier
+        // Verify SPHINCS+ signature via the external verifier.
+        // All SPHINCs- verifiers expose verify(pkSeed, pkRoot, message, sig);
+        // pass the account's stored public key alongside the message hash.
         (bool success, bytes memory result) = verifier.staticcall(
-            abi.encodeWithSignature("verify(bytes32,bytes)", sigHash, sig)
+            abi.encodeWithSignature(
+                "verify(bytes32,bytes32,bytes32,bytes)",
+                pkSeed,
+                pkRoot,
+                sigHash,
+                sig
+            )
         );
         require(success && result.length >= 32, "verify call failed");
         bool valid = abi.decode(result, (bool));

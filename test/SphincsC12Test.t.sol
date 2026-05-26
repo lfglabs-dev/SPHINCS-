@@ -22,7 +22,7 @@ contract SphincsC12Test is Test {
     function setUp() public {
         verifier = new SPHINCs_C12Asm();
         string[] memory inputs = new string[](4);
-        inputs[0] = ".venv/bin/python";
+        inputs[0] = "python3";
         inputs[1] = "script/jardin_spx_signer.py";
         inputs[2] = vm.toString(SK);
         inputs[3] = vm.toString(MSG);

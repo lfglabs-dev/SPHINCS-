@@ -26,7 +26,7 @@ contract SLH_DSA_SHA2_128_24_Test is Test {
 
         // One-shot: call the wrapper, receive ABI-encoded (seed, root, sig).
         string[] memory inputs = new string[](4);
-        inputs[0] = ".venv/bin/python";
+        inputs[0] = "python3";
         inputs[1] = "script/slh_dsa_sha2_128_24_fast_signer.py";
         inputs[2] = vm.toString(SK);
         inputs[3] = vm.toString(MSG);

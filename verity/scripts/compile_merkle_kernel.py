@@ -3,10 +3,49 @@
 
 from __future__ import annotations
 
+import os
 import pathlib
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
+
+
+def _locate_solc() -> str:
+    """Resolve a solc binary in priority order: $SOLC, PATH, Foundry/SVM install."""
+    override = os.environ.get("SOLC")
+    if override:
+        return override
+
+    on_path = shutil.which("solc")
+    if on_path:
+        return on_path
+
+    home = pathlib.Path.home()
+    xdg_data = pathlib.Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share")
+    candidates: list[tuple[tuple[int, ...], pathlib.Path]] = []
+    for svm_root in (home / ".svm", xdg_data / "svm"):
+        if not svm_root.is_dir():
+            continue
+        for entry in svm_root.iterdir():
+            if not entry.is_dir():
+                continue
+            match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", entry.name)
+            if not match:
+                continue
+            binary = entry / f"solc-{entry.name}"
+            if binary.is_file() and os.access(binary, os.X_OK):
+                candidates.append((tuple(int(g) for g in match.groups()), binary))
+    if candidates:
+        candidates.sort()
+        return str(candidates[-1][1])
+
+    raise FileNotFoundError(
+        "solc not found: set $SOLC, install solc on PATH, or run "
+        "`forge build` once so Foundry populates its SVM cache "
+        "(~/.svm/ or $XDG_DATA_HOME/svm/)"
+    )
 
 
 def _rewrite_shadowed_ite_names(yul_source: str) -> str:
@@ -48,9 +87,10 @@ def main() -> int:
         )
         return 1
 
+    solc = _locate_solc()
     try:
         result = subprocess.run(
-            ["solc", "--strict-assembly", "--bin", str(yul_path)],
+            [solc, "--strict-assembly", "--bin", str(yul_path)],
             check=True,
             capture_output=True,
             text=True,
@@ -63,7 +103,7 @@ def main() -> int:
             normalized.write_text(_rewrite_shadowed_ite_names(yul_path.read_text(encoding="utf-8")),
                                   encoding="utf-8")
             result = subprocess.run(
-                ["solc", "--strict-assembly", "--bin", str(normalized)],
+                [solc, "--strict-assembly", "--bin", str(normalized)],
                 check=True,
                 capture_output=True,
                 text=True,

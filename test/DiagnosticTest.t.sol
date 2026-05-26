@@ -12,7 +12,7 @@ contract DiagnosticTest is Test {
         bytes32 SK  = 0x1111111111111111111111111111111111111111111111111111111111111111;
 
         string[] memory inputs = new string[](4);
-        inputs[0] = ".venv/bin/python";
+        inputs[0] = "python3";
         inputs[1] = "script/slh_dsa_sha2_128_24_fast_signer.py";
         inputs[2] = vm.toString(SK);
         inputs[3] = vm.toString(MSG);
