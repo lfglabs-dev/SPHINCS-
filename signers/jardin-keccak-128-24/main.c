@@ -1,11 +1,20 @@
 /*
  * JARDIN-Keccak-128-24 one-shot CLI.
  *
- *   Usage:  jardin-keccak-128-24 <seed_48B_hex> <message_hex> <optrand_16B_hex>
+ *   Usage:  jardin-keccak-128-24 <seed_48B_hex> <message_hex>                     # hedged (default)
+ *           jardin-keccak-128-24 <seed_48B_hex> <message_hex> <optrand_16B_hex>   # explicit opt_rand
  *
  * `seed_48B` = sk_seed(16) || sk_prf(16) || pk_seed(16) — pass whatever
- * derivation you like from the outside.  `optrand_16B` selects the per-sig
- * randomizer (NIST allows any value, including all-zero for determinism).
+ * derivation you like from the outside.
+ *
+ * **Default is hedged** (FIPS 205 §9.2 recommendation). The per-signature
+ * randomizer (`opt_rand`) is drawn from the kernel CSPRNG (getrandom(2),
+ * fallback /dev/urandom). The actual `opt_rand` bytes used are printed to
+ * stderr so a hedged sig can be reproduced exactly via the deterministic
+ * interface if needed.
+ *
+ * Pass a 16-byte hex `opt_rand` as the third positional arg to force a
+ * specific randomizer (deterministic mode — only useful for KATs).
  *
  * Output to stdout (one line, hex, no 0x):
  *   pk_seed(16) || pk_root(16) || sig(SPX_BYTES = 3856)
@@ -18,10 +27,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 #include "params.h"
 #include "api.h"
 #include "randombytes.h"
+
+#ifdef __linux__
+#include <sys/random.h>
+#endif
 
 /* set_rng_buffer is declared here (not in randombytes.h) because it's an
    internal hook for this harness only, not part of the SPHINCS+ API. */
@@ -58,28 +72,73 @@ static void hex_print(const unsigned char *buf, size_t len)
     putchar('\n');
 }
 
+/* Fill `out` with `len` cryptographically secure random bytes. Returns 0 on
+ * success, -1 on failure. Tries getrandom(2) first, falls back to /dev/urandom. */
+static int csprng_fill(unsigned char *out, size_t len)
+{
+#ifdef __linux__
+    size_t got = 0;
+    while (got < len) {
+        ssize_t n = getrandom(out + got, len - got, 0);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        got += (size_t) n;
+    }
+    if (got == len) return 0;
+#endif
+    FILE *f = fopen("/dev/urandom", "rb");
+    if (!f) return -1;
+    size_t n = fread(out, 1, len, f);
+    fclose(f);
+    return (n == len) ? 0 : -1;
+}
+
 int main(int argc, char **argv)
 {
-    if (argc != 4) {
+    int hedged = 0;
+    const char *seed_hex = NULL;
+    const char *msg_hex_arg = NULL;
+    const char *optrand_hex = NULL;
+
+    if (argc == 3) {
+        /* New default: hedged. */
+        hedged      = 1;
+        seed_hex    = argv[1];
+        msg_hex_arg = argv[2];
+    } else if (argc == 4 && strcmp(argv[1], "--hedged") == 0) {
+        /* Backwards-compat. */
+        hedged      = 1;
+        seed_hex    = argv[2];
+        msg_hex_arg = argv[3];
+    } else if (argc == 4) {
+        /* Deterministic mode. */
+        seed_hex    = argv[1];
+        msg_hex_arg = argv[2];
+        optrand_hex = argv[3];
+    } else {
         fprintf(stderr,
-            "Usage: %s <seed_48B_hex> <message_hex> <optrand_16B_hex>\n"
+            "Usage:\n"
+            "  %s <seed_48B_hex> <message_hex>                     (HEDGED, default — opt_rand from kernel CSPRNG)\n"
+            "  %s <seed_48B_hex> <message_hex> <optrand_16B_hex>   (explicit opt_rand — for KATs)\n"
             "  seed = sk_seed(16) || sk_prf(16) || pk_seed(16)\n"
             "  message = arbitrary-length hex (pad nothing)\n"
             "  optrand = %d bytes (the per-sig randomizer)\n"
             "\nOutput: hex(pk_seed(16) || pk_root(16) || sig(%d))\n",
-            argv[0], SPX_N, SPX_BYTES);
+            argv[0], argv[0], SPX_N, SPX_BYTES);
         return 2;
     }
 
     unsigned char seed[CRYPTO_SEEDBYTES];        /* = 3 * SPX_N = 48 */
-    if (hex_decode(argv[1], seed, sizeof(seed)) != 0) {
+    if (hex_decode(seed_hex, seed, sizeof(seed)) != 0) {
         fprintf(stderr, "bad seed hex (need %zu bytes)\n", sizeof(seed));
         return 1;
     }
 
-    size_t msg_hex_len = strlen(argv[2]);
-    if (msg_hex_len >= 2 && argv[2][0] == '0' &&
-        (argv[2][1] == 'x' || argv[2][1] == 'X')) msg_hex_len -= 2;
+    size_t msg_hex_len = strlen(msg_hex_arg);
+    if (msg_hex_len >= 2 && msg_hex_arg[0] == '0' &&
+        (msg_hex_arg[1] == 'x' || msg_hex_arg[1] == 'X')) msg_hex_len -= 2;
     if (msg_hex_len & 1) {
         fprintf(stderr, "message hex must have even length\n");
         return 1;
@@ -92,12 +151,20 @@ int main(int argc, char **argv)
     }
     unsigned char *msg = (unsigned char *)malloc(msg_len);
     if (!msg) { fprintf(stderr, "oom\n"); return 1; }
-    if (hex_decode(argv[2], msg, msg_len) != 0) {
+    if (hex_decode(msg_hex_arg, msg, msg_len) != 0) {
         fprintf(stderr, "bad message hex\n"); free(msg); return 1;
     }
 
     unsigned char optrand[SPX_N];
-    if (hex_decode(argv[3], optrand, sizeof(optrand)) != 0) {
+    if (hedged) {
+        if (csprng_fill(optrand, sizeof(optrand)) != 0) {
+            fprintf(stderr, "csprng_fill failed: no getrandom and no /dev/urandom\n");
+            free(msg); return 1;
+        }
+        fprintf(stderr, "  mode: hedged (opt_rand=");
+        for (size_t i = 0; i < sizeof(optrand); i++) fprintf(stderr, "%02x", optrand[i]);
+        fprintf(stderr, ")\n");
+    } else if (hex_decode(optrand_hex, optrand, sizeof(optrand)) != 0) {
         fprintf(stderr, "bad optrand hex (need %d bytes)\n", SPX_N);
         free(msg); return 1;
     }

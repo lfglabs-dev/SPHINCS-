@@ -59,9 +59,16 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("master_sk_hex")
     p.add_argument("message_hex")
-    p.add_argument("sig_counter", nargs="?", default=0, type=int)
+    p.add_argument("sig_counter", nargs="?", default=None, type=int,
+                   help="If given, use deterministic mode with opt_rand=<counter,big-endian>||zeros. "
+                        "If omitted, hedged.")
     p.add_argument("--no-cache", action="store_true")
+    p.add_argument("--hedged", action="store_true",
+                   help="(default) Force hedged mode even if sig_counter is given.")
     args = p.parse_args()
+
+    if not args.hedged and args.sig_counter is None:
+        args.hedged = True
 
     if not os.path.isfile(BIN_PATH):
         eprint(f"  C binary not found at {BIN_PATH}")
@@ -83,24 +90,38 @@ def main():
         msg_bytes = msg_bytes[-32:]
     msg_hex_32 = msg_bytes.hex()
 
-    optrand = args.sig_counter.to_bytes(4, "big") + b"\x00" * (N - 4)
+    # In hedged mode (default) we pass --hedged through to the C binary so
+    # opt_rand is drawn inside via getrandom(2).
+    if not args.hedged:
+        sig_counter = args.sig_counter if args.sig_counter is not None else 0
+        optrand = sig_counter.to_bytes(4, "big") + b"\x00" * (N - 4)
 
-    os.makedirs(CACHE_DIR, exist_ok=True)
-    key = cache_key(args.master_sk_hex, args.message_hex, args.sig_counter)
-    cache_path = os.path.join(CACHE_DIR, f"{key}.hex")
+    # Disk cache (counter mode only — hedged sigs are intentionally non-reproducible).
+    cache_path = None
+    if not args.hedged:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        key = cache_key(args.master_sk_hex, args.message_hex, sig_counter)
+        cache_path = os.path.join(CACHE_DIR, f"{key}.hex")
 
-    if not args.no_cache and os.path.isfile(cache_path):
-        eprint(f"  [cache hit] {cache_path}")
-        with open(cache_path, "r") as f:
-            print(f.read().strip())
-        return
+        if not args.no_cache and os.path.isfile(cache_path):
+            eprint(f"  [cache hit] {cache_path}")
+            with open(cache_path, "r") as f:
+                print(f.read().strip())
+            return
 
     seed48 = derive_seed_48(master_sk)
 
     eprint(f"  invoking C signer (h=22, a=24 — ~11 min)...")
-    result = subprocess.run(
-        [BIN_PATH, seed48.hex(), msg_hex_32, optrand.hex()],
-        capture_output=True, text=True)
+    if args.hedged:
+        cmd = [BIN_PATH, "--hedged", seed48.hex(), msg_hex_32]
+    else:
+        cmd = [BIN_PATH, seed48.hex(), msg_hex_32, optrand.hex()]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if args.hedged:
+        for line in result.stderr.splitlines():
+            if "mode: hedged" in line:
+                eprint(line)
+                break
     if result.returncode != 0:
         eprint(f"  C signer failed (rc={result.returncode}):")
         eprint(result.stderr)
@@ -119,9 +140,10 @@ def main():
     eprint(f"  sig: {len(sig)} bytes")
 
     abi_hex = "0x" + abi_encode(pk_seed, pk_root, sig).hex()
-    with open(cache_path, "w") as f:
-        f.write(abi_hex + "\n")
-    eprint(f"  cached at {cache_path}")
+    if cache_path is not None:
+        with open(cache_path, "w") as f:
+            f.write(abi_hex + "\n")
+        eprint(f"  cached at {cache_path}")
     print(abi_hex)
 
 if __name__ == "__main__":

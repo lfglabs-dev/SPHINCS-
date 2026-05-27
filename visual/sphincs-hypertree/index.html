@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SPHINCS- Hypertree Explorer</title>
+  </head>
+  <body>
+    <main id="app">
+      <canvas id="scene" aria-label="Interactive 3D SPHINCS- hypertree explorer"></canvas>
+
+      <section class="hud hud-left" aria-label="Hypertree controls">
+        <header class="brand">
+          <span class="brand-mark"></span>
+          <div>
+            <h1>SPHINCs-</h1>
+            <p>Stateless PQ verifier explorer</p>
+          </div>
+        </header>
+
+        <div class="message-panel">
+          <span>Message digest</span>
+          <strong id="messageLabel">0xdeadbeef...c7</strong>
+          <p id="messageMeta">Hmsg splits into k FORS indices (a bits each) and one (idx_tree, idx_leaf) hypertree address.</p>
+        </div>
+
+        <div class="overview-panel" aria-label="Hypertree position">
+          <div class="overview-head">
+            <span>Position</span>
+            <strong id="currentPosition">Hypertree</strong>
+          </div>
+          <svg id="overviewMap" viewBox="0 0 300 158" role="img" aria-label="Schematic hypertree overview"></svg>
+        </div>
+
+        <div class="variant-grid" role="group" aria-label="SPHINCS- variant">
+          <button class="variant-button active" data-variant="c7">C7</button>
+          <button class="variant-button" data-variant="c11">C11</button>
+          <button class="variant-button" data-variant="c12">C12</button>
+          <button class="variant-button" data-variant="slh-sha2">SLH·SHA2</button>
+          <button class="variant-button" data-variant="slh-keccak">SLH·Kec</button>
+        </div>
+
+        <div class="param-grid" id="paramGrid" aria-label="Variant parameters"></div>
+
+        <label class="control-row">
+          <span>q_s</span>
+          <input id="budgetRange" type="range" min="10" max="20" value="14" />
+          <strong id="budgetValue">2^14</strong>
+        </label>
+
+        <div class="crumbs" id="crumbs" aria-label="Zoom path"></div>
+
+        <div class="toolbar" role="group" aria-label="Explorer controls">
+          <button id="backView" class="icon-button" title="Back one level">
+            <i data-lucide="corner-up-left"></i>
+          </button>
+          <button id="playToggle" class="icon-button active" title="Pause animation">
+            <i data-lucide="pause"></i>
+          </button>
+          <button id="reroute" class="icon-button" title="New message route">
+            <i data-lucide="route"></i>
+          </button>
+          <button id="resetView" class="icon-button" title="Reset view">
+            <i data-lucide="rotate-ccw"></i>
+          </button>
+        </div>
+      </section>
+
+      <section class="hud hud-right" aria-label="Current view">
+        <div class="metric">
+          <span>Variant</span>
+          <strong id="metricVariant">C7</strong>
+          <em id="metricFamily">WOTS+C / FORS+C</em>
+        </div>
+        <div class="metric">
+          <span>Signature</span>
+          <strong id="metricSig">3,704 B</strong>
+        </div>
+        <div class="metric">
+          <span>Verify (pure)</span>
+          <strong id="metricVerify">127 K</strong>
+        </div>
+        <div class="metric">
+          <span>Sign hashes</span>
+          <strong id="metricSign">4.3 M</strong>
+        </div>
+        <div class="metric">
+          <span>Security</span>
+          <strong id="metricSecurity">128b</strong>
+        </div>
+      </section>
+
+      <section class="node-card" id="nodeCard" aria-live="polite">
+        <span id="nodeType">Route</span>
+        <strong id="nodeTitle">Double-click a node</strong>
+        <p id="nodeMeta">Zoom into an XMSS layer, WOTS+ chain set, or FORS forest.</p>
+      </section>
+
+      <div class="legend" aria-label="Legend">
+        <span><b class="legend-dot fors"></b> FORS</span>
+        <span><b class="legend-dot wots"></b> WOTS+</span>
+        <span><b class="legend-dot xmss"></b> XMSS</span>
+        <span><b class="legend-dot path"></b> signature route</span>
+      </div>
+
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -181,6 +181,10 @@ def digest_indices(digest: bytes, h_param: int, a_param: int):
 
     `leafIdx` is a BE read of the next ⌈h/8⌉ bytes masked to h_param bits
     (d=1 ⇒ tree_idx is empty).
+
+    Note: the on-chain Solidity verifiers (Keccak twin) still parse
+    LSB-first; signatures from this signer will NOT verify on the Keccak
+    on-chain path until that verifier is updated to match.
     """
     fors_bits   = K * a_param
     fors_bytes  = (fors_bits + 7) // 8
@@ -188,8 +192,10 @@ def digest_indices(digest: bytes, h_param: int, a_param: int):
     assert M_LEN == fors_bytes + leaf_bytes, \
         f"m mismatch for h={h_param} a={a_param}: {fors_bytes}+{leaf_bytes} != {M_LEN}"
 
+    # FIPS 205 base_2^b on the first fors_bytes for FORS indices.
     md = base_2b(digest[:fors_bytes], a_param, K)
 
+    # Leaf index is the next h_param bits (big-endian) of the digest.
     leaf_val = int.from_bytes(digest[fors_bytes:fors_bytes + leaf_bytes], "big")
     leaf_idx = leaf_val & ((1 << h_param) - 1)
     return md, leaf_idx

@@ -1,0 +1,23 @@
+# Build artifacts
+*.o
+*.spv
+*.a
+/lib/
+/slhdsa-sha2-128-24-gpu
+/smoke
+
+# Generated shader headers (xxd-converted from .spv)
+src/shaders/*.h
+
+# GPU signer wrapper disk cache (fixtures, can re-derive)
+.cache/
+
+# Test binaries / vendor
+tests/bin/*/*.test
+tests/runner
+tests/vendor/*.o
+tests/vectors/
+
+# Editor/OS
+*.swp
+.DS_Store

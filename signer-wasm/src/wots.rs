@@ -1,4 +1,4 @@
-//! WOTS+C: keygen, digest, count grinding, signing (w=16, l=32, target_sum=240).
+//! WOTS+C signing for C13: w=8, l=43, target_sum=208.
 
 use crate::hash::{self, U256};
 use crate::params::*;
@@ -9,11 +9,8 @@ pub fn wots_secret(sk_seed: U256, layer: u32, tree: u64, kp: u32, chain_idx: u32
     data.extend_from_slice(&hash::to_bytes32(sk_seed));
     data.extend_from_slice(b"wots");
     data.extend_from_slice(&layer.to_be_bytes());
-    data.extend_from_slice(&hash::to_bytes32(hash::u256_from_u32(0))); // tree as u256
-    // Actually tree is u64, pack properly
     let mut tree_bytes = [0u8; 32];
     tree_bytes[24..32].copy_from_slice(&tree.to_be_bytes());
-    data.truncate(32 + 4 + 4); // rewind
     data.extend_from_slice(&tree_bytes);
     data.extend_from_slice(&kp.to_be_bytes());
     data.extend_from_slice(&chain_idx.to_be_bytes());
@@ -26,24 +23,20 @@ pub fn wots_digest(seed: U256, layer: u32, tree: u64, kp: u32, msg_hash: U256, c
     hash::keccak_4x32(seed, adrs, msg_hash, hash::u256_from_u32(count))
 }
 
-/// Extract 32 base-16 digits from digest.
-pub fn extract_digits(d: &U256) -> [u8; 32] {
-    let bytes = hash::to_bytes32(*d);
-    let mut digits = [0u8; 32];
-    // digit_i = (d >> (i*4)) & 0xF — extract from least significant end
-    for i in 0..32 {
-        let byte_idx = 31 - (i * 4) / 8;
-        let bit_offset = (i * 4) % 8;
-        digits[i] = ((bytes[byte_idx] >> bit_offset) & 0xF) as u8;
-        if bit_offset > 4 && byte_idx > 0 {
-            digits[i] |= ((bytes[byte_idx - 1] << (8 - bit_offset)) & 0xF) as u8;
-        }
+/// Extract L base-w digits from the 256-bit digest.
+/// Each digit is LOG_W bits; for w=8 (LOG_W=3) digits straddle bytes,
+/// so this uses big-integer bit shifts (matches the Solidity verifier's
+/// `shr(mul(i, LOG_W), d)` and the Python signer's `(d >> (i*log_w)) & w_mask`).
+pub fn extract_digits(d: &U256) -> [u8; L] {
+    let mut digits = [0u8; L];
+    for i in 0..L {
+        digits[i] = (hash::u256_shr(d, i * LOG_W) & W_MASK) as u8;
     }
     digits
 }
 
 /// Find counter such that digit sum = TARGET_SUM.
-pub fn find_count(seed: U256, layer: u32, tree: u64, kp: u32, msg_hash: U256) -> Result<(u32, U256, [u8; 32]), String> {
+pub fn find_count(seed: U256, layer: u32, tree: u64, kp: u32, msg_hash: U256) -> Result<(u32, U256, [u8; L]), String> {
     for count in 0..10_000_000u32 {
         let d = wots_digest(seed, layer, tree, kp, msg_hash, count);
         let digits = extract_digits(&d);

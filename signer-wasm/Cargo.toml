@@ -1,11 +1,16 @@
 [package]
-name = "sphincs-c6-signer"
+name = "sphincs-c13-signer"
 version = "0.1.0"
 edition = "2021"
-description = "WASM SPHINCS+ C6 signer with BIP-39/44 key derivation"
+description = "WASM SPHINCS+ C13 signer with BIP-39/44 key derivation"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "signer-c13"
+path = "src/bin/signer_c13.rs"
+required-features = []
 
 [dependencies]
 wasm-bindgen = "0.2"

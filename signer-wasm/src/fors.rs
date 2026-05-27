@@ -1,4 +1,4 @@
-//! FORS+C: k=8 trees of height a=16, last tree forced-zero via R grinding.
+//! FORS+C for C13: k=7 trees of height a=19, last tree forced-zero via R grinding.
 
 use crate::hash::{self, U256};
 use crate::merkle;
@@ -43,7 +43,7 @@ fn build_fors_tree(seed: U256, sk_seed: U256, tree_idx: u32) -> (Vec<Vec<U256>>,
 /// Grind R until last FORS index is zero.
 pub fn grind_r(seed: U256, root: U256, message: U256) -> Result<(U256, U256), String> {
     let a_mask = (1u64 << A) - 1;
-    let last_shift = (K - 1) * A; // bit 112
+    let last_shift = (K - 1) * A; // C13: bit 114 = (7-1)*19
 
     for nonce in 0..10_000_000u32 {
         let mut r_input = Vec::with_capacity(7 + 32);

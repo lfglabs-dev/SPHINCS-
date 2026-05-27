@@ -25,6 +25,7 @@ There are different ways to construct the SPHINCS signature scheme. Existing lit
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | **C7** | WOTS+C / FORS+C | 24 | 2 | 16 | 8 | 8 | 43 | 151 | 3,704 B | 4.3 M | 127 K | 210 K | 318 K | 128 | 128 | 128 | 128 |
 | **C11** | WOTS+C / FORS+C | 16 | 2 | 11 | 13 | 8 | 43 | 203 | 3,976 B | 292 K | 116 K | 202 K | 308 K | 128 | 128 | 104.5 | 86.1 |
+| **C13** † | WOTS+C / FORS+C | 22 | 2 | 19 | 7 | 8 | 43 | 208 | 3,688 B | ~10 M | **105 K** | **188 K** | **293 K** | 128 | 128 | 128 | 128 |
 | **C12** | vanilla SPHINCs+ | 20 | 5 | 7 | 20 | 8 | 45 | - | 6,512 B | 36.6 K | 276 K | - | - | 128 | 127.8 | 109.1 | 95.4 |
 | **SLH-DSA-SHA2-128-24** | vanilla SPHINCs+ | 22 | 1 | 24 | 6 | 4 | 68 | - | 3,856 B | ~1.07 B | ~142 K | - | - | 128 | 128 | 128 | 128 |
 | **SLH-DSA-Keccak-128-24** | vanilla SPHINCs+ | 22 | 1 | 24 | 6 | 4 | 68 | - | 3,856 B | ~1.07 B | ~94 K | - | - | 128 | 128 | 128 | 128 |
@@ -36,6 +37,32 @@ There are different ways to construct the SPHINCS signature scheme. Existing lit
 - **Verify (pure)**: Foundry `gasleft()` measurement of the assembly block.
 - **Frame**: total EIP-8141 frame-tx gas (ethrex). C12 / SLH-DSA-128-24 are not yet wired to frame accounts in this repo.
 - **4337**: total ERC-4337 `handleOps` tx gas (Sepolia). The 4337 wiring for C7 / C11 lives in `SphincsAccount` + `SphincsAccountFactory`; no SLH-DSA or C12 account exists here yet.
+- **†**: C13 uses the **FIPS 205 §11.2.2 uncompressed 32-byte ADRS layout** with keccak256, not JARDIN's. First verifier on the FIPS address layout — see the *Address layout* subsection below.
+
+### C13 vs the rest of the family — what changes
+
+C13's parameter choice (`h=22 d=2 a=19 k=7 w=8`) was built around three goals: smallest signature, cheapest verify at full 128-bit security across the signature-count window, FIPS-aligned address layout. The numbers above bear out the design:
+
+| Property                       | C7      | C11     | **C13** | C12     | SLH-DSA-SHA2-128-24 | SLH-DSA-Keccak-128-24 |
+|--------------------------------|---------|---------|---------|---------|---------------------|-----------------------|
+| Sig size                       | 3,704 B | 3,976 B | **3,688 B** ← smallest | 6,512 B | 3,856 B | 3,856 B |
+| Pure-asm verify                | 127 K   | 116 K   | **105 K** ← cheapest at sec_20=128 | 276 K | 142 K | 94 K |
+| Frame tx total (ethrex)        | 210 K   | 202 K   | **188 K** | — | — | — |
+| 4337 handleOps total (Sepolia) | 318 K   | 308 K   | **293 K** | — | — | — |
+| Signature-count cap            | 2²⁴     | 2¹⁶     | 2²²     | 2²⁰ (h=20, d=5) | 2²⁴ | 2²⁴ |
+| Security at the cap            | 128 bit | 86 bit  | **128 bit** | 95 bit | 128 bit | 128 bit |
+| Hash-call cost / sign (cold)   | 4.3 M   | 292 K   | ~10 M   | 36.6 K | ~1.07 B | ~1.07 B |
+| ADRS layout                    | JARDIN  | JARDIN  | **FIPS uncompressed** | JARDIN | FIPS ADRSc | JARDIN |
+
+Reading the table:
+
+- **vs C7**: C13 holds full 128-bit security up to its 2²² cap (vs C7's 2²⁴), but verifies in **105 K vs 127 K** (~17 % cheaper) and signs roughly half the hashes. Trade-off: half the signature-count budget per key. Good fit when keys rotate often or the per-key budget is bounded by policy.
+- **vs C11**: Same security at sec_14 (128 bit), but C11 collapses to 86 bit at sec_20. C13 holds 128 bit all the way to sec_20. Cost: ~30× higher signer hash count (C13's a=19 FORS trees vs C11's a=11), but **cheapest verify in the C-series**.
+- **vs C12** (plain SPHINCS+ without counter grinding): C13 verifies ~2.6× cheaper for a comparable security envelope, with a sig that's ~44 % smaller. C12 wins decisively on signer cost (it has no counter-grinding step at all), so C12 stays the right pick for tightly-constrained signers (e.g. secure-element keys). C13 is the right pick when verify gas matters more than signer time.
+- **vs SLH-DSA-SHA2-128-24** (NIST-compliant standalone): C13 is roughly **same sig size** (-4 %) and **~25 % cheaper to verify**, with ~100× lower signer cost. The trade is that SLH-DSA is the FIPS 205 NIST-blessed parameter set; C13 is a research parameter choice in the ePrint 2025/2203 family. C13's ADRS layout now matches FIPS to keep cross-impl porting clean.
+- **Smallest signature** of any variant in the repo. The combination `k=7, a=19` with the 4 B count tail and 11-level subtree gives the leanest payload.
+
+The takeaway: **C13 is the cheapest verifier in the repo at 128-bit security up to a 2²² sig cap**, and the smallest signature. The cost is sign-time, which is ~30× C11 and ~2× C7. For an Ethereum smart account that signs occasionally and is verified by everyone, that asymmetry is the right shape.
 
 C11 and C12 are light enough to run on a hardware wallet, 390s and 47.5s signature times on a ST33K1M5 secure element (Ledger nano S+). C12 has the lowest hardware signer cost of all (36 K hashes - plain SPX with d=5 hypertree skips most tree-hash work) at the price of a 6,512-byte sig. SLH-DSA-SHA2-128-24 is the FIPS-aligned alternative: much larger signer cost even on a desktop-class signer that caches the XMSS tree (~200 M hashes / sig, dominated by FORS — which can't be cached because the leaf-index to FORS-tree-address mapping changes with every message), and ~1.07 B / sig on a zero-memory signer that has to rebuild the 2²²-leaf XMSS for every auth path. Constant 128-bit security up to the 2²⁴ cap. The Keccak twin trades bit-exact NIST compliance for ~34 % cheaper on-chain verification (but not a very interesting trade-off as it keeps the same signer cost).
 
@@ -43,11 +70,42 @@ C11 and C12 are light enough to run on a hardware wallet, 390s and 47.5s signatu
 
 ### Shared hash kernel
 
-The C-series, C12, and SLH-DSA-Keccak verifiers all share the **JARDIN kernel**: one 32-byte ADRS layout (`layer4‖tree8‖type4‖kp4‖ci4‖cp4‖ha4`) and one `keccak256` tweakable-hash shape (`keccak(seed32 ‖ adrs32 ‖ inputs)`). A device port covers those four variants with a single `sphincs_th*` implementation. **SLH-DSA-SHA2-128-24 is the outlier** - it sticks to the FIPS 205 22-byte compressed ADRSc and SHA-256 (with the nested MGF1-based Hmsg), so it needs its own primitive set. **ADRSc** (`layer(1) ‖ tree(8) ‖ type(1) ‖ 12 B type-dependent`), SHA-256 primitive, F / H / T input = `PK.seed(16) ‖ zeros(48) ‖ ADRSc(22) ‖ payload`, nested `Hmsg = MGF1-SHA-256(R ‖ seed ‖ SHA-256(R ‖ seed ‖ root ‖ M), m=21)`, byte-wise LSB-first digest-to-indices (same convention as the sphincs/sphincsplus reference and PQClean).
+Two distinct ADRS layouts live in this repo. The keccak-family verifiers used to all share JARDIN's, but **C13 onward** uses the FIPS 205 uncompressed layout instead. Target end state: just two layouts — **FIPS uncompressed 32 B for keccak/SHAKE-family hashes**, and **FIPS ADRSc 22 B for SHA-2** — both straight out of FIPS 205. JARDIN remains for the older C-series and the keccak SLH-DSA twin until they're migrated.
 
-For the **SLH-DSA-128-24** family we have two wire-level layouts:
-  - **SHA-2 variant** - FIPS 205 bit-exact:
-  - **Keccak variant** - JARDIN twin: 32-byte full ADRS (`layer4 ‖ tree8 ‖ type4 ‖ kp4 ‖ ci4 ‖ cp4 ‖ ha4`), keccak256 primitive, F / H / T input = `seed32 ‖ adrs32 ‖ payload`, one-shot `Hmsg = keccak(seed ‖ root ‖ R ‖ msg ‖ 0xFF..FB)` (no MGF1), LSB-first digest-to-indices on the 256-bit keccak output interpreted as a single big-endian integer.
+| Layout | Variants | ADRS bytes | Hash | F/H/T input |
+|---|---|---|---|---|
+| **JARDIN 32 B**            | C7, C11, C12, SLH-DSA-Keccak-128-24 | `layer4 ‖ tree8 ‖ type4 ‖ kp4 ‖ ci4 ‖ cp4 ‖ ha4` | keccak256 | `seed32 ‖ adrs32 ‖ payload` |
+| **FIPS uncompressed 32 B** | **C13** (first user)                 | `layer4 ‖ tree12 ‖ type4 ‖ word1·4 ‖ word2·4 ‖ word3·4` | keccak256 | `seed32 ‖ adrs32 ‖ payload` |
+| **FIPS ADRSc 22 B**        | SLH-DSA-SHA2-128-24                  | `layer1 ‖ tree8 ‖ type1 ‖ 12 B type-dependent` | SHA-256 (precompile 0x02) | `PK.seed(16) ‖ zeros(48) ‖ ADRSc(22) ‖ payload` |
+
+### Address layout
+
+**FIPS 205 §4.2 / §11.2.2 uncompressed 32-byte ADRS** (the SHAKE-instantiation form):
+
+```
+bytes  0.. 4  layer address       (uint32)
+bytes  4..16  tree address        (96 bits big-endian; top 4 B = 0 in current instances)
+bytes 16..20  type                (uint32)
+bytes 20..24  word1 (type-dependent)
+bytes 24..28  word2 (type-dependent)
+bytes 28..32  word3 (type-dependent)
+```
+
+| type | name | word1 | word2 | word3 |
+|---|---|---|---|---|
+| 0 | WOTS_HASH  | key_pair_address | chain_address | hash_address |
+| 1 | WOTS_PK    | key_pair_address | 0 | 0 |
+| 2 | TREE       | 0 | tree_height | tree_index |
+| 3 | FORS_TREE  | key_pair_address | tree_height | tree_index |
+| 4 | FORS_ROOTS | key_pair_address | 0 | 0 |
+
+**JARDIN 32-byte ADRS** (used by C7/C11/C12/SLH-DSA-Keccak today): same 32-byte width, but with an 8-byte `tree` field (FIPS gives it 12) and **four** type-dependent words (FIPS uses three). The freed-up byte budget went to `ci` (chain_index) being a dedicated WOTS-only slot, while in FIPS `chain_address` and `tree_height` share `word2` — same bytes, type-dependent meaning. JARDIN's 4th word (`ha`) is unused for every type in practice; the structural divergence from FIPS is the 8 vs 12 byte tree field.
+
+**Why C13 moved to FIPS uncompressed.** "Reduce differences between families": FIPS-aligning the ADRS makes the keccak verifier port cleanly from a FIPS reference implementation, and pares the repo's address-layout inventory toward just two layouts (above). The hash stays keccak256 — switching to SHA-256 would double on-chain gas (precompile staticcall vs native opcode) and would only be relevant if we needed full SLH-DSA-SHA2 family alignment, which we don't.
+
+**SLH-DSA-128-24 family**, two wire-level layouts:
+  - **SHA-2 variant** — FIPS 205 §11.2.1 bit-exact: ADRSc (22 B), SHA-256 via precompile, nested `Hmsg = MGF1-SHA-256(R ‖ seed ‖ SHA-256(R ‖ seed ‖ root ‖ M), m=21)`, byte-wise LSB-first digest-to-indices (same convention as the sphincs/sphincsplus reference and PQClean).
+  - **Keccak variant** — JARDIN twin: 32-byte JARDIN ADRS (`layer4 ‖ tree8 ‖ type4 ‖ kp4 ‖ ci4 ‖ cp4 ‖ ha4`), keccak256 primitive, F / H / T input = `seed32 ‖ adrs32 ‖ payload`, one-shot `Hmsg = keccak(seed ‖ root ‖ R ‖ msg ‖ 0xFF..FB)` (no MGF1), LSB-first digest-to-indices on the 256-bit keccak output interpreted as a single big-endian integer.
 
 ### Shared Verifier Model
 
@@ -131,6 +189,9 @@ EntryPoint v0.9: `0x433709009B8330FDa32311DF1C2AFA402eD8D009` (Sepolia)
 |---|---|---|---|---|
 | C9 | [`0x18F005...`](https://sepolia.etherscan.io/address/0x18F005EECd41624644AA364bA8857258FEB3C26D) | [`0xA94111...`](https://sepolia.etherscan.io/address/0xA941116763AE386a50133c5af40356c9D93b2978) | 300 K | [`0x8366513b...`](https://sepolia.etherscan.io/tx/0x8366513b096ee53dd1cb105363ab21a52267dd966b822b4bb2cf5492abf1550f) |
 | C11 | [`0xC25ef5...`](https://sepolia.etherscan.io/address/0xC25ef566884DC36649c3618EEDF66d715427Fd74) | [`0x3C3b0c...`](https://sepolia.etherscan.io/address/0x3C3b0c3498E5ed9350F6fBFA0Ef8dC55f524eA50) | 308 K | [`0x9fba169c...`](https://sepolia.etherscan.io/tx/0x9fba169ca76b6712586e44e1a4a2d0407b8b8b9ce767272a193e41a756260b74) |
+| **C13** | [`0xce176d...`](https://sepolia.etherscan.io/address/0xce176df2680f6612a61486f74502db62d014d23d) | [`0xcef985...`](https://sepolia.etherscan.io/address/0xcef985d4db485e96ab9187ad462561bff241db0d) (factory [`0xcaf5d2...`](https://sepolia.etherscan.io/address/0xcaf5d2582eb405e3c4b65f3a52d147badfd96fed)) | 293 K | [`0xbbf06456...`](https://sepolia.etherscan.io/tx/0xbbf06456145a4daea1b5006f1f5d7b214c62c1c2877eabb61ae4b26e453189d0) |
+
+> **C13 on Sepolia uses the FIPS 205 §11.2.2 uncompressed 32-byte ADRS** (keccak256 hash). First verifier in the repo on the FIPS address layout. Standalone verify tx-level gas: **188,278**. Full hybrid-4337 `handleOps` UserOp gas: **292,727** (ECDSA recovery + C13 verify + 0.00001 ETH self-transfer through `SphincsAccount.execute`). See [`script/.c13_addresses.json`](./script/.c13_addresses.json) for the canonical address record.
 
 ### Sepolia (SLH-DSA-128-24 standalone verifiers, no account wired yet)
 
@@ -143,13 +204,21 @@ Verify-tx gas is the full top-level tx cost including 21 K tx base + ~63 K for t
 
 ### ethrex Testnet (EIP-8141 Frame Tx - Pure PQ)
 
-Chain ID: 1729. VERIFY frame reads keys from storage, STATICCALLs shared verifier, APPROVEs. No ECDSA.
+Older demo devnet at `demo.eip-8141.ethrex.xyz` (chain 1729) — C9 / C10 / C11 frame accounts:
 
 | Variant | Verifier | Frame Account | Gas | Verify | Tx |
 |---|---|---|---|---|---|
 | C9 | [`0xc0F115...`](https://demo.eip-8141.ethrex.xyz:8082/address/0xc0F115A19107322cFBf1cDBC7ea011C19EbDB4F8) | [`0xc96304...`](https://demo.eip-8141.ethrex.xyz:8082/address/0xc96304e3c037f81dA488ed9dEa1D8F2a48278a75) | 195K | 117K | [`0x393588ec...`](https://demo.eip-8141.ethrex.xyz:8082/tx/0x393588eceeda4839371f103e16b10c5e2900416d7b194faee8478b6561792813) |
 | C10 | [`0xD0141E...`](https://demo.eip-8141.ethrex.xyz:8082/address/0xD0141E899a65C95a556fE2B27e5982A6DE7fDD7A) | [`0x07882A...`](https://demo.eip-8141.ethrex.xyz:8082/address/0x07882Ae1ecB7429a84f1D53048d35c4bB2056877) | 203K | 122K | [`0x0a2571f8...`](https://demo.eip-8141.ethrex.xyz:8082/tx/0x0a2571f8423ab4ec75e09623773b22ff91794a82d1b3db2d616b8af354730353) |
 | C11 | [`0x315575...`](https://demo.eip-8141.ethrex.xyz:8082/address/0x3155755b79aA083bd953911C92705B7aA82a18F9) | [`0x5bf5b1...`](https://demo.eip-8141.ethrex.xyz:8082/address/0x5bf5b11053e734690269C6B9D438F8C9d48F528A) | 202K | 122K | [`0x053428f5...`](https://demo.eip-8141.ethrex.xyz:8082/tx/0x053428f530521a5c42c4d2406d1cfb8e07baefa0328c0e425045a3ba9317106b) |
+
+Current `eip-8141.ethrex.xyz` devnet (chain **3151908**, Osaka fork, frame opcodes enabled from genesis; RPCs `rpc1`/`rpc2`/`rpc3.eip-8141.ethrex.xyz`):
+
+| Variant | Verifier | Frame Account | Frame Gas | Sample Frame Tx |
+|---|---|---|---|---|
+| **C13** | [`0x659415...`](https://explorer.eip-8141.ethrex.xyz/address/0x6594157F1d690CbeBAA93dD13579FEb14E81F5C9) | [`0xae3bA3...`](https://explorer.eip-8141.ethrex.xyz/address/0xae3bA3e1DC1bD3866608ECA1498D3e9263B3481a) | **188 K** | [`0xabf3ce2f...`](https://explorer.eip-8141.ethrex.xyz/tx/0xabf3ce2f989fbb1480af2a6c0026f2335b643adb54561ebb536824af8faee81d) |
+
+> EIP-8141 type-0x06 frame tx, two frames: `[VERIFY(frame_account, sigHash‖c13_sig, flags=approve sender+payer), SENDER(0x...dead, value=0.00001 ETH)]`. The VERIFY frame's runtime staticcalls the shared C13 verifier and `APPROVE(0,0,3)`s on success. Sender by the frame account itself — no protocol-level signature needed. Reproduce with `script/send_frame_tx_c13.py`. Note: ethrex's on-chain `FrameTransaction` RLP layout differs from the draft EIP-8141 markdown by omitting the `signatures` field — the script handles this; the deviation is documented inline.
 
 ## Setup
 

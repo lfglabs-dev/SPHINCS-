@@ -56,13 +56,48 @@ pub fn keccak_4x32(a: U256, b: U256, c: U256, d: U256) -> U256 {
 
 // ===== Tweakable Hash Primitives =====
 
-/// ADRS: pack (layer, tree, type, kp, chain_idx, chain_pos, hash_addr) into U256.
+/// ADRS: pack (layer, tree, type, kp, ci, cp, ha) into U256 using the
+/// **FIPS 205 §4.2 / §11.2.2 uncompressed 32-byte layout**:
+///
+///   bytes  0.. 4  layer address
+///   bytes  4..16  tree address (96 bits big-endian; top 4 B = 0 for our use)
+///   bytes 16..20  type
+///   bytes 20..24  word1 (key_pair_address, or 0)
+///   bytes 24..28  word2 (chain_address or tree_height, or 0)
+///   bytes 28..32  word3 (hash_address or tree_index, or 0)
+///
+/// The (ci, cp, ha) JARDIN signature is preserved so call sites stay shared;
+/// this function maps them to FIPS positions based on `atype` (FIPS 205 Table 1):
+///   0 WOTS_HASH  : w1=kp, w2=ci, w3=cp     (ha must be 0)
+///   1 WOTS_PK    : w1=kp, w2=0,  w3=0
+///   2 TREE       : w1=0,  w2=cp, w3=ha     (ci/kp must be 0)
+///   3 FORS_TREE  : w1=kp, w2=cp, w3=ha     (ci must be 0)
+///   4 FORS_ROOTS : w1=kp, w2=0,  w3=0
 pub fn make_adrs(layer: u32, tree: u64, atype: u32, kp: u32, ci: u32, cp: u32, ha: u32) -> U256 {
-    let w0 = ((layer as u64) << 32) | ((tree >> 32) & 0xFFFFFFFF);
-    let w1 = ((tree & 0xFFFFFFFF) << 32) | (atype as u64);
-    let w2 = ((kp as u64) << 32) | (ci as u64);
-    let w3 = ((cp as u64) << 32) | (ha as u64);
-    [w0, w1, w2, w3]
+    let (w1, w2, w3): (u32, u32, u32) = match atype {
+        0 => (kp, ci, cp),       // WOTS_HASH  : kp, chain_address, hash_address
+        1 => (kp, 0, 0),         // WOTS_PK    : kp, 0, 0
+        2 => (0, cp, ha),        // TREE       : 0, tree_height, tree_index
+        3 => (kp, cp, ha),       // FORS_TREE  : kp, tree_height, tree_index
+        4 => (kp, 0, 0),         // FORS_ROOTS : kp, 0, 0
+        _ => panic!("unknown ADRS type {atype}"),
+    };
+    // U256 = [u64; 4], val[0] = bytes 0..8 (MSW), val[3] = bytes 24..32 (LSW).
+    // FIPS 32-byte ADRS:
+    //   bytes  0.. 4  layer            ── val[0] high 32 bits
+    //   bytes  4..16  tree (96-bit; we only use low 64 bits, top 4 B = 0)
+    //                                  ── val[0] low 32 bits (=0)
+    //                                     val[1]               (= tree)
+    //   bytes 16..20  atype            ── val[2] high 32 bits
+    //   bytes 20..24  word1            ── val[2] low 32 bits
+    //   bytes 24..28  word2            ── val[3] high 32 bits
+    //   bytes 28..32  word3            ── val[3] low 32 bits
+    [
+        (layer as u64) << 32,
+        tree,
+        ((atype as u64) << 32) | (w1 as u64),
+        ((w2 as u64) << 32) | (w3 as u64),
+    ]
 }
 
 /// Th(seed, adrs, input) → 128-bit (masked)
@@ -104,21 +139,26 @@ pub fn h_msg(seed: U256, root: U256, r: U256, message: U256) -> U256 {
 }
 
 /// Chain hash: iterate th from start_pos for `steps` applications.
+///
+/// FIPS WOTS_HASH: `hash_address` is **word3** (bytes 28..32, low 32 bits of val[3]).
+/// We only mutate that slot per step; everything else (layer, tree, type=0,
+/// kp, chain_address) stays fixed by the caller.
 pub fn chain_hash(seed: U256, adrs: U256, mut val: U256, start_pos: u32, steps: u32) -> U256 {
     let mut a = adrs;
     for step in 0..steps {
         let pos = start_pos + step;
-        // Set chain_pos (bytes 24-27) in ADRS
-        a[3] = ((pos as u64) << 32) | (a[3] & 0xFFFFFFFF);
+        a[3] = (a[3] & 0xFFFFFFFF_00000000) | (pos as u64);
         val = mask_n(keccak_3x32(seed, a, val));
     }
     val
 }
 
-/// Set chain index in ADRS word 2 (bytes 20-23).
+/// Set chain_address in ADRS.
+///
+/// FIPS WOTS_HASH: `chain_address` is **word2** (bytes 24..28, high 32 bits of val[3]).
 pub fn set_chain_index(adrs: U256, idx: u32) -> U256 {
     let mut a = adrs;
-    a[2] = (a[2] & 0xFFFFFFFF_00000000) | (idx as u64);
+    a[3] = (a[3] & 0x00000000_FFFFFFFF) | ((idx as u64) << 32);
     a
 }
 

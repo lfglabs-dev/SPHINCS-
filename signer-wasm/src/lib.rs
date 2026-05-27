@@ -1,9 +1,9 @@
-//! SPHINCS+ C6 WASM signer with post-quantum-safe BIP-39 key derivation.
+//! SPHINCS+ C13 WASM signer with post-quantum-safe BIP-39 key derivation.
 //!
 //! SPHINCS+ keys are derived directly from the BIP-39 seed via HMAC-SHA512,
 //! bypassing ECDSA. The ECDSA address is derived independently for account ID.
 //!
-//! C6: W+C_F+C h=24, d=2, a=16, k=8, w=16, l=32, target_sum=240
+//! C13: W+C_F+C h=22, d=2, a=19, k=7, w=8, l=43, target_sum=208, sig=3688
 
 pub mod hash;
 pub mod params;
@@ -30,7 +30,7 @@ pub fn keygen_from_mnemonic(mnemonic: &str, passphrase: &str) -> Result<String, 
 }
 
 /// Sign a message hash (32 bytes hex) using a BIP-39 mnemonic.
-/// Returns the raw signature as hex (3352 bytes).
+/// Returns the raw signature as hex (3688 bytes).
 #[wasm_bindgen]
 pub fn sign_from_mnemonic(mnemonic: &str, passphrase: &str, message_hex: &str) -> Result<String, JsValue> {
     let (seed, sk_seed, root, _) = keygen::from_mnemonic(mnemonic, passphrase)

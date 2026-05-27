@@ -1,11 +1,11 @@
-//! BIP-39 → SPHINCS+ C6 key derivation (post-quantum safe).
+//! BIP-39 → SPHINCS+ C13 key derivation (post-quantum safe).
 //!
 //! SPHINCS+ keys are derived directly from the BIP-39 seed via HMAC-SHA512,
 //! bypassing ECDSA entirely. This ensures sk_seed remains secret even if a
 //! quantum attacker recovers the ECDSA private key via Shor's algorithm.
 //!
-//! Flow: mnemonic → BIP-39 seed ─┬─ HMAC-SHA512("sphincs-c6-v1") → SPHINCS+ keys
-//!                                └─ BIP-32 m/44'/60'/0'/0/0      → ECDSA address (independent)
+//! Flow: mnemonic → BIP-39 seed ─┬─ HMAC-SHA512("sphincs-c13-v1") → SPHINCS+ keys
+//!                                └─ BIP-32 m/44'/60'/0'/0/0       → ECDSA address (independent)
 
 use crate::hash::{self, U256};
 use crate::merkle;
@@ -33,9 +33,9 @@ pub fn from_mnemonic(mnemonic: &str, passphrase: &str) -> Result<(U256, U256, U2
     let bip39_seed = m.to_seed_normalized(passphrase);
 
     // Step 2: Derive SPHINCS+ master secret directly from BIP-39 seed.
-    // HMAC-SHA512 is quantum-safe (symmetric). The domain tag "sphincs-c6-v1"
+    // HMAC-SHA512 is quantum-safe (symmetric). The domain tag "sphincs-c13-v1"
     // ensures this derivation is independent of BIP-32/ECDSA.
-    let mut mac = HmacSha512::new_from_slice(b"sphincs-c6-v1")
+    let mut mac = HmacSha512::new_from_slice(b"sphincs-c13-v1")
         .map_err(|_| "HMAC init failed")?;
     mac.update(&bip39_seed);
     let sphincs_master = mac.finalize().into_bytes(); // 64 bytes
@@ -87,7 +87,7 @@ pub fn from_private_key(privkey_hex: &str) -> Result<(U256, U256, U256), String>
     }
 
     // Same derivation as signer.py
-    let entropy_input = [&key_bytes[..], b"c6"].concat();
+    let entropy_input = [&key_bytes[..], b"c13"].concat();
     let keygen_msg = hash::keccak256(&[b"sphincs_keygen".as_slice(), &entropy_input].concat());
 
     let entropy = hash::keccak256(&[

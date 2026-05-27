@@ -11,7 +11,11 @@ Frame data format: sigHash(32 bytes) + raw_sig(N bytes)
 
 import sys, os, json, subprocess, argparse
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Import the modern signer (with FIPS-mode helpers for C13). The legacy
+# `legacy/script/signer.py` is kept for the older sweep scripts; for frame
+# deploys we want the modern code path so c13 picks up its FIPS ADRS layout.
+_MODERN_SIGNER_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "script"))
+sys.path.insert(0, _MODERN_SIGNER_DIR)
 from signer import keccak256, to_b32, N_MASK, sign_variant, derive_keys, VARIANTS
 
 DEV_KEY = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -139,7 +143,7 @@ def main():
     parser.add_argument("--rpc", default="https://demo.eip-8141.ethrex.xyz/rpc")
     parser.add_argument("--dev-key", default="0x" + DEV_KEY)
     parser.add_argument("--shared-verifier", required=True)
-    parser.add_argument("--variant", default="c7", choices=["c6", "c7", "c8", "c9", "c10", "c11"])
+    parser.add_argument("--variant", default="c7", choices=["c6", "c7", "c8", "c9", "c10", "c11", "c13"])
     args = parser.parse_args()
 
     rpc = args.rpc

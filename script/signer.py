@@ -60,6 +60,10 @@ VARIANTS = {
     "c11": {"h": 16, "d": 2, "k": 13, "a": 11, "m_max": 0, "scheme": "fors",
             "subtree_h": 8, "sig_size": 3976,
             "w": 8, "log_w": 3, "l": 43, "len1": 43, "target_sum": 203, "w_mask": 0x7},
+    "c13": {"h": 22, "d": 2, "k": 7, "a": 19, "m_max": 0, "scheme": "fors",
+            "subtree_h": 11, "sig_size": 3688,
+            "w": 8, "log_w": 3, "l": 43, "len1": 43, "target_sum": 208, "w_mask": 0x7,
+            "adrs_mode": "fips"},  # FIPS 205 §11.2.2 uncompressed 32-byte ADRS
 }
 
 # ============================================================
@@ -105,6 +109,7 @@ def _keccak_4x32(a: int, b: int, c: int, d: int) -> int:
 # ============================================================
 
 def make_adrs(layer, tree, atype, kp, ci, cp, ha):
+    """JARDIN 32-byte ADRS: layer(4) || tree(8) || type(4) || kp ci cp ha (4×4)."""
     return ((layer & 0xFFFFFFFF) << 224 |
             (tree & 0xFFFFFFFFFFFFFFFF) << 160 |
             (atype & 0xFFFFFFFF) << 128 |
@@ -112,6 +117,38 @@ def make_adrs(layer, tree, atype, kp, ci, cp, ha):
             (ci & 0xFFFFFFFF) << 64 |
             (cp & 0xFFFFFFFF) << 32 |
             (ha & 0xFFFFFFFF))
+
+def make_adrs_fips(layer, tree, atype, kp, ci, cp, ha):
+    """FIPS 205 §4.2 / §11.2.2 uncompressed 32-byte ADRS.
+
+    Layout: layer(4) || tree(12) || type(4) || word1(4) || word2(4) || word3(4).
+    Word assignments per type (FIPS 205 Table 1):
+      0 WOTS_HASH  : w1=kp, w2=chain_address (=ci), w3=hash_address (=cp)
+      1 WOTS_PK    : w1=kp, w2=0, w3=0
+      2 TREE       : w1=0,  w2=tree_height   (=cp), w3=tree_index   (=ha)
+      3 FORS_TREE  : w1=kp, w2=tree_height   (=cp), w3=tree_index   (=ha)
+      4 FORS_ROOTS : w1=kp, w2=0, w3=0
+    The (ci, cp, ha) JARDIN signature is preserved so call sites stay shared;
+    this function maps to FIPS positions based on `atype`.
+    """
+    if atype == 0:
+        w1, w2, w3 = kp, ci, cp        # ha unused — caller must pass 0
+    elif atype == 1:
+        w1, w2, w3 = kp, 0, 0
+    elif atype == 2:
+        w1, w2, w3 = 0, cp, ha          # ci/kp unused
+    elif atype == 3:
+        w1, w2, w3 = kp, cp, ha         # ci unused
+    elif atype == 4:
+        w1, w2, w3 = kp, 0, 0
+    else:
+        raise ValueError(f"unknown ADRS type {atype}")
+    return ((layer & 0xFFFFFFFF) << 224 |
+            (tree & 0xFFFFFFFFFFFFFFFFFFFFFFFF) << 128 |    # 96-bit tree
+            (atype & 0xFFFFFFFF) << 96 |
+            (w1 & 0xFFFFFFFF) << 64 |
+            (w2 & 0xFFFFFFFF) << 32 |
+            (w3 & 0xFFFFFFFF))
 
 def th(seed, adrs, inp):
     return _keccak_3x32(seed, adrs, inp) & N_MASK
@@ -135,6 +172,7 @@ def h_msg(seed, root, R, message):
     return keccak256(data)
 
 def chain_hash(seed, adrs, val, start_pos, steps):
+    """JARDIN chain hash: hash_address packed into `cp` (bytes 24..28, shl 32)."""
     pos_clear = FULL ^ (0xFFFFFFFF << 32)
     for step in range(steps):
         pos = start_pos + step
@@ -142,9 +180,30 @@ def chain_hash(seed, adrs, val, start_pos, steps):
         val = _keccak_3x32(seed, a, val) & N_MASK
     return val
 
+def chain_hash_fips(seed, adrs, val, start_pos, steps):
+    """FIPS chain hash: hash_address is word3 (bytes 28..32, shl 0)."""
+    pos_clear = FULL ^ 0xFFFFFFFF
+    for step in range(steps):
+        pos = start_pos + step
+        a = (adrs & pos_clear) | (pos & 0xFFFFFFFF)
+        val = _keccak_3x32(seed, a, val) & N_MASK
+    return val
+
 def set_chain_index(adrs, idx):
+    """JARDIN: chain_index lives in `ci` (bytes 20..24, shl 64)."""
     mask = FULL ^ (0xFFFFFFFF << 64)
     return (adrs & mask) | ((idx & 0xFFFFFFFF) << 64)
+
+def set_chain_index_fips(adrs, idx):
+    """FIPS WOTS_HASH: chain_address is word2 (bytes 24..28, shl 32)."""
+    mask = FULL ^ (0xFFFFFFFF << 32)
+    return (adrs & mask) | ((idx & 0xFFFFFFFF) << 32)
+
+def _adrs_helpers(cfg):
+    """Return (make_adrs_fn, set_chain_index_fn, chain_hash_fn) for the variant."""
+    if cfg is not None and cfg.get("adrs_mode") == "fips":
+        return make_adrs_fips, set_chain_index_fips, chain_hash_fips
+    return make_adrs, set_chain_index, chain_hash
 
 # ============================================================
 #  Key Derivation
@@ -184,34 +243,37 @@ def _wots_params(cfg=None):
 def wots_keygen_pk_only(seed, sk_seed, layer, tree, kp, cfg=None):
     """Compute just the WOTS+C public key (no secret keys returned). Fast path for tree building."""
     w, _, l, _, _, _ = _wots_params(cfg)
-    base_adrs = make_adrs(layer, tree, ADRS_WOTS, kp, 0, 0, 0)
+    mk_adrs, set_ci, ch_hash = _adrs_helpers(cfg)
+    base_adrs = mk_adrs(layer, tree, ADRS_WOTS, kp, 0, 0, 0)
     pk_elements = []
     for i in range(l):
         sk_i = wots_secret(sk_seed, layer, tree, kp, i)
-        chain_adrs = set_chain_index(base_adrs, i)
-        pk_i = chain_hash(seed, chain_adrs, sk_i, 0, w - 1)
+        chain_adrs = set_ci(base_adrs, i)
+        pk_i = ch_hash(seed, chain_adrs, sk_i, 0, w - 1)
         pk_elements.append(pk_i)
-    pk_adrs = make_adrs(layer, tree, ADRS_WOTS_PK, kp, 0, 0, 0)
+    pk_adrs = mk_adrs(layer, tree, ADRS_WOTS_PK, kp, 0, 0, 0)
     return th_multi(seed, pk_adrs, pk_elements)
 
 def wots_keygen(seed, sk_seed, layer, tree, kp, cfg=None):
     """Full keygen: returns (sk_list, wots_pk)."""
     w, _, l, _, _, _ = _wots_params(cfg)
-    base_adrs = make_adrs(layer, tree, ADRS_WOTS, kp, 0, 0, 0)
+    mk_adrs, set_ci, ch_hash = _adrs_helpers(cfg)
+    base_adrs = mk_adrs(layer, tree, ADRS_WOTS, kp, 0, 0, 0)
     sk = []
     pk_elements = []
     for i in range(l):
         sk_i = wots_secret(sk_seed, layer, tree, kp, i)
         sk.append(sk_i)
-        chain_adrs = set_chain_index(base_adrs, i)
-        pk_i = chain_hash(seed, chain_adrs, sk_i, 0, w - 1)
+        chain_adrs = set_ci(base_adrs, i)
+        pk_i = ch_hash(seed, chain_adrs, sk_i, 0, w - 1)
         pk_elements.append(pk_i)
-    pk_adrs = make_adrs(layer, tree, ADRS_WOTS_PK, kp, 0, 0, 0)
+    pk_adrs = mk_adrs(layer, tree, ADRS_WOTS_PK, kp, 0, 0, 0)
     wots_pk = th_multi(seed, pk_adrs, pk_elements)
     return sk, wots_pk
 
-def wots_digest(seed, layer, tree, kp, msg_hash, count):
-    hash_adrs = make_adrs(layer, tree, ADRS_WOTS, kp, 0, 0, 0)
+def wots_digest(seed, layer, tree, kp, msg_hash, count, cfg=None):
+    mk_adrs, _, _ = _adrs_helpers(cfg)
+    hash_adrs = mk_adrs(layer, tree, ADRS_WOTS, kp, 0, 0, 0)
     return _keccak_4x32(seed, hash_adrs, msg_hash, count)
 
 def extract_digits(d, cfg=None):
@@ -221,7 +283,7 @@ def extract_digits(d, cfg=None):
 def wots_find_count(seed, layer, tree, kp, msg_hash, cfg=None):
     _, _, _, _, target_sum, _ = _wots_params(cfg)
     for count in range(10_000_000):
-        d = wots_digest(seed, layer, tree, kp, msg_hash, count)
+        d = wots_digest(seed, layer, tree, kp, msg_hash, count, cfg)
         digits = extract_digits(d, cfg)
         if sum(digits) == target_sum:
             return count, d, digits
@@ -229,12 +291,13 @@ def wots_find_count(seed, layer, tree, kp, msg_hash, cfg=None):
 
 def wots_sign(seed, sk, layer, tree, kp, msg_hash, cfg=None):
     w, _, l, _, _, _ = _wots_params(cfg)
+    mk_adrs, set_ci, ch_hash = _adrs_helpers(cfg)
     count, d, digits = wots_find_count(seed, layer, tree, kp, msg_hash, cfg)
-    base_adrs = make_adrs(layer, tree, ADRS_WOTS, kp, 0, 0, 0)
+    base_adrs = mk_adrs(layer, tree, ADRS_WOTS, kp, 0, 0, 0)
     sigma = []
     for i in range(l):
-        chain_adrs = set_chain_index(base_adrs, i)
-        sigma_i = chain_hash(seed, chain_adrs, sk[i], 0, digits[i])
+        chain_adrs = set_ci(base_adrs, i)
+        sigma_i = ch_hash(seed, chain_adrs, sk[i], 0, digits[i])
         sigma.append(sigma_i)
     return sigma, count
 
@@ -242,15 +305,16 @@ def wots_sign(seed, sk, layer, tree, kp, msg_hash, cfg=None):
 #  Merkle Trees
 # ============================================================
 
-def build_merkle_tree(seed, layer, tree, leaves, height):
+def build_merkle_tree(seed, layer, tree, leaves, height, cfg=None):
     """Build Merkle tree. Returns list-of-lists: nodes[level][idx]."""
+    mk_adrs, _, _ = _adrs_helpers(cfg)
     nodes = [list(leaves)]
     for h in range(height):
         prev = nodes[h]
         level = []
         for j in range(0, len(prev), 2):
             parent_idx = j // 2
-            adrs = make_adrs(layer, tree, ADRS_TREE, 0, 0, h + 1, parent_idx)
+            adrs = mk_adrs(layer, tree, ADRS_TREE, 0, 0, h + 1, parent_idx)
             level.append(th_pair(seed, adrs, prev[j], prev[j + 1]))
         nodes.append(level)
     return nodes
@@ -274,7 +338,7 @@ def build_subtree_root(seed, sk_seed, layer, tree, subtree_h, cfg=None):
     for kp in range(n_leaves):
         pk = wots_keygen_pk_only(seed, sk_seed, layer, tree, kp, cfg)
         leaves.append(pk)
-    nodes = build_merkle_tree(seed, layer, tree, leaves, subtree_h)
+    nodes = build_merkle_tree(seed, layer, tree, leaves, subtree_h, cfg)
     return nodes[subtree_h][0]
 
 def build_subtree_full(seed, sk_seed, layer, tree, subtree_h, cfg=None):
@@ -286,19 +350,20 @@ def build_subtree_full(seed, sk_seed, layer, tree, subtree_h, cfg=None):
         sk, pk = wots_keygen(seed, sk_seed, layer, tree, kp, cfg)
         wots_sks.append(sk)
         leaves.append(pk)
-    nodes = build_merkle_tree(seed, layer, tree, leaves, subtree_h)
+    nodes = build_merkle_tree(seed, layer, tree, leaves, subtree_h, cfg)
     return wots_sks, nodes, nodes[subtree_h][0]
 
 # ============================================================
 #  FORS+C
 # ============================================================
 
-def build_fors_tree(seed, sk_seed, tree_idx, a):
+def build_fors_tree(seed, sk_seed, tree_idx, a, cfg=None):
+    mk_adrs, _, _ = _adrs_helpers(cfg)
     n_leaves = 1 << a
     leaves = []
     for j in range(n_leaves):
         secret = fors_secret(sk_seed, tree_idx, j)
-        leaf_adrs = make_adrs(0, 0, ADRS_FORS_TREE, tree_idx, 0, 0, j)
+        leaf_adrs = mk_adrs(0, 0, ADRS_FORS_TREE, tree_idx, 0, 0, j)
         leaves.append(th(seed, leaf_adrs, secret))
     nodes = [leaves]
     for h in range(a):
@@ -306,12 +371,13 @@ def build_fors_tree(seed, sk_seed, tree_idx, a):
         level = []
         for idx in range(0, len(prev), 2):
             parent_idx = idx // 2
-            adrs = make_adrs(0, 0, ADRS_FORS_TREE, tree_idx, 0, h + 1, parent_idx)
+            adrs = mk_adrs(0, 0, ADRS_FORS_TREE, tree_idx, 0, h + 1, parent_idx)
             level.append(th_pair(seed, adrs, prev[idx], prev[idx + 1]))
         nodes.append(level)
     return nodes, nodes[a][0]
 
-def fors_sign_full(seed, sk_seed, digest, k, a):
+def fors_sign_full(seed, sk_seed, digest, k, a, cfg=None):
+    mk_adrs, _, _ = _adrs_helpers(cfg)
     a_mask = (1 << a) - 1
     indices = [(digest >> (i * a)) & a_mask for i in range(k)]
     assert indices[k - 1] == 0, f"Forced-zero violated: last index = {indices[k-1]}"
@@ -322,17 +388,17 @@ def fors_sign_full(seed, sk_seed, digest, k, a):
 
     for t in range(k - 1):
         eprint(f"  FORS tree {t}/{k-1}...")
-        tree_nodes, root = build_fors_tree(seed, sk_seed, t, a)
+        tree_nodes, root = build_fors_tree(seed, sk_seed, t, a, cfg)
         secrets.append(fors_secret(sk_seed, t, indices[t]))
         auth_paths.append(get_auth_path(tree_nodes, indices[t], a))
         roots.append(root)
 
     eprint(f"  FORS tree {k-1}/{k-1} (forced-zero)...")
-    _, root_last = build_fors_tree(seed, sk_seed, k - 1, a)
+    _, root_last = build_fors_tree(seed, sk_seed, k - 1, a, cfg)
     secrets.append(root_last)
-    roots.append(th(seed, make_adrs(0, 0, ADRS_FORS_TREE, k - 1, 0, 0, 0), root_last))
+    roots.append(th(seed, mk_adrs(0, 0, ADRS_FORS_TREE, k - 1, 0, 0, 0), root_last))
 
-    roots_adrs = make_adrs(0, 0, ADRS_FORS_ROOTS, 0, 0, 0, 0)
+    roots_adrs = mk_adrs(0, 0, ADRS_FORS_ROOTS, 0, 0, 0, 0)
     fors_pk = th_multi(seed, roots_adrs, roots)
     return secrets, auth_paths, fors_pk
 
@@ -513,7 +579,7 @@ def sign_variant(variant_name, message_int, seed=None, sk_seed=None, pk_root=Non
     # ================================================================
     if scheme == "fors":
         eprint("  Signing FORS+C...")
-        fors_secrets, fors_auth_paths, bottom_pk = fors_sign_full(seed, sk_seed, digest, k, a)
+        fors_secrets, fors_auth_paths, bottom_pk = fors_sign_full(seed, sk_seed, digest, k, a, cfg)
     else:
         eprint("  Signing PORS+FP...")
         sorted_indices = extract_pors_indices(digest, k, tree_height)
@@ -575,14 +641,15 @@ def sign_variant(variant_name, message_int, seed=None, sk_seed=None, pk_root=Non
 
         # Verify internally: compute what verifier would get
         vw, _, vl, _, _, _ = _wots_params(cfg)
-        d_val = wots_digest(seed, lay, idx_tree, idx_leaf, current_node, count)
+        mk_adrs, set_ci, ch_hash = _adrs_helpers(cfg)
+        d_val = wots_digest(seed, lay, idx_tree, idx_leaf, current_node, count, cfg)
         digits = extract_digits(d_val, cfg)
-        base_adrs = make_adrs(lay, idx_tree, ADRS_WOTS, idx_leaf, 0, 0, 0)
+        base_adrs = mk_adrs(lay, idx_tree, ADRS_WOTS, idx_leaf, 0, 0, 0)
         pk_elements = []
         for i in range(vl):
-            ca = set_chain_index(base_adrs, i)
-            pk_elements.append(chain_hash(seed, ca, sigma[i], digits[i], vw - 1 - digits[i]))
-        pk_adrs = make_adrs(lay, idx_tree, ADRS_WOTS_PK, idx_leaf, 0, 0, 0)
+            ca = set_ci(base_adrs, i)
+            pk_elements.append(ch_hash(seed, ca, sigma[i], digits[i], vw - 1 - digits[i]))
+        pk_adrs = mk_adrs(lay, idx_tree, ADRS_WOTS_PK, idx_leaf, 0, 0, 0)
         wots_pk_v = th_multi(seed, pk_adrs, pk_elements)
 
         node = wots_pk_v
@@ -590,7 +657,7 @@ def sign_variant(variant_name, message_int, seed=None, sk_seed=None, pk_root=Non
         for hh in range(subtree_h):
             sib = auth_path[hh]
             pi = m_idx >> 1
-            adrs = make_adrs(lay, idx_tree, ADRS_TREE, 0, 0, hh + 1, pi)
+            adrs = mk_adrs(lay, idx_tree, ADRS_TREE, 0, 0, hh + 1, pi)
             node = th_pair(seed, adrs, node, sib) if m_idx & 1 == 0 else th_pair(seed, adrs, sib, node)
             m_idx >>= 1
         current_node = node
@@ -687,14 +754,14 @@ def abi_encode(seed, root, sig):
 
 def main():
     if len(sys.argv) != 3:
-        eprint("Usage: python3 signer.py <c2|c6> <0x_message_hex>")
+        eprint(f"Usage: python3 signer.py <{'|'.join(VARIANTS)}> <0x_message_hex>")
         sys.exit(1)
 
     variant = sys.argv[1]
     msg_hex = sys.argv[2]
 
     if variant not in VARIANTS:
-        eprint(f"Unknown variant: {variant}. Use c2 or c6.")
+        eprint(f"Unknown variant: {variant}. Available: {', '.join(VARIANTS)}.")
         sys.exit(1)
 
     if msg_hex.startswith("0x"):

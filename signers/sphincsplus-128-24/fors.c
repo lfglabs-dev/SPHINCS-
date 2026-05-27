@@ -54,8 +54,10 @@ static void fors_gen_leafx1(unsigned char *leaf,
  * LSB-first bit accumulation (the pre-FIPS-205 SPHINCS+ convention).
  * FIPS 205 / current PQClean is MSB-first.  For SPX_FORS_HEIGHT = 24 (a
  * multiple of 8) this collapses to a big-endian 3-byte read of
- * m[3*i .. 3*i+3].  Our on-chain SHA-2 verifier and Python signer have
- * been updated to match.
+ * m[3*i .. 3*i+3]. Our on-chain SHA-2 verifier, GPU signer
+ * (signers/slhvk-sha2-128-24), and Python signer have been updated to
+ * match. The Keccak family + the on-chain Keccak verifier are still
+ * LSB-first and need to be migrated to keep parity.
  */
 static void message_to_indices(uint32_t *indices, const unsigned char *m)
 {
