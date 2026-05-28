@@ -18,3 +18,11 @@ lean_lib SphincsKernel where
   srcDir := "."
   roots := #[`SphincsKernel.Model, `SphincsKernel.MerkleKernel, `SphincsKernel.Spec,
     `SphincsKernel.Examples, `SphincsKernel.Proofs.Basic, `SphincsKernel.Proofs.Correctness]
+
+lean_lib SphincsMinusVerifierSpec where
+  srcDir := "."
+  roots := #[`SphincsMinusVerifierSpec.Spec]
+
+lean_lib SphincsMinusVerifiers where
+  srcDir := "."
+  roots := #[`SphincsMinusVerifiers.Model, `SphincsMinusVerifiers.Proofs]
