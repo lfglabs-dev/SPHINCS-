@@ -7,13 +7,33 @@ This folder is the verification workbench for the three verifier contracts in
 - `SPHINCs_C12Asm_VerityModel` models `SPHINCs-C12Asm.sol`.
 - `SLH_DSA_SHA2_128_24_VerityModel` models `SLH-DSA-SHA2-128-24verifier.sol`.
 
-The clean mathematical spec is in `SphincsMinusVerifierSpec/Spec.lean`.  The
-proof hooks in `Proofs.lean` state that each model must implement the matching
-spec under its own fixed primitive package; they intentionally use `sorry`
-until the executable semantics are wired all the way through Verity.  The
-primitive packages are deliberately not universally quantified: C13, C12, and
-SHA2 use different hash/address/signature parsing semantics, and a single
-compiled verifier cannot refine every possible `Primitives` instance.
+The specs are layered in `SphincsMinusVerifierSpec/Spec.lean`:
+
+- `verifyParsed` is the algorithmic spec over a parsed public key and parsed
+  signature.
+- `ByteLevel.verifyBytes` is the contract-facing spec for `pkSeed`, `pkRoot`,
+  `message`, and `sig` bytes.  It owns signature length checks, public-key
+  canonicality, signature parsing, and malformed-input behavior.
+- `Model.lean` is the Verity implementation model.  It owns memory layout,
+  scratch offsets, loops, low-level calls, and raw-Yul revert boundaries.
+
+The proof hooks in `Proofs.lean` state that each model must implement the
+matching byte-level spec under its own fixed primitive package.  They
+intentionally use `sorry` until the executable semantics are wired all the way
+through Verity.  The primitive packages are deliberately not universally
+quantified: C13, C12, and SHA2 use different hash/address/signature parsing
+semantics, and a single compiled verifier cannot refine every possible
+`Primitives` instance.
+
+The intended proof chain is:
+
+```text
+Verity implementation model
+  refines
+ByteLevel.verifyBytes
+  refines by construction
+verifyParsed
+```
 
 ## Current Fidelity
 
@@ -56,7 +76,7 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
   verifiers, but it remains too error-prone for long-term maintenance.
 - `MODEL-EXEC-BRIDGE`: `Proofs.lean` uses opaque `exec...` functions.  These
   must be replaced with Verity's compiled-contract executable semantics before
-  the `ImplementsVerifier` theorems become meaningful refinement theorems.
+  the `ImplementsByteVerifier` theorems become meaningful refinement theorems.
 
 ## Build
 

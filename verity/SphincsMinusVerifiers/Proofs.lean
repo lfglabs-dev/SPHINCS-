@@ -1,11 +1,11 @@
 /-
-  Refinement hooks from the Verity models to the abstract SPHINCS- verifier
-  specifications.
+  Refinement hooks from the Verity models to the SPHINCS- verifier specs.
 
-  The theorem statements are intentionally shaped for future Verity/ECM proofs:
-  each modeled Solidity verifier exposes an observable `exec...` relation where
-  `none` means revert and `some b` means normal boolean return.  The final proof
-  obligation is exactly `ImplementsVerifier`.
+  Theorem statements target the byte-level contract spec first. Each modeled
+  Solidity verifier exposes an observable `exec...` relation where `none` means
+  revert and `some b` means normal boolean return. The byte-level spec handles
+  public-key bytes and signature-byte parsing, then delegates to the parsed
+  algorithmic verifier in `verifyParsed`.
 -/
 
 import SphincsMinusVerifierSpec.Spec
@@ -35,27 +35,58 @@ axiom slhDsaSha2_128_24_Primitives : Primitives
 Future work should instantiate this with Verity's executable semantics for
 `c13Model` after the line-by-line model is complete and compiled. -/
 opaque execC13 :
-  PublicKey → Bytes → Bytes → Option Bool
+  Bytes → Bytes → Bytes → Bytes → Option Bool
 
 /-- Placeholder observable semantics for the compiled C12 Verity model. -/
 opaque execC12 :
-  PublicKey → Bytes → Bytes → Option Bool
+  Bytes → Bytes → Bytes → Bytes → Option Bool
 
 /-- Placeholder observable semantics for the compiled SHA2 SLH-DSA model. -/
 opaque execSlhDsaSha2_128_24 :
-  PublicKey → Bytes → Bytes → Option Bool
+  Bytes → Bytes → Bytes → Bytes → Option Bool
+
+theorem c13_refines_byte_spec
+    : SphincsMinusVerifierSpec.ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13 := by
+  sorry
+
+theorem c12_refines_byte_spec
+    : SphincsMinusVerifierSpec.ByteLevel.ImplementsByteVerifier c12Primitives c12 execC12 := by
+  sorry
+
+theorem slhDsaSha2_128_24_refines_byte_spec
+    : SphincsMinusVerifierSpec.ByteLevel.ImplementsByteVerifier
+        slhDsaSha2_128_24_Primitives slhDsaSha2_128_24 execSlhDsaSha2_128_24 := by
+  sorry
 
 theorem c13_refines_spec
-    : ImplementsVerifier c13Primitives c13 execC13 := by
-  sorry
+    : ∀ pkSeed pkRoot message sig,
+        execC13 pkSeed pkRoot message sig =
+          verifySpec c13Primitives c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } message sig := by
+  intro pkSeed pkRoot message sig
+  rw [c13_refines_byte_spec]
+  exact SphincsMinusVerifierSpec.ByteLevel.verifyBytes_eq_verifySpec
+    c13Primitives c13 pkSeed pkRoot message sig
 
 theorem c12_refines_spec
-    : ImplementsVerifier c12Primitives c12 execC12 := by
-  sorry
+    : ∀ pkSeed pkRoot message sig,
+        execC12 pkSeed pkRoot message sig =
+          verifySpec c12Primitives c12
+            { pkSeed := pkSeed, pkRoot := pkRoot } message sig := by
+  intro pkSeed pkRoot message sig
+  rw [c12_refines_byte_spec]
+  exact SphincsMinusVerifierSpec.ByteLevel.verifyBytes_eq_verifySpec
+    c12Primitives c12 pkSeed pkRoot message sig
 
 theorem slhDsaSha2_128_24_refines_spec
-    : ImplementsVerifier slhDsaSha2_128_24_Primitives slhDsaSha2_128_24 execSlhDsaSha2_128_24 := by
-  sorry
+    : ∀ pkSeed pkRoot message sig,
+        execSlhDsaSha2_128_24 pkSeed pkRoot message sig =
+          verifySpec slhDsaSha2_128_24_Primitives slhDsaSha2_128_24
+            { pkSeed := pkSeed, pkRoot := pkRoot } message sig := by
+  intro pkSeed pkRoot message sig
+  rw [slhDsaSha2_128_24_refines_byte_spec]
+  exact SphincsMinusVerifierSpec.ByteLevel.verifyBytes_eq_verifySpec
+    slhDsaSha2_128_24_Primitives slhDsaSha2_128_24 pkSeed pkRoot message sig
 
 /--
 Compilation-model presence checks.  These are small regression anchors: if the

@@ -1,11 +1,17 @@
 /-
   Lean 4 specification for the SPHINCS- verifier variants in nconsigny/SPHINCS-.
 
-  This file is intentionally a *specification layer*, not an implementation model.
-  Hashes, address serialization, and signature parsing are named semantic
-  functions. A Verity proof for a Solidity verifier should show that the EVM
-  model refines `verifySpec`: on every non-reverting execution it returns true
-  exactly when the abstract reconstruction reaches the public root.
+  This file separates two specification layers:
+
+  * `verifyParsed` is the algorithmic spec over a parsed public key and parsed
+    signature. It stays close to the mathematical verifier.
+  * `ByteLevel.verifyBytes` is the contract-facing byte spec. It checks ABI-level
+    public-key canonicality, parses signature bytes, and then delegates to
+    `verifyParsed`.
+
+  Verity models refine the byte-level spec. The byte-level spec then refines the
+  algorithmic spec by construction. Memory layout and Yul mechanics belong only
+  in the Verity implementation model.
 -/
 
 namespace SphincsMinusVerifierSpec
@@ -228,7 +234,29 @@ def foldHypertree
   foldHypertreeAux p v pk 0 digest.treeIndex digest.leafIndex startNode layers
 
 /--
-Main verifier specification.
+Algorithmic verifier over parsed inputs.
+
+This layer deliberately does not know about ABI decoding, Solidity memory
+layout, or raw Yul. It assumes the public key and signature have already been
+parsed into their scheme-level structures.
+-/
+def verifyParsed (p : Primitives) (v : Variant)
+    (pk : PublicKey) (message : Bytes) (sig : Signature) : Bool :=
+  let digest := p.hMsg v pk sig.R message
+  if ¬ forcedZeroOk v digest then
+    false
+  else if ¬ signatureShapeOk v sig then
+    false
+  else
+    match p.forsPkFromSig v pk digest sig.fors with
+    | none => false
+    | some forsPk =>
+        match foldHypertree p v pk digest forsPk sig.layers with
+        | none => false
+        | some root => root == pk.pkRoot
+
+/--
+Compatibility wrapper for the original abstract target.
 
 For the linked Nico contracts:
 * bad signature length is malformed and should correspond to the Solidity revert;
@@ -247,18 +275,89 @@ def verifySpec (p : Primitives) (v : Variant)
     match p.parseSignature v sigBytes with
     | none => none
     | some sig =>
-        let digest := p.hMsg v pk sig.R message
-        if ¬ forcedZeroOk v digest then
-          some false
-        else if ¬ signatureShapeOk v sig then
-          some false
-        else
-          match p.forsPkFromSig v pk digest sig.fors with
-          | none => some false
-          | some forsPk =>
-              match foldHypertree p v pk digest forsPk sig.layers with
-              | none => some false
-              | some root => some (root == pk.pkRoot)
+        some (verifyParsed p v pk message sig)
+
+namespace ByteLevel
+
+/--
+Parse the contract-facing public-key bytes.
+
+The Solidity contracts expose `pkSeed` and `pkRoot` as separate `bytes32`
+arguments. Canonical high-byte checks, where present, are part of the byte-level
+contract API rather than the Verity memory model.
+-/
+def parsePublicKey (p : Primitives) (v : Variant)
+    (pkSeed pkRoot : Bytes) : Option PublicKey :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  if publicKeyOk p v pk then some pk else none
+
+/--
+Contract-facing byte-level verifier.
+
+This layer owns externally observable byte parsing and malformed-input
+behavior. It does not mention Solidity scratch memory, loop layout, or Yul.
+-/
+def verifyBytes (p : Primitives) (v : Variant)
+    (pkSeed pkRoot message sigBytes : Bytes) : Option Bool :=
+  if sigBytes.size ≠ v.sigBytes then
+    none
+  else
+    match parsePublicKey p v pkSeed pkRoot with
+    | none => none
+    | some pk =>
+        match p.parseSignature v sigBytes with
+        | none => none
+        | some sig => some (verifyParsed p v pk message sig)
+
+theorem verifyBytes_eq_verifySpec
+    (p : Primitives) (v : Variant)
+    (pkSeed pkRoot message sigBytes : Bytes) :
+    verifyBytes p v pkSeed pkRoot message sigBytes =
+      verifySpec p v { pkSeed := pkSeed, pkRoot := pkRoot } message sigBytes := by
+  unfold verifyBytes verifySpec parsePublicKey
+  by_cases hLen : sigBytes.size ≠ v.sigBytes
+  · simp [hLen]
+  · simp [hLen]
+    by_cases hPk : publicKeyOk p v { pkSeed := pkSeed, pkRoot := pkRoot }
+    · simp [hPk]
+    · simp [hPk]
+
+theorem verifyBytes_accepts_implies_parsed_accepts
+    (p : Primitives) (v : Variant)
+    (pkSeed pkRoot message sigBytes : Bytes) :
+    verifyBytes p v pkSeed pkRoot message sigBytes = some true →
+      ∃ pk sig,
+        parsePublicKey p v pkSeed pkRoot = some pk ∧
+        p.parseSignature v sigBytes = some sig ∧
+        verifyParsed p v pk message sig = true := by
+  intro h
+  unfold verifyBytes at h
+  split at h
+  · contradiction
+  · rename_i hLen
+    cases hPk : parsePublicKey p v pkSeed pkRoot with
+    | none =>
+        simp [hPk] at h
+    | some pk =>
+        cases hSig : p.parseSignature v sigBytes with
+        | none =>
+            simp [hPk, hSig] at h
+        | some sig =>
+            simp [hPk, hSig] at h
+            exact ⟨pk, sig, rfl, rfl, h⟩
+
+/--
+Refinement target for a Verity-modeled Solidity verifier. `exec` is the
+observable model of `verify(pkSeed, pkRoot, message, sig)`: `none` means revert,
+and `some b` means normal return with boolean `b`.
+-/
+def ImplementsByteVerifier
+    (p : Primitives) (v : Variant)
+    (exec : Bytes → Bytes → Bytes → Bytes → Option Bool) : Prop :=
+  ∀ pkSeed pkRoot message sig,
+    exec pkSeed pkRoot message sig = verifyBytes p v pkSeed pkRoot message sig
+
+end ByteLevel
 
 /--
 Refinement target for a Verity-modeled Solidity verifier. `exec` is the
