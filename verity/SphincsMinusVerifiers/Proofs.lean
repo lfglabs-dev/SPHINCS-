@@ -15,6 +15,22 @@ namespace SphincsMinusVerifiers
 
 open SphincsMinusVerifierSpec
 
+/--
+Concrete primitive semantics for the C13 Keccak/SPHINCS- variant.
+
+This remains opaque until the executable Verity semantics and byte-level hash
+models are connected, but it is intentionally fixed per verifier.  A single
+compiled contract cannot implement `verifySpec` for every possible
+`Primitives` package.
+-/
+axiom c13Primitives : Primitives
+
+/-- Concrete primitive semantics for the C12 Keccak/SPHINCS- variant. -/
+axiom c12Primitives : Primitives
+
+/-- Concrete primitive semantics for the SHA2 SLH-DSA verifier variant. -/
+axiom slhDsaSha2_128_24_Primitives : Primitives
+
 /-- Placeholder observable semantics for the compiled C13 Verity model.
 Future work should instantiate this with Verity's executable semantics for
 `c13Model` after the line-by-line model is complete and compiled. -/
@@ -30,18 +46,15 @@ opaque execSlhDsaSha2_128_24 :
   PublicKey → Bytes → Bytes → Option Bool
 
 theorem c13_refines_spec
-    (p : Primitives) :
-    ImplementsVerifier p c13 execC13 := by
+    : ImplementsVerifier c13Primitives c13 execC13 := by
   sorry
 
 theorem c12_refines_spec
-    (p : Primitives) :
-    ImplementsVerifier p c12 execC12 := by
+    : ImplementsVerifier c12Primitives c12 execC12 := by
   sorry
 
 theorem slhDsaSha2_128_24_refines_spec
-    (p : Primitives) :
-    ImplementsVerifier p slhDsaSha2_128_24 execSlhDsaSha2_128_24 := by
+    : ImplementsVerifier slhDsaSha2_128_24_Primitives slhDsaSha2_128_24 execSlhDsaSha2_128_24 := by
   sorry
 
 /--

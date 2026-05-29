@@ -9,8 +9,11 @@ This folder is the verification workbench for the three verifier contracts in
 
 The clean mathematical spec is in `SphincsMinusVerifierSpec/Spec.lean`.  The
 proof hooks in `Proofs.lean` state that each model must implement the matching
-spec; they intentionally use `sorry` until the executable semantics are wired
-all the way through Verity.
+spec under its own fixed primitive package; they intentionally use `sorry`
+until the executable semantics are wired all the way through Verity.  The
+primitive packages are deliberately not universally quantified: C13, C12, and
+SHA2 use different hash/address/signature parsing semantics, and a single
+compiled verifier cannot refine every possible `Primitives` instance.
 
 ## Current Fidelity
 
