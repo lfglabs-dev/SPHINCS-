@@ -41,9 +41,10 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
 - `SHA2-PACKED-MEMORY`: the SHA2 verifier writes 16-byte values at unaligned
   offsets such as `0x56` and `0x66`.  The model can express this, but proofs need
   byte-slice memory lemmas, not just word-oriented `mstore` reasoning.
-- `RAW-REVERT-FIDELITY`: addressed on the companion Verity branch by adding
-  `Stmt.rawRevert offset size`.  The models use it for Solidity `revert(0,0)`
-  and for the hand-written `Error(string)` length/public-key checks.  Remaining
+- `RAW-YUL-FIDELITY`: addressed on the companion Verity branch by adding typed
+  `Stmt.unsafeYul` / `RawYul` fragments.  The models use this for Solidity
+  `revert(0,0)` and for the hand-written `Error(string)` length/public-key
+  checks, with local obligations attached at each raw-Yul boundary.  Remaining
   revert work is proving exact observable revert-data equivalence in Verity's
   executable semantics.
 - `INLINE-YUL-FRONTEND`: this repository needs either direct inline-Yul syntax

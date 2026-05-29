@@ -46,7 +46,23 @@ private def mstoreE (off val : Expr) : Stmt := .mstore off val
 private def gas : Expr := .intrinsic "gas" (.builtin "gas") .cancun []
 private def sha256Call (inOffset inSize outOffset outSize : Nat) : Expr :=
   .staticcall gas (u 0x02) (u inOffset) (u inSize) (u outOffset) (u outSize)
-private def revert0 : List Stmt := [.rawRevert (u 0) (u 0)]
+private def yulLit (n : Nat) : Compiler.Yul.YulExpr := .lit n
+private def rawYulRevert (offset size : Nat) : Stmt :=
+  .unsafeYul {
+    label := s!"raw_yul_revert_{offset}_{size}"
+    stmts := [
+      Compiler.Yul.YulStmt.expr
+        (Compiler.Yul.YulExpr.call "revert" [yulLit offset, yulLit size])
+    ]
+    obligations := [
+      { name := s!"raw_yul_revert_{offset}_{size}_refines_solidity_assembly"
+        obligation := s!"The handwritten Yul revert({offset}, {size}) must match the Solidity assembly observable revert behavior."
+        proofStatus := .assumed }
+    ]
+    mechanics := ["rawYul", "revert"]
+    termination := .alwaysTerminates
+  }
+private def revert0 : List Stmt := [rawYulRevert 0 0]
 private def errorSelector : Expr :=
   u 0x08c379a000000000000000000000000000000000000000000000000000000000
 private def invalidSigLengthWord : Expr :=
@@ -58,7 +74,7 @@ private def errorStringRevert (word : Expr) : List Stmt := [
   mstore 0x04 (u 0x20),
   mstore 0x24 (u 18),
   mstore 0x44 word,
-  .rawRevert (u 0x00) (u 0x64)
+  rawYulRevert 0x00 0x64
 ]
 
 private def N_MASK : Nat :=
