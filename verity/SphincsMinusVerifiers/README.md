@@ -90,15 +90,53 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
   verifiers, but it remains too error-prone for long-term maintenance.
 - `MODEL-EXEC-BRIDGE`: the model-to-byte refinement is currently the named axiom
   `*_refines_byte_spec` for each verifier.  Replacing the axiom with a proof
-  requires Verity's compiled-contract executable semantics over the
-  `bytes`-calldata surface.  The current `Compiler/.../SourceSemantics.lean`
-  interpreter (`interpretFunction` / `sourceContractSemantics`) evaluates decoded
-  `Nat` arguments and does not yet model the raw `sig.length` / `sig.offset`
-  calldata locals these verifiers read, so a faithful concrete `exec` cannot be
-  supplied yet.  Once it can, define each `exec...` as that semantics and prove
-  the corresponding `*_refines_byte_spec` (turning the axiom into a theorem); the
-  `*_refines_spec` results then stay valid unchanged via
-  `byteVerifier_refines_spec`.
+  requires running Verity's compiled-contract executable semantics
+  (`Compiler/.../SourceSemantics.lean`: `execStmtList` / `execStmt` / `evalExpr`
+  over a `RuntimeState`) on each `*VerifyBody` and proving the result equals
+  `ByteLevel.verifyBytes`.  That interpreter *does* model the raw calldata surface
+  (`evalExpr` handles `.calldataload` / `.calldatasize` / `.param` / `.localVar`),
+  so the reject/revert subdomain is provable through it (see below).  The
+  **accept** subdomain, however, is hard-blocked at the interpreter for *all
+  three* variants: `SourceSemantics.lean` proves both
+  `evalExpr_keccak256 (.keccak256 a b) = none := rfl` (line 1217) and
+  `evalExpr_staticcall (.staticcall …) = none := rfl` (line 1277), i.e. the
+  interpreter models *every* hash — the native keccak256 opcode and the SHA-256
+  precompile alike — as `none` (revert).  Running any `*VerifyBody` on a valid
+  signature therefore reverts at the first hash call, while `ByteLevel.verifyBytes`
+  returns `some true`; the two cannot be proved equal on the accept subdomain until
+  the framework interpreter is extended with hash semantics.  Discharging the
+  accept side of MODEL-EXEC-BRIDGE is thus the *same* category of work as
+  `SHA2-PRECOMPILE` (a `verity-framework/SourceSemantics.lean` change), not a
+  self-contained accept-path equivalence proof inside this workbench.
+
+  **Proved slice (sound, machine-checked).**  `Model.lean` now discharges one
+  unconditional piece of this bridge directly through the interpreter:
+  `c13VerifyBody_reverts_on_bad_length`, `c12VerifyBody_reverts_on_bad_length`,
+  and `slhDsaSha2VerifyBody_reverts_on_bad_length` prove that running the *actual*
+  compiled body (with the production `fields := []` layout) **reverts** whenever
+  the ABI-decoded `sig_length` local is not the verifier's expected signature
+  length (3688 / 6512 / 3856).  These run the real `execStmtList`/`execStmt`/
+  `evalExpr` over the `*VerifyBody` terms — no `exec... := verifyBytes` shortcut,
+  no `sorry`.  `#print axioms` shows only Lean's foundational
+  `[propext, Classical.choice, Quot.sound]` (no `sorryAx`, no bridge axiom).  This
+  is the length-guard fragment of the eventual `define exec... ; prove
+  *_refines_byte_spec` programme; the accept path remains the carried axiom.
+
+  **Bytes-level two-sided agreement (`Proofs.lean`).**  The interpreter-side
+  revert lemmas above are lifted to the `Bytes` boundary and paired with the
+  spec-side `ByteLevel.verifyBytes_bad_length` into
+  `c13_interp_agrees_verifyBytes_bad_length`,
+  `c12_interp_agrees_verifyBytes_bad_length`, and
+  `slhDsaSha2_128_24_interp_agrees_verifyBytes_bad_length`.  Each proves that, on a
+  concrete `RuntimeState` (`badLenState`) whose ABI-decoded `sig_length` local is
+  the calldata signature length, a wrong length makes the *real* compiled body run
+  `execStmtList ... = .revert` **and** makes `ByteLevel.verifyBytes ... = none` —
+  i.e. the compiled model and the byte spec *agree* (both reject) across the entire
+  malformed-length subdomain.  This is a genuine slice of the `*_refines_byte_spec`
+  equality, *proved* over a concrete state rather than assumed.  `#print axioms`:
+  `[propext, Classical.choice, Quot.sound, <variant>Primitives]` — **no bridge
+  axiom, no `sorryAx`** (the `Primitives` constant appears only in the statement's
+  `verifyBytes` arguments).  The accept path remains the carried axiom.
 
 ## Build
 

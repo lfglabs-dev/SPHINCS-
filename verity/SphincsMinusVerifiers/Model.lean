@@ -16,6 +16,7 @@
 -/
 
 import Compiler.CompilationModel
+import Compiler.Proofs.IRGeneration.SourceSemantics
 
 namespace SphincsMinusVerifiers
 
@@ -494,5 +495,91 @@ def slhDsaSha2_128_24_Model : CompilationModel := {
   «constructor» := none,
   functions := [verifierFunction slhDsaSha2VerifyBody false]
 }
+
+/-! ## Executable-semantics slice of MODEL-EXEC-BRIDGE: malformed-length revert
+
+The MODEL-EXEC-BRIDGE obligation (see `SphincsMinusVerifiers/README.md`) asks us
+to connect Verity's executable source semantics
+(`Compiler.Proofs.IRGeneration.SourceSemantics`) to the byte-level verifier
+contract over the raw `bytes`/calldata surface.  The full obligation (the
+accept-path keccak/SHA hypertree-climb equivalence) remains the carried axiom.
+
+The lemmas below discharge one *sound, unconditional* slice of that obligation
+directly through the interpreter: each compiled verifier body, when run with the
+production field layout (`fields := []`), **reverts** whenever the ABI-decoded
+`sig.length` local does not equal the verifier's expected signature length.  This
+is the first stmt of every body — the length guard — and the proof runs the real
+`execStmtList`/`execStmt`/`evalExpr` interpreter over the actual `*VerifyBody`
+terms (no `exec* := verifyBytes` shortcut, no `sorry`).  `#print axioms` on these
+lemmas shows only `[propext]`. -/
+
+open Compiler.Proofs.IRGeneration.SourceSemantics in
+/-- If a statement reverts, the whole statement list reverts (the walker
+short-circuits on `.revert`). -/
+theorem execStmtList_cons_revert
+    (st : RuntimeState) (s : Stmt) (rest : List Stmt)
+    (h : execStmt [] st s = .revert) :
+    execStmtList [] st (s :: rest) = .revert := by
+  show (match execStmt [] st s with
+        | .continue n => execStmtList [] n rest
+        | .stop n => .stop n
+        | .return rval rst => .return rval rst
+        | .revert => .revert) = .revert
+  rw [h]
+
+open Compiler.Proofs.IRGeneration.SourceSemantics in
+/-- Generic length-guard revert: any body whose head statement is the standard
+`sig_length`-mismatch guard reverts when `sig_length` is not the expected value. -/
+theorem verifyBody_reverts_on_bad_length
+    (body : List Stmt) (expectedLen : Nat) (st : RuntimeState)
+    (hhead : body =
+      (.ite (notE (eqE (v "sig_length") (u expectedLen)))
+        (errorStringRevert invalidSigLengthWord) []) :: body.tail)
+    (hlen : lookupValue st.bindings "sig_length" ≠ wordNormalize expectedLen) :
+    execStmtList [] st body = .revert := by
+  have he : decide (lookupValue st.bindings "sig_length" = wordNormalize expectedLen) = false :=
+    decide_eq_false hlen
+  have hcond :
+      evalExpr [] st (notE (eqE (v "sig_length") (u expectedLen))) = some 1 := by
+    show some (boolWord (decide (boolWord (decide
+        (lookupValue st.bindings "sig_length" = wordNormalize expectedLen)) = 0))) = some 1
+    rw [he]; rfl
+  have hfrag :
+      execStmtList [] st (errorStringRevert invalidSigLengthWord) = .revert := rfl
+  have hite : execStmt [] st
+      (.ite (notE (eqE (v "sig_length") (u expectedLen)))
+        (errorStringRevert invalidSigLengthWord) []) = .revert := by
+    show (match evalExpr [] st (notE (eqE (v "sig_length") (u expectedLen))) with
+          | some resolved =>
+              if resolved != 0 then execStmtList [] st (errorStringRevert invalidSigLengthWord)
+              else execStmtList [] st []
+          | none => .revert) = .revert
+    rw [hcond, hfrag]; rfl
+  rw [hhead]
+  exact execStmtList_cons_revert st _ _ hite
+
+open Compiler.Proofs.IRGeneration.SourceSemantics in
+/-- C13 verifier body reverts when the ABI-decoded `sig.length ≠ 3688`. -/
+theorem c13VerifyBody_reverts_on_bad_length
+    (st : RuntimeState)
+    (hlen : lookupValue st.bindings "sig_length" ≠ wordNormalize 3688) :
+    execStmtList [] st c13VerifyBody = .revert :=
+  verifyBody_reverts_on_bad_length c13VerifyBody 3688 st rfl hlen
+
+open Compiler.Proofs.IRGeneration.SourceSemantics in
+/-- C12 verifier body reverts when the ABI-decoded `sig.length ≠ 6512`. -/
+theorem c12VerifyBody_reverts_on_bad_length
+    (st : RuntimeState)
+    (hlen : lookupValue st.bindings "sig_length" ≠ wordNormalize 6512) :
+    execStmtList [] st c12VerifyBody = .revert :=
+  verifyBody_reverts_on_bad_length c12VerifyBody 6512 st rfl hlen
+
+open Compiler.Proofs.IRGeneration.SourceSemantics in
+/-- SLH-DSA-SHA2-128-24 verifier body reverts when `sig.length ≠ 3856`. -/
+theorem slhDsaSha2VerifyBody_reverts_on_bad_length
+    (st : RuntimeState)
+    (hlen : lookupValue st.bindings "sig_length" ≠ wordNormalize 3856) :
+    execStmtList [] st slhDsaSha2VerifyBody = .revert :=
+  verifyBody_reverts_on_bad_length slhDsaSha2VerifyBody 3856 st rfl hlen
 
 end SphincsMinusVerifiers

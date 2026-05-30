@@ -244,35 +244,49 @@ def wotsGrindingFails
   | .standardChecksum => false
   | .grindingTarget _ => ¬ p.wotsGrindingOk v pk treeIdx leafIdx node wots
 
-partial def foldHypertreeAux
+/--
+Hypertree climb, written as a structural recursion on an explicit `fuel`
+argument rather than a `partial def`.
+
+Each step either terminates (`.ok`/`.rejected`/`.reverted`) or recurses with
+`fuel` strictly decreased, so the kernel accepts the definition as total and
+generates the usual equation lemmas. `foldHypertree` seeds `fuel := v.d`, which
+covers every layer because the climb advances `layer` by one per step and stops
+once `layer = v.d`; running out of fuel coincides with `layer = v.d` and yields
+the same `.ok node` the `layer < v.d` guard would have produced.
+-/
+def foldHypertreeAux
     (p : Primitives) (v : Variant) (pk : PublicKey)
-    (layer : Nat) (idxTree : Nat) (node : Bytes)
+    (fuel : Nat) (layer : Nat) (idxTree : Nat) (node : Bytes)
     (layers : List XmssLayerSig) : HyperResult :=
-  if layer < v.d then
-    match layers[layer]? with
-    | none => .rejected
-    | some lsig =>
-    -- Match the verifier's per-layer walk: the low `subtreeH` bits are the leaf
-    -- index, and WOTS/XMSS address with the tree index *after* shifting them off.
-    let idxLeaf := idxTree % 2 ^ v.subtreeH
-    let nextTree := idxTree / 2 ^ v.subtreeH
-    if wotsGrindingFails p v pk nextTree idxLeaf node lsig.wots then
-      .reverted
-    else
-      match p.wotsPkFromSig v pk nextTree idxLeaf node lsig.wots with
+  match fuel with
+  | 0 => .ok node
+  | fuel + 1 =>
+    if layer < v.d then
+      match layers[layer]? with
       | none => .rejected
-      | some wotsPk =>
-          match p.xmssRootFromSig v pk nextTree idxLeaf wotsPk lsig.authPath with
-          | none => .rejected
-          | some root =>
-              foldHypertreeAux p v pk (layer + 1) nextTree root layers
-  else
-    .ok node
+      | some lsig =>
+      -- Match the verifier's per-layer walk: the low `subtreeH` bits are the leaf
+      -- index, and WOTS/XMSS address with the tree index *after* shifting them off.
+      let idxLeaf := idxTree % 2 ^ v.subtreeH
+      let nextTree := idxTree / 2 ^ v.subtreeH
+      if wotsGrindingFails p v pk nextTree idxLeaf node lsig.wots then
+        .reverted
+      else
+        match p.wotsPkFromSig v pk nextTree idxLeaf node lsig.wots with
+        | none => .rejected
+        | some wotsPk =>
+            match p.xmssRootFromSig v pk nextTree idxLeaf wotsPk lsig.authPath with
+            | none => .rejected
+            | some root =>
+                foldHypertreeAux p v pk fuel (layer + 1) nextTree root layers
+    else
+      .ok node
 
 def foldHypertree
     (p : Primitives) (v : Variant) (pk : PublicKey)
     (digest : HMsg) (startNode : Bytes) (layers : List XmssLayerSig) : HyperResult :=
-  foldHypertreeAux p v pk 0 digest.hyperIndex startNode layers
+  foldHypertreeAux p v pk v.d 0 digest.hyperIndex startNode layers
 
 /--
 Algorithmic verifier over parsed inputs.
@@ -366,6 +380,39 @@ theorem verifyBytes_eq_verifySpec
     · simp [hPk]
     · simp [hPk]
 
+/--
+Soundness of the algorithmic layer: when `verifyParsed` accepts, a concrete,
+well-formed witness exists. The signature passes its shape check, the forced-zero
+FORS guard holds, FORS reconstruction yields a public key, and the hypertree
+climb terminates in `.ok root` with `root` equal to the public-key root. This is
+the accept-direction stated as an existence claim about the reconstructed data,
+not merely as "did not revert".
+-/
+theorem verifyParsed_accepts_sound
+    (p : Primitives) (v : Variant)
+    (pk : PublicKey) (message : Bytes) (sig : Signature)
+    (h : verifyParsed p v pk message sig = some true) :
+    signatureShapeOk v sig = true ∧
+    forcedZeroOk v (p.hMsg v pk sig.R message) = true ∧
+    ∃ forsPk root,
+      p.forsPkFromSig v pk (p.hMsg v pk sig.R message) sig.fors = some forsPk ∧
+      foldHypertree p v pk (p.hMsg v pk sig.R message) forsPk sig.layers = .ok root ∧
+      (root == pk.pkRoot) = true := by
+  by_cases hShape : signatureShapeOk v sig = true
+  · by_cases hZero : forcedZeroOk v (p.hMsg v pk sig.R message) = true
+    · refine ⟨hShape, hZero, ?_⟩
+      simp only [verifyParsed, hShape, hZero, not_true, if_false] at h
+      split at h
+      · simp at h
+      · next forsPk hFors =>
+          split at h
+          · simp at h
+          · simp at h
+          · next root hFold =>
+              exact ⟨forsPk, root, hFors, hFold, by simpa using h⟩
+    · simp [verifyParsed, hShape, hZero] at h
+  · simp [verifyParsed, hShape] at h
+
 theorem verifyBytes_accepts_implies_parsed_accepts
     (p : Primitives) (v : Variant)
     (pkSeed pkRoot message sigBytes : Bytes) :
@@ -389,6 +436,31 @@ theorem verifyBytes_accepts_implies_parsed_accepts
         | some sig =>
             simp [hPk, hSig] at h
             exact ⟨pk, sig, rfl, rfl, h⟩
+
+/--
+Byte-level soundness: an accepting `verifyBytes` run exhibits a canonical public
+key, a parsed signature, and the full well-formed witness from
+`verifyParsed_accepts_sound`. This upgrades
+`verifyBytes_accepts_implies_parsed_accepts` from "the parsed layer also accepts"
+to "a concrete reconstructed root matching `pkRoot` exists".
+-/
+theorem verifyBytes_accepts_sound
+    (p : Primitives) (v : Variant)
+    (pkSeed pkRoot message sigBytes : Bytes)
+    (h : verifyBytes p v pkSeed pkRoot message sigBytes = some true) :
+    ∃ pk sig forsPk root,
+      parsePublicKey v pkSeed pkRoot = some pk ∧
+      p.parseSignature v sigBytes = some sig ∧
+      signatureShapeOk v sig = true ∧
+      forcedZeroOk v (p.hMsg v pk sig.R message) = true ∧
+      p.forsPkFromSig v pk (p.hMsg v pk sig.R message) sig.fors = some forsPk ∧
+      foldHypertree p v pk (p.hMsg v pk sig.R message) forsPk sig.layers = .ok root ∧
+      (root == pk.pkRoot) = true := by
+  obtain ⟨pk, sig, hPk, hSig, hParsed⟩ :=
+    verifyBytes_accepts_implies_parsed_accepts p v pkSeed pkRoot message sigBytes h
+  obtain ⟨hShape, hZero, forsPk, root, hFors, hFold, hRoot⟩ :=
+    verifyParsed_accepts_sound p v pk message sig hParsed
+  exact ⟨pk, sig, forsPk, root, hPk, hSig, hShape, hZero, hFors, hFold, hRoot⟩
 
 /--
 `verifyBytes` returns a normal result (does not revert) exactly when the
