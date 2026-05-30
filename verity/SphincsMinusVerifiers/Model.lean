@@ -36,7 +36,6 @@ private def orE (a b : Expr) : Expr := .bitOr a b
 private def xorE (a b : Expr) : Expr := .bitXor a b
 private def shlE (a b : Expr) : Expr := .shl a b
 private def shrE (a b : Expr) : Expr := .shr a b
-private def ltE (a b : Expr) : Expr := .lt a b
 private def keccak (off size : Nat) : Expr := .keccak256 (u off) (u size)
 private def cdload (off : Expr) : Expr := .calldataload off
 private def mload (off : Nat) : Expr := .mload (u off)
