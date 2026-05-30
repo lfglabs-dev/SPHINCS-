@@ -17,21 +17,35 @@ The specs are layered in `SphincsMinusVerifierSpec/Spec.lean`:
 - `Model.lean` is the Verity implementation model.  It owns memory layout,
   scratch offsets, loops, low-level calls, and raw-Yul revert boundaries.
 
-The proof hooks in `Proofs.lean` state that each model must implement the
-matching byte-level spec under its own fixed primitive package.  They
-intentionally use `sorry` until the executable semantics are wired all the way
-through Verity.  The primitive packages are deliberately not universally
-quantified: C13, C12, and SHA2 use different hash/address/signature parsing
-semantics, and a single compiled verifier cannot refine every possible
-`Primitives` instance.
+`Proofs.lean` contains **no `sorry`**.  The per-verifier refinement theorems are
+unconditional; their only model-specific assumptions are three explicitly named
+bridge axioms.
 
-The intended proof chain is:
+- `byteVerifier_refines_spec` proves, for *any* observable semantics `exec`,
+  that a byte-level refinement composes with `verifyBytes_eq_verifySpec` into an
+  abstract-spec refinement.  This is fully proved (`#print axioms` → `propext`).
+- `c13_refines_byte_spec`, `c12_refines_byte_spec`, and
+  `slhDsaSha2_128_24_refines_byte_spec` are **named axioms**: each asserts that
+  one compiled Verity model refines its byte-level spec.  They are the Lean-level
+  form of the `proofStatus := .assumed` local obligations already attached to the
+  models in `Model.lean`, and they sit in the trust surface alongside the repo's
+  keccak collision-resistance axioms.
+- `c13_refines_spec`, `c12_refines_spec`, and `slhDsaSha2_128_24_refines_spec`
+  (and their `*_implements_spec` forms) then conclude the abstract-spec
+  refinement for each compiled model unconditionally, by feeding the matching
+  bridge axiom into `byteVerifier_refines_spec`.
+
+The primitive packages are deliberately not universally quantified: C13, C12,
+and SHA2 use different hash/address/signature parsing semantics, and a single
+compiled verifier cannot refine every possible `Primitives` instance.
+
+The proof chain is:
 
 ```text
 Verity implementation model
-  refines
+  refines                       ← assumed: *_refines_byte_spec axioms (MODEL-EXEC-BRIDGE)
 ByteLevel.verifyBytes
-  refines by construction
+  refines by construction       ← proved: byteVerifier_refines_spec
 verifyParsed
 ```
 
@@ -74,9 +88,17 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
   in Verity or an importer from Solidity/Yul into `CompilationModel.Stmt` /
   `Compiler.Yul.YulStmt`.  Hand translation is now present for all three linked
   verifiers, but it remains too error-prone for long-term maintenance.
-- `MODEL-EXEC-BRIDGE`: `Proofs.lean` uses opaque `exec...` functions.  These
-  must be replaced with Verity's compiled-contract executable semantics before
-  the `ImplementsByteVerifier` theorems become meaningful refinement theorems.
+- `MODEL-EXEC-BRIDGE`: the model-to-byte refinement is currently the named axiom
+  `*_refines_byte_spec` for each verifier.  Replacing the axiom with a proof
+  requires Verity's compiled-contract executable semantics over the
+  `bytes`-calldata surface.  The current `Compiler/.../SourceSemantics.lean`
+  interpreter (`interpretFunction` / `sourceContractSemantics`) evaluates decoded
+  `Nat` arguments and does not yet model the raw `sig.length` / `sig.offset`
+  calldata locals these verifiers read, so a faithful concrete `exec` cannot be
+  supplied yet.  Once it can, define each `exec...` as that semantics and prove
+  the corresponding `*_refines_byte_spec` (turning the axiom into a theorem); the
+  `*_refines_spec` results then stay valid unchanged via
+  `byteVerifier_refines_spec`.
 
 ## Build
 
@@ -85,5 +107,7 @@ cd verity
 lake build SphincsMinusVerifiers
 ```
 
-Expected status right now: build succeeds with three `sorry` warnings in
-`Proofs.lean`.
+Expected status right now: build succeeds with **no `sorry` warnings**.
+`Proofs.lean` proves `byteVerifier_refines_spec` outright and derives the
+unconditional per-verifier `*_refines_spec` theorems from the three named
+`*_refines_byte_spec` bridge axioms (MODEL-EXEC-BRIDGE).

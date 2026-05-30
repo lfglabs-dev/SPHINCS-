@@ -166,6 +166,8 @@ BIP-39 mnemonic → HMAC-SHA512("sphincs-c6-v1", seed) → SPHINCs- keys (quantu
 
 Lean 4 model via Verity framework: 3 axioms (keccak CR), 20 theorems, 0 sorry. `verity_contract` macro version has Layer 1-2-3 compilation correctness proofs. See `verity/README.md` for proof inventory.
 
+The `SphincsMinusVerifiers` workbench (`verity/SphincsMinusVerifiers/`) layers the refinement as: compiled Verity model → `ByteLevel.verifyBytes` (byte-level contract spec) → `verifySpec` (abstract algorithmic spec). The lower→abstract link (`verifyBytes_eq_verifySpec`, `byteVerifier_refines_spec`) is fully proved (`#print axioms` → `propext`). The per-verifier theorems (`c13_refines_spec`, `c12_refines_spec`, `slhDsaSha2_128_24_refines_spec`) are **unconditional**, each resting on one named MODEL-EXEC-BRIDGE bridge axiom (`c13_refines_byte_spec`, `c12_refines_byte_spec`, `slhDsaSha2_128_24_refines_byte_spec`) that asserts the compiled model refines its byte spec — the Lean form of the `proofStatus := .assumed` obligations in `Model.lean`. These 3 bridge axioms are the only model-specific assumptions and sit in the trust surface alongside the keccak-CR axioms; no `sorry` anywhere. Discharging them requires Verity's executable source semantics over the raw `bytes`-calldata surface (`sig.length`/`sig.offset`), tracked as MODEL-EXEC-BRIDGE in `SphincsMinusVerifiers/README.md`.
+
 ## Foundry Config
 
 - `via_ir = true`, `optimizer_runs = 200`

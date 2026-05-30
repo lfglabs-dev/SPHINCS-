@@ -347,6 +347,38 @@ theorem verifyBytes_accepts_implies_parsed_accepts
             exact ⟨pk, sig, rfl, rfl, h⟩
 
 /--
+`verifyBytes` returns a normal result (does not revert) exactly when the
+signature length is correct, the public key is canonical, and the signature
+parses. This pins the externally observable revert boundary of the contract.
+-/
+theorem verifyBytes_isSome_iff
+    (p : Primitives) (v : Variant)
+    (pkSeed pkRoot message sigBytes : Bytes) :
+    (verifyBytes p v pkSeed pkRoot message sigBytes).isSome ↔
+      sigBytes.size = v.sigBytes ∧
+      publicKeyOk p v { pkSeed := pkSeed, pkRoot := pkRoot } = true ∧
+      (p.parseSignature v sigBytes).isSome := by
+  unfold verifyBytes parsePublicKey
+  by_cases hLen : sigBytes.size = v.sigBytes
+  · by_cases hPk : publicKeyOk p v { pkSeed := pkSeed, pkRoot := pkRoot } = true
+    · cases hSig : p.parseSignature v sigBytes with
+      | none => simp [hLen, hPk]
+      | some sig => simp [hLen, hPk]
+    · simp [hLen, hPk]
+  · simp [hLen]
+
+/--
+Contrapositive convenience form: a wrong signature length always reverts.
+-/
+theorem verifyBytes_bad_length
+    (p : Primitives) (v : Variant)
+    (pkSeed pkRoot message sigBytes : Bytes)
+    (hLen : sigBytes.size ≠ v.sigBytes) :
+    verifyBytes p v pkSeed pkRoot message sigBytes = none := by
+  unfold verifyBytes
+  simp [hLen]
+
+/--
 Refinement target for a Verity-modeled Solidity verifier. `exec` is the
 observable model of `verify(pkSeed, pkRoot, message, sig)`: `none` means revert,
 and `some b` means normal return with boolean `b`.
