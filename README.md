@@ -267,4 +267,19 @@ cd signer-wasm && cargo test --release -- --ignored
 
 ### Verified Kernel
 
-This will include a proof with verity.
+The three on-chain verifiers in this repository (`SPHINCs-C13Asm.sol`,
+`SPHINCs-C12Asm.sol`, and `SLH-DSA-SHA2-128-24verifier.sol`) have been
+formally verified in [Verity](https://github.com/lfglabs-dev/verity), a
+Lean 4 framework for proving Solidity correct.
+
+The proof establishes that each compiled verifier returns exactly what the
+SPHINCS- algorithm prescribes (accept, reject, or revert) and, for the +C
+variants, that it accepts only when the grinding is present: the WOTS digit
+sum hits its target and the forced FORS index is zero. The result reduces
+to a small, explicit trust surface (hash collision resistance, the named
+EVM primitives, and a single model/bytecode bridge axiom).
+
+A hand-held walkthrough of what SPHINCS- is, what a correct verifier must
+check, and how the proof is structured is available here:
+
+**https://lfglabs.dev/research/sphincs-minus-verifier**
