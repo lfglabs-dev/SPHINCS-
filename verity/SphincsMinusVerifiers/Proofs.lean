@@ -13,25 +13,35 @@
     Verity's executable source semantics (`Compiler/.../SourceSemantics.lean`)
     *does* model the raw `bytes`-calldata surface: `evalExpr` handles
     `.calldataload` / `.calldatasize` / `.param` / `.localVar`, and `execStmt` /
-    `execStmtList` run statements over a `RuntimeState`. The remaining gap on the
-    ACCEPT subdomain is a framework limitation, not merely proof size: the
-    interpreter models EVERY hash as `none` (revert) — both the native keccak256
-    opcode (`evalExpr_keccak256 = none`, SourceSemantics.lean:1217) and the SHA-256
-    precompile (`evalExpr_staticcall = none`, line 1277). So running any
-    `*VerifyBody` (C13, C12, or SHA-2) on a valid signature reverts at the first
-    hash call, whereas `ByteLevel.verifyBytes` returns `some true`; the two cannot
-    be proved equal on the accept subdomain until `verity-framework`'s
-    `SourceSemantics.lean` gains hash semantics. Until that is done,
-    each model's refinement of the byte spec is taken as a **named, documented
-    axiom**, not a `sorry`. These axioms are the Lean-level statement of the
+    `execStmtList` run statements over a `RuntimeState`. As of the keccak
+    source-semantics work, the interpreter now also models the native `keccak256`
+    opcode: `evalExpr` on `.keccak256 off size` returns the *computed* 32-byte
+    digest of the word-aligned memory slice (`keccakMemorySlice`, backed by the
+    in-tree pure `KeccakEngine`), no longer `none`. So the keccak-family bodies
+    (C13, C12) no longer revert at their first hash; their accept subdomain is
+    now *reachable* through the real interpreter, and the residual gap there is
+    proof size — the line-by-line equivalence of the full hypertree climb against
+    `ByteLevel.verifyBytes` — not a framework limitation. The SHA-256 precompile
+    (`staticcall` to `0x02`) remains unmodeled (`evalExpr_staticcall = none`): a
+    faithful model is blocked by the word-keyed `RuntimeState` memory vs. the
+    SLH-DSA body's overlapping sub-word `mstore`s (the `linear_memory_aliasing`
+    obligation), so the SHA-2 body still reverts at its first precompile call and
+    that accept subdomain stays out of reach pending a byte-addressed memory
+    model. Until the full per-body accept equivalence is proved, each model's
+    refinement of the byte spec is taken as a **named, documented axiom**, not a
+    `sorry`. These axioms are the Lean-level statement of the
     `proofStatus := .assumed` local obligations already attached to each model in
     `Model.lean` (`assembly_refinement`, `linear_memory_aliasing`, the raw-Yul
     revert obligations). They sit alongside the repo's existing keccak
     collision-resistance axioms in the trust surface and are surfaced by
-    `#print axioms`. The malformed-length subdomain of this bridge is already
-    discharged unconditionally (no bridge axiom): see the
+    `#print axioms`. Two unconditional slices of this bridge are already
+    discharged (no bridge axiom): the malformed-length subdomain — see the
     `*_interp_agrees_verifyBytes_bad_length` theorems below, which run the real
-    interpreter on the real body and prove two-sided agreement with the byte spec.
+    interpreter on the real body and prove two-sided agreement with the byte spec
+    — and the length-guard pass-through on the good-length subdomain (the first
+    accept-path step) — see `*VerifyBody_passes_length_guard` in `Model.lean`,
+    which proves the real interpreter falls through the guard to the body when
+    `sig_length` matches.
 
   The per-verifier `*_refines_byte_spec` and `*_refines_spec` results below are
   therefore unconditional theorems whose only assumptions are these explicitly

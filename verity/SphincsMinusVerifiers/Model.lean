@@ -582,4 +582,114 @@ theorem slhDsaSha2VerifyBody_reverts_on_bad_length
     execStmtList [] st slhDsaSha2VerifyBody = .revert :=
   verifyBody_reverts_on_bad_length slhDsaSha2VerifyBody 3856 st rfl hlen
 
+/-! ### Length-guard pass-through (the first accept-path step)
+
+The dual of `verifyBody_reverts_on_bad_length`: when the ABI-decoded
+`sig_length` local *does* equal the expected signature length, the standard
+length guard is a no-op (its condition evaluates to `0`, the else-branch is
+`[]`), so the real interpreter falls through to the remainder of the body with
+the state unchanged. This is the first step of the accept-path refinement and is
+proved unconditionally through the actual `execStmtList`/`execStmt`/`evalExpr`
+interpreter — no bridge axiom, no `sorry`. It is the companion that makes the
+accept subdomain *reachable* now that `evalExpr` models `keccak256`: before the
+keccak semantics landed, execution would still revert at the first hash; these
+lemmas establish that the guard itself does not block the accept path. -/
+
+open Compiler.Proofs.IRGeneration.SourceSemantics in
+/-- Generic length-guard pass-through: a body whose head statement is the
+standard `sig_length`-mismatch guard falls through to the tail when
+`sig_length` equals the expected value. -/
+theorem verifyBody_passes_length_guard
+    (expectedLen : Nat) (st : RuntimeState) (rest : List Stmt)
+    (hlen : lookupValue st.bindings "sig_length" = wordNormalize expectedLen) :
+    execStmtList [] st
+        ((.ite (notE (eqE (v "sig_length") (u expectedLen)))
+          (errorStringRevert invalidSigLengthWord) []) :: rest)
+      = execStmtList [] st rest := by
+  have he : decide (lookupValue st.bindings "sig_length" = wordNormalize expectedLen) = true :=
+    decide_eq_true hlen
+  have hcond :
+      evalExpr [] st (notE (eqE (v "sig_length") (u expectedLen))) = some 0 := by
+    show some (boolWord (decide (boolWord (decide
+        (lookupValue st.bindings "sig_length" = wordNormalize expectedLen)) = 0))) = some 0
+    rw [he]; rfl
+  have hite : execStmt [] st
+      (.ite (notE (eqE (v "sig_length") (u expectedLen)))
+        (errorStringRevert invalidSigLengthWord) []) = .continue st := by
+    show (match evalExpr [] st (notE (eqE (v "sig_length") (u expectedLen))) with
+          | some resolved =>
+              if resolved != 0 then execStmtList [] st (errorStringRevert invalidSigLengthWord)
+              else execStmtList [] st []
+          | none => .revert) = .continue st
+    rw [hcond]; rfl
+  show (match execStmt [] st
+          (.ite (notE (eqE (v "sig_length") (u expectedLen)))
+            (errorStringRevert invalidSigLengthWord) []) with
+        | .continue n => execStmtList [] n rest
+        | .stop n => .stop n
+        | .return rval rst => .return rval rst
+        | .revert => .revert) = execStmtList [] st rest
+  rw [hite]
+
+open Compiler.Proofs.IRGeneration.SourceSemantics in
+/-- C13: with `sig.length = 3688` the length guard is a no-op and execution
+proceeds into the body. Proved, no bridge axiom. -/
+theorem c13VerifyBody_passes_length_guard
+    (st : RuntimeState)
+    (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688) :
+    execStmtList [] st c13VerifyBody = execStmtList [] st c13VerifyBody.tail :=
+  verifyBody_passes_length_guard 3688 st c13VerifyBody.tail hlen
+
+open Compiler.Proofs.IRGeneration.SourceSemantics in
+/-- C12: with `sig.length = 6512` the length guard is a no-op and execution
+proceeds into the body. Proved, no bridge axiom. -/
+theorem c12VerifyBody_passes_length_guard
+    (st : RuntimeState)
+    (hlen : lookupValue st.bindings "sig_length" = wordNormalize 6512) :
+    execStmtList [] st c12VerifyBody = execStmtList [] st c12VerifyBody.tail :=
+  verifyBody_passes_length_guard 6512 st c12VerifyBody.tail hlen
+
+open Compiler.Proofs.IRGeneration.SourceSemantics in
+/-- SLH-DSA-SHA2-128-24: with `sig.length = 3856` the length guard is a no-op and
+execution proceeds into the body. Proved, no bridge axiom. -/
+theorem slhDsaSha2VerifyBody_passes_length_guard
+    (st : RuntimeState)
+    (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3856) :
+    execStmtList [] st slhDsaSha2VerifyBody = execStmtList [] st slhDsaSha2VerifyBody.tail :=
+  verifyBody_passes_length_guard 3856 st slhDsaSha2VerifyBody.tail hlen
+
+open Compiler.Proofs.IRGeneration.SourceSemantics in
+/-- Continue-step combinator (the dual of `execStmtList_cons_revert`): if the head
+statement steps to `.continue st'`, the walker continues from `st'` over the tail.
+This is the basic forward step for threading the accept-path straight-line prefix
+through the real interpreter. -/
+theorem execStmtList_cons_continue
+    (st st' : RuntimeState) (s : Stmt) (rest : List Stmt)
+    (h : execStmt [] st s = .continue st') :
+    execStmtList [] st (s :: rest) = execStmtList [] st' rest := by
+  show (match execStmt [] st s with
+        | .continue n => execStmtList [] n rest
+        | .stop n => .stop n
+        | .return rval rst => .return rval rst
+        | .revert => .revert) = execStmtList [] st' rest
+  rw [h]
+
+open Compiler.Proofs.IRGeneration.SourceSemantics in
+set_option maxHeartbeats 2000000 in
+/-- Accept-path keccak content: running the C13 Hmsg keccak `letVar`
+(`.letVar "digest" (.keccak256 (.literal 0x00) (.literal 0xA0))`, the statement at
+the head of the digest-extraction block) over the *real* interpreter binds the
+local `"digest"` to the **genuine** Keccak-256 digest of the 0xA0-byte memory slice
+(`keccakMemorySlice`, backed by the in-tree `KeccakEngine`) — not `none`/revert.
+This is the concrete fruit of the `evalExpr` keccak modeling: before that landed
+the body reverted at its first hash; now the accept-path hash is computed.  Proved
+unconditionally through `execStmt`/`evalExpr`, no bridge axiom, no `sorry`. -/
+theorem c13_keccak_letVar_binds_real_digest (st : RuntimeState) :
+    ∃ st',
+      execStmt [] st (.letVar "digest" (.keccak256 (.literal 0x00) (.literal 0xA0)))
+        = .continue st'
+      ∧ lookupValue st'.bindings "digest" = keccakMemorySlice st.world.memory 0 0xA0 := by
+  refine ⟨_, rfl, ?_⟩
+  rfl
+
 end SphincsMinusVerifiers

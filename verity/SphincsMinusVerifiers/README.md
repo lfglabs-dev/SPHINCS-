@@ -96,18 +96,20 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
   `ByteLevel.verifyBytes`.  That interpreter *does* model the raw calldata surface
   (`evalExpr` handles `.calldataload` / `.calldatasize` / `.param` / `.localVar`),
   so the reject/revert subdomain is provable through it (see below).  The
-  **accept** subdomain, however, is hard-blocked at the interpreter for *all
-  three* variants: `SourceSemantics.lean` proves both
-  `evalExpr_keccak256 (.keccak256 a b) = none := rfl` (line 1217) and
-  `evalExpr_staticcall (.staticcall …) = none := rfl` (line 1277), i.e. the
-  interpreter models *every* hash — the native keccak256 opcode and the SHA-256
-  precompile alike — as `none` (revert).  Running any `*VerifyBody` on a valid
-  signature therefore reverts at the first hash call, while `ByteLevel.verifyBytes`
-  returns `some true`; the two cannot be proved equal on the accept subdomain until
-  the framework interpreter is extended with hash semantics.  Discharging the
-  accept side of MODEL-EXEC-BRIDGE is thus the *same* category of work as
-  `SHA2-PRECOMPILE` (a `verity-framework/SourceSemantics.lean` change), not a
-  self-contained accept-path equivalence proof inside this workbench.
+  **accept** subdomain now splits by hash family.  `SourceSemantics.lean`'s
+  `evalExpr` models the native `keccak256` opcode as the *computed* 32-byte
+  digest of the word-aligned memory slice (`keccakMemorySlice`, backed by the
+  in-tree pure `KeccakEngine`) — no longer `none`.  So the **keccak-family**
+  bodies (C13, C12) no longer revert at their first hash; their accept subdomain
+  is *reachable* through the real interpreter, and the residual work there is
+  proof size: the line-by-line equivalence of the full hypertree climb against
+  `ByteLevel.verifyBytes`, a self-contained proof effort inside this workbench.
+  The **SHA-256 precompile** (`staticcall` to `0x02`) is still modeled as `none`
+  (`evalExpr_staticcall = none`): a faithful model is blocked by the word-keyed
+  `RuntimeState` memory vs. the SLH-DSA body's overlapping sub-word `mstore`s
+  (the `linear_memory_aliasing` obligation), so the SHA-2 body still reverts at
+  its first precompile call and that accept subdomain stays out of reach pending
+  a byte-addressed memory model (`SHA2-PRECOMPILE`).
 
   **Proved slice (sound, machine-checked).**  `Model.lean` now discharges one
   unconditional piece of this bridge directly through the interpreter:
@@ -121,6 +123,33 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
   `[propext, Classical.choice, Quot.sound]` (no `sorryAx`, no bridge axiom).  This
   is the length-guard fragment of the eventual `define exec... ; prove
   *_refines_byte_spec` programme; the accept path remains the carried axiom.
+
+  The dual direction — the first **accept**-path step — is also discharged:
+  `c13VerifyBody_passes_length_guard`, `c12VerifyBody_passes_length_guard`, and
+  `slhDsaSha2VerifyBody_passes_length_guard` prove that when `sig_length` *does*
+  equal the expected length the guard is a no-op (`evalExpr` returns `0`, the
+  else-branch is `[]`) and the real interpreter falls through to the body tail
+  (`execStmtList [] st body = execStmtList [] st body.tail`).  Same axiom
+  footprint (`[propext, Classical.choice, Quot.sound]`, no bridge axiom).  These
+  make the accept subdomain *reachable* — the precondition for the keccak-family
+  climb-equivalence proof that replaces the carried axiom.
+
+  **Accept-path keccak step (`Model.lean`).**  Two further unconditional lemmas
+  carry the accept path past its first hash.  `execStmtList_cons_continue` is the
+  forward continue-step combinator (dual of `execStmtList_cons_revert`): a head
+  statement that steps to `.continue st'` advances the interpreter to `st'` over
+  the tail.  `c13_keccak_letVar_binds_real_digest` then runs the *actual* C13 Hmsg
+  keccak statement (`.letVar "digest" (.keccak256 (.literal 0x00) (.literal 0xA0))`)
+  through the real `execStmt`/`evalExpr` and proves the bound local `"digest"`
+  equals `keccakMemorySlice st.world.memory 0 0xA0` — the **genuine** Keccak-256
+  digest of the 0xA0-byte input slice, not `none`/revert.  This is the concrete
+  payoff of modeling `keccak256` in `evalExpr`: the accept path's first hash is now
+  *computed*.  Same axiom footprint (`[propext, Classical.choice, Quot.sound]`, no
+  bridge axiom).  Threading the full straight-line prefix end-to-end into a single
+  reachability term is deferred — not for soundness reasons but because the
+  per-statement `whnf` cost of the interpreter over the giant `c13VerifyBody` term
+  makes the closed-form composition heartbeat-prohibitive; the step combinator plus
+  this digest lemma capture the same content compositionally.
 
   **Bytes-level two-sided agreement (`Proofs.lean`).**  The interpreter-side
   revert lemmas above are lifted to the `Bytes` boundary and paired with the
