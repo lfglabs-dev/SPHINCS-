@@ -50,4 +50,5 @@ lean_lib SphincsMinusVerifiers where
              `SphincsMinusVerifiers.CurrentNodeFrame,
              `SphincsMinusVerifiers.SegmentLayer3,
              `SphincsMinusVerifiers.SegmentCompose,
-             `SphincsMinusVerifiers.SegmentAcceptSpec]
+             `SphincsMinusVerifiers.SegmentAcceptSpec,
+             `SphincsMinusVerifiers.SegmentRejectSpec]
