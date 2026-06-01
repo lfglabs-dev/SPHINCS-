@@ -242,6 +242,16 @@ are:
   `SegmentS4ForsDataObligations.hmRlo_of_afterFors_root_slots`:
   `[propext, Classical.choice, Quot.sound]`.
 
+- `SegmentS4ForsDataObligations.evalExpr_bitAnd_literal_modself`,
+  `SegmentS4ForsDataObligations.stepMerkle_seed_frame_unconditional`, and
+  `SegmentS4ForsDataObligations.hLeaf_discharged`:
+  `[propext, Classical.choice, Quot.sound]`.
+  The latter two remove the residual `hstep` hypothesis of
+  `hLeaf_of_stepMerkle_seed_frame`: `stepMerkle_seed_frame_unconditional` proves a
+  single branchless Merkle swap step preserves `mem[0x00]` for *every* state (no
+  `pathIdx < 2^256` bound — the parity witness `n := pathIdx % 2^256` lands the
+  `and`-selector value exactly), so `hLeaf_discharged` closes `hLeaf` outright.
+
 These are ordinary Lean/meta foundations for the existing development.  The
 forbidden dependencies for these standalone bricks are `sorryAx`, the
 MODEL-EXEC-BRIDGE axiom, and an opaque-primitives axiom.
