@@ -100,6 +100,17 @@ def wordOfHash16 (b : Bytes) : Word := (baToNatBE b % (2 ^ 128)) * (2 ^ 128)
 def hash16OfWord (w : Word) : Bytes :=
   ⟨((List.range 16).map (fun i => UInt8.ofNat ((w / (256 ^ (31 - i))) % 256))).toArray⟩
 
+/-- Reading the high half of a word always produces a C13-sized hash. -/
+theorem hash16OfWord_size (w : Word) : (hash16OfWord w).size = 16 := by
+  simp [hash16OfWord, ByteArray.size]
+
+/-- A byte string is canonical for C13 root comparison when it is the high
+16-byte projection of some word. -/
+def CanonicalHash16 (b : Bytes) : Prop := ∃ w, b = hash16OfWord w
+
+theorem hash16OfWord_canonical (w : Word) : CanonicalHash16 (hash16OfWord w) :=
+  ⟨w, rfl⟩
+
 /-! ### Signature byte layout (C13, 3688 bytes)
 
     R                 : bytes  0..16   (high 16 of word at offset 0)
@@ -151,6 +162,11 @@ theorem getElem?_map_range {α} (f : Nat → α) {n h : Nat} (hh : h < n) :
   rw [List.getElem?_map, List.getElem?_range hh]
   rfl
 
+/-- Indexing into a `range`-map, `getElem` form. -/
+theorem getElem_map_range {α} (f : Nat → α) {n h : Nat} (hh : h < n) :
+    ((List.range n).map f)[h]'(by simp [hh]) = f h := by
+  simp only [List.getElem_map, List.getElem_range]
+
 /-- When `parseSignatureC13` succeeds, its size guard passed. -/
 theorem parseSignatureC13_size {v : Variant} {sig : Bytes} {s : Signature}
     (hparse : parseSignatureC13 v sig = some s) : sig.size = v.sigBytes := by
@@ -158,6 +174,42 @@ theorem parseSignatureC13_size {v : Variant} {sig : Bytes} {s : Signature}
   by_cases hsz : sig.size = v.sigBytes
   · exact hsz
   · simp [hsz] at hparse
+
+/-- Successful concrete C13 parsing fixes the parsed `R` field to the first
+16-byte signature read. -/
+theorem parseSignatureC13_R {sig : Bytes} {s : Signature}
+    (hparse : parseSignatureC13 c13 sig = some s) :
+    s.R = read16 sig 0 := by
+  unfold parseSignatureC13 at hparse
+  by_cases hsz : sig.size = c13.sigBytes
+  · simp [hsz] at hparse
+    rw [← hparse]
+  · simp [hsz] at hparse
+
+/-- Successful concrete C13 parsing constructs exactly the C13 signature shape:
+16-byte `R`, seven 16-byte FORS secrets, six FORS auth paths of height 19, and
+two XMSS layers with 43 WOTS chains and 11 auth nodes each. -/
+theorem parseSignatureC13_shape {sig : Bytes} {s : Signature}
+    (hparse : parseSignatureC13 c13 sig = some s) :
+    signatureShapeOk c13 s = true := by
+  have hsz : sig.size = c13.sigBytes := parseSignatureC13_size hparse
+  unfold parseSignatureC13 at hparse
+  simp only [hsz, ne_eq, not_true_eq_false, if_false, Option.some.injEq] at hparse
+  subst hparse
+  simp [signatureShapeOk, allSized, allAuthSized, read16, ByteArray.size, c13]
+
+/-- C13 accepts the contract-facing public-key words without low-byte
+canonicality checks. -/
+theorem publicKeyOk_c13 (pk : PublicKey) :
+    publicKeyOk c13 pk = true := by
+  simp [publicKeyOk, c13]
+
+/-- Byte-level C13 public-key parsing is just the two exposed `bytes32`
+arguments packaged as a `PublicKey`. -/
+theorem parsePublicKey_c13 (pkSeed pkRoot : Bytes) :
+    SphincsMinusVerifierSpec.ByteLevel.parsePublicKey c13 pkSeed pkRoot =
+      some { pkSeed := pkSeed, pkRoot := pkRoot } := by
+  simp [SphincsMinusVerifierSpec.ByteLevel.parsePublicKey, publicKeyOk_c13]
 
 /-- **XMSS `hauth`.**  The `h`-th auth-path sibling of climb layer `layer`
 (`layer < 2`, `h < 11`) is the 16-byte hash at sig byte-offset
@@ -226,6 +278,17 @@ def hMsgC13 (v : Variant) (pk : PublicKey) (R message : Bytes) : HMsg :=
   let hyperIndex := (digest >>> 133) % (2 ^ 22)
   { forsIndex := forsIndex, hyperIndex := hyperIndex }
 
+theorem hMsgC13_forsIndex_six (pk : PublicKey) (R message : Bytes) :
+    (hMsgC13 c13 pk R message).forsIndex[6]? =
+      some ((keccakWords
+        [ wordOfHash16 pk.pkSeed
+        , wordOfHash16 pk.pkRoot
+        , wordOfHash16 R
+        , baToNatBE message % wordMod
+        , hMsgPad ] >>> 114) % (2 ^ 19)) := by
+  unfold hMsgC13
+  exact getElem?_map_range _ (by decide : 6 < 7)
+
 /-! ### FORS+C reconstruction
 
 For each of the K=7 FORS trees:
@@ -273,6 +336,175 @@ def forsPkFromSigC13 (v : Variant) (pk : PublicKey) (digest : HMsg)
   let allRoots := roots ++ [root6]
   let forsPk := maskN (keccakWords (seed :: adrsForsRoots :: allRoots))
   some (hash16OfWord forsPk)
+
+/-- The six normal FORS tree roots reconstructed by C13 before adding the
+forced-zero tree.  Named so verifier lemmas can target the same spec word list
+without replaying the `forsPkFromSigC13` body. -/
+def forsNormalRootsC13 (pk : PublicKey) (digest : HMsg) (fors : ForsSig) : List Word :=
+  let seed := wordOfHash16 pk.pkSeed
+  (List.range 6).map (fun i =>
+    let treeIdx := (digest.forsIndex[i]?).getD 0
+    let sk := wordOfHash16 ((fors.sk[i]?).getD ⟨#[]⟩)
+    let leaf := maskN (keccakWords [seed, adrsForsLeaf i treeIdx, sk])
+    forsClimb seed i 19 0 treeIdx leaf ((fors.authPath[i]?).getD []))
+
+/-- The forced-zero seventh FORS root used by C13. -/
+def forsForcedRootC13 (pk : PublicKey) (fors : ForsSig) : Word :=
+  let seed := wordOfHash16 pk.pkSeed
+  let sk6 := wordOfHash16 ((fors.sk[6]?).getD ⟨#[]⟩)
+  maskN (keccakWords [seed, adrsForsLeaf 6 0, sk6])
+
+/-- All seven FORS roots in the exact order consumed by C13's FORS public-key
+compression. -/
+def forsAllRootsC13 (pk : PublicKey) (digest : HMsg) (fors : ForsSig) : List Word :=
+  forsNormalRootsC13 pk digest fors ++ [forsForcedRootC13 pk fors]
+
+/-- The masked C13 FORS public-key compression word. -/
+def forsPkWordC13 (pk : PublicKey) (digest : HMsg) (fors : ForsSig) : Word :=
+  let seed := wordOfHash16 pk.pkSeed
+  maskN (keccakWords (seed :: adrsForsRoots :: forsAllRootsC13 pk digest fors))
+
+/-- The named FORS root list has the expected C13 length. -/
+theorem forsAllRootsC13_length (pk : PublicKey) (digest : HMsg) (fors : ForsSig) :
+    (forsAllRootsC13 pk digest fors).length = 7 := by
+  unfold forsAllRootsC13 forsNormalRootsC13
+  simp
+
+/-- Indexing the six normal C13 FORS roots exposes the same per-tree expression
+used by `forsPkFromSigC13`. -/
+theorem forsNormalRootsC13_getElem?
+    (pk : PublicKey) (digest : HMsg) (fors : ForsSig)
+    {i : Nat} (hi : i < 6) :
+    (forsNormalRootsC13 pk digest fors)[i]? =
+      some
+        (let seed := wordOfHash16 pk.pkSeed
+         let treeIdx := (digest.forsIndex[i]?).getD 0
+         let sk := wordOfHash16 ((fors.sk[i]?).getD ⟨#[]⟩)
+         let leaf := maskN (keccakWords [seed, adrsForsLeaf i treeIdx, sk])
+         forsClimb seed i 19 0 treeIdx leaf ((fors.authPath[i]?).getD [])) := by
+  unfold forsNormalRootsC13
+  exact getElem?_map_range _ hi
+
+/-- `getElem` form of `forsNormalRootsC13_getElem?`. -/
+theorem forsNormalRootsC13_getElem
+    (pk : PublicKey) (digest : HMsg) (fors : ForsSig)
+    {i : Nat} (hi : i < 6) :
+    (forsNormalRootsC13 pk digest fors)[i]'(by
+        unfold forsNormalRootsC13
+        simp [hi]) =
+      (let seed := wordOfHash16 pk.pkSeed
+       let treeIdx := (digest.forsIndex[i]?).getD 0
+       let sk := wordOfHash16 ((fors.sk[i]?).getD ⟨#[]⟩)
+       let leaf := maskN (keccakWords [seed, adrsForsLeaf i treeIdx, sk])
+       forsClimb seed i 19 0 treeIdx leaf ((fors.authPath[i]?).getD [])) := by
+  unfold forsNormalRootsC13
+  exact getElem_map_range _ hi
+
+/-- The full seven-root C13 FORS list agrees with the normal-root expression on
+indices `0..5`. -/
+theorem forsAllRootsC13_getElem?_normal
+    (pk : PublicKey) (digest : HMsg) (fors : ForsSig)
+    {i : Nat} (hi : i < 6) :
+    (forsAllRootsC13 pk digest fors)[i]? =
+      some
+        (let seed := wordOfHash16 pk.pkSeed
+         let treeIdx := (digest.forsIndex[i]?).getD 0
+         let sk := wordOfHash16 ((fors.sk[i]?).getD ⟨#[]⟩)
+         let leaf := maskN (keccakWords [seed, adrsForsLeaf i treeIdx, sk])
+         forsClimb seed i 19 0 treeIdx leaf ((fors.authPath[i]?).getD [])) := by
+  unfold forsAllRootsC13
+  rw [List.getElem?_append_left]
+  · exact forsNormalRootsC13_getElem? pk digest fors hi
+  · unfold forsNormalRootsC13
+    simp [hi]
+
+/-- The seventh C13 FORS root is exactly the forced-zero root. -/
+theorem forsAllRootsC13_getElem?_forced
+    (pk : PublicKey) (digest : HMsg) (fors : ForsSig) :
+    (forsAllRootsC13 pk digest fors)[6]? = some (forsForcedRootC13 pk fors) := by
+  unfold forsAllRootsC13 forsNormalRootsC13
+  simp
+
+/-- `getElem` form of `forsAllRootsC13_getElem?_normal`. -/
+theorem forsAllRootsC13_getElem_normal
+    (pk : PublicKey) (digest : HMsg) (fors : ForsSig)
+    {i : Nat} (hi : i < 6) :
+    (forsAllRootsC13 pk digest fors)[i]'(by
+        rw [forsAllRootsC13_length]
+        omega) =
+      (let seed := wordOfHash16 pk.pkSeed
+       let treeIdx := (digest.forsIndex[i]?).getD 0
+       let sk := wordOfHash16 ((fors.sk[i]?).getD ⟨#[]⟩)
+       let leaf := maskN (keccakWords [seed, adrsForsLeaf i treeIdx, sk])
+       forsClimb seed i 19 0 treeIdx leaf ((fors.authPath[i]?).getD [])) := by
+  have hidx : i < (forsAllRootsC13 pk digest fors).length := by
+    rw [forsAllRootsC13_length]
+    omega
+  have h :=
+    forsAllRootsC13_getElem?_normal (pk := pk) (digest := digest) (fors := fors) hi
+  simpa [List.getElem?_eq_getElem hidx] using h
+
+/-- `getElem` form of `forsAllRootsC13_getElem?_forced`. -/
+theorem forsAllRootsC13_getElem_forced
+    (pk : PublicKey) (digest : HMsg) (fors : ForsSig) :
+    (forsAllRootsC13 pk digest fors)[6]'(by
+        rw [forsAllRootsC13_length]
+        omega) = forsForcedRootC13 pk fors := by
+  have hidx : 6 < (forsAllRootsC13 pk digest fors).length := by
+    rw [forsAllRootsC13_length]
+    omega
+  have h := forsAllRootsC13_getElem?_forced pk digest fors
+  simpa [List.getElem?_eq_getElem hidx] using h
+
+/-- `forsPkFromSigC13` is exactly the named seven-root compression word, encoded
+back to 16 bytes.  This is purely a spec-side factoring lemma for the C13 accept
+path; it does not touch any executable model or bridge axiom. -/
+theorem forsPkFromSigC13_eq_named
+    (v : Variant) (pk : PublicKey) (digest : HMsg) (fors : ForsSig) :
+    forsPkFromSigC13 v pk digest fors
+      = some (hash16OfWord (forsPkWordC13 pk digest fors)) := by
+  unfold forsPkFromSigC13 forsPkWordC13 forsAllRootsC13
+    forsNormalRootsC13 forsForcedRootC13
+  rfl
+
+/-- If C13 FORS reconstruction returns a byte string, it is exactly the high
+16-byte read of the named FORS compression word. -/
+theorem forsPkFromSigC13_some_eq_hash16_named
+    {v : Variant} {pk : PublicKey} {digest : HMsg} {fors : ForsSig}
+    {forsPk : Bytes}
+    (h : forsPkFromSigC13 v pk digest fors = some forsPk) :
+    forsPk = hash16OfWord (forsPkWordC13 pk digest fors) := by
+  rw [forsPkFromSigC13_eq_named] at h
+  injection h with hEq
+  exact hEq.symm
+
+/-- Any successful C13 FORS public-key reconstruction returns a 16-byte value. -/
+theorem forsPkFromSigC13_size
+    {v : Variant} {pk : PublicKey} {digest : HMsg} {fors : ForsSig}
+    {forsPk : Bytes}
+    (h : forsPkFromSigC13 v pk digest fors = some forsPk) :
+    forsPk.size = 16 := by
+  rw [forsPkFromSigC13_eq_named] at h
+  injection h with hEq
+  rw [← hEq]
+  exact hash16OfWord_size _
+
+/-- Any successful C13 FORS public-key reconstruction returns a canonical
+`hash16OfWord` output. -/
+theorem forsPkFromSigC13_canonical
+    {v : Variant} {pk : PublicKey} {digest : HMsg} {fors : ForsSig}
+    {forsPk : Bytes}
+    (h : forsPkFromSigC13 v pk digest fors = some forsPk) :
+    CanonicalHash16 forsPk := by
+  exact ⟨forsPkWordC13 pk digest fors, forsPkFromSigC13_some_eq_hash16_named h⟩
+
+/-- For C13, the spec-side forced-zero check means the seventh FORS index is
+present and equal to zero. -/
+theorem forcedZeroOk_c13_forsIndex_six
+    (digest : HMsg) (h : forcedZeroOk c13 digest = true) :
+    digest.forsIndex[6]? = some 0 := by
+  unfold forcedZeroOk at h
+  simpa [c13] using h
 
 /-! ### WOTS+ chains and PK compression
 
@@ -378,6 +610,52 @@ def xmssRootFromSigC13 (v : Variant) (pk : PublicKey)
   let root := xmssClimb seed treeAdrs 11 0 leafIdx start auth
   some (hash16OfWord root)
 
+/-- Any successful C13 WOTS public-key reconstruction returns a 16-byte value. -/
+theorem wotsPkFromSigC13_size
+    {v : Variant} {pk : PublicKey} {treeIdx leafIdx : Nat} {node : Bytes}
+    {wots : WotsSig} {wotsPk : Bytes}
+    (h : wotsPkFromSigC13 v pk treeIdx leafIdx node wots = some wotsPk) :
+    wotsPk.size = 16 := by
+  unfold wotsPkFromSigC13 at h
+  injection h with hEq
+  rw [← hEq]
+  exact hash16OfWord_size _
+
+/-- Any successful C13 WOTS public-key reconstruction returns a canonical
+`hash16OfWord` output. -/
+theorem wotsPkFromSigC13_canonical
+    {v : Variant} {pk : PublicKey} {treeIdx leafIdx : Nat} {node : Bytes}
+    {wots : WotsSig} {wotsPk : Bytes}
+    (h : wotsPkFromSigC13 v pk treeIdx leafIdx node wots = some wotsPk) :
+    CanonicalHash16 wotsPk := by
+  unfold wotsPkFromSigC13 at h
+  injection h with hEq
+  rw [← hEq]
+  exact hash16OfWord_canonical _
+
+/-- Any successful C13 XMSS root reconstruction returns a 16-byte value. -/
+theorem xmssRootFromSigC13_size
+    {v : Variant} {pk : PublicKey} {treeIdx leafIdx : Nat} {wotsPk : Bytes}
+    {auth : List Bytes} {root : Bytes}
+    (h : xmssRootFromSigC13 v pk treeIdx leafIdx wotsPk auth = some root) :
+    root.size = 16 := by
+  unfold xmssRootFromSigC13 at h
+  injection h with hEq
+  rw [← hEq]
+  exact hash16OfWord_size _
+
+/-- Any successful C13 XMSS root reconstruction returns a canonical
+`hash16OfWord` output. -/
+theorem xmssRootFromSigC13_canonical
+    {v : Variant} {pk : PublicKey} {treeIdx leafIdx : Nat} {wotsPk : Bytes}
+    {auth : List Bytes} {root : Bytes}
+    (h : xmssRootFromSigC13 v pk treeIdx leafIdx wotsPk auth = some root) :
+    CanonicalHash16 root := by
+  unfold xmssRootFromSigC13 at h
+  injection h with hEq
+  rw [← hEq]
+  exact hash16OfWord_canonical _
+
 /-- The concrete C13 `Primitives`, all six fields routed through `keccakWords`
 (hence `KeccakEngine.keccak256` over the interpreter's big-endian word preimage).
 No `sorry`, no new axioms. -/
@@ -388,6 +666,224 @@ def c13PrimitivesConcrete : Primitives :=
   , wotsPkFromSig   := wotsPkFromSigC13
   , wotsGrindingOk  := wotsGrindingOkC13
   , xmssRootFromSig := xmssRootFromSigC13 }
+
+/-- If the C13 hypertree climb returns `.ok root`, then the returned root is
+16 bytes, provided the starting FORS public key is 16 bytes. -/
+theorem foldHypertreeAux_c13_ok_root_size
+    (pk : PublicKey) (fuel layer idxTree : Nat) (node : Bytes)
+    (layers : List XmssLayerSig) {root : Bytes}
+    (hNode : node.size = 16)
+    (h : foldHypertreeAux c13PrimitivesConcrete c13 pk fuel layer idxTree node layers
+        = .ok root) :
+    root.size = 16 := by
+  induction fuel generalizing layer idxTree node root with
+  | zero =>
+      unfold foldHypertreeAux at h
+      injection h with hEq
+      rw [← hEq]
+      exact hNode
+  | succ fuel ih =>
+      unfold foldHypertreeAux at h
+      by_cases hlt : layer < c13.d
+      · simp only [hlt, ↓reduceIte] at h
+        cases hLayer : layers[layer]? with
+        | none => simp [hLayer] at h
+        | some lsig =>
+            simp only [hLayer] at h
+            let idxLeaf := idxTree % 2 ^ c13.subtreeH
+            let nextTree := idxTree / 2 ^ c13.subtreeH
+            by_cases hgrind :
+                wotsGrindingFails c13PrimitivesConcrete c13 pk nextTree idxLeaf node lsig.wots
+                  = true
+            · simp [idxLeaf, nextTree, hgrind] at h
+            · simp only [idxLeaf, nextTree, hgrind] at h
+              cases hWots :
+                  c13PrimitivesConcrete.wotsPkFromSig c13 pk nextTree idxLeaf node lsig.wots
+                  with
+              | none =>
+                  have hWots' :
+                      c13PrimitivesConcrete.wotsPkFromSig c13 pk
+                        (idxTree / 2 ^ c13.subtreeH) (idxTree % 2 ^ c13.subtreeH)
+                        node lsig.wots = none := by
+                    simpa [idxLeaf, nextTree] using hWots
+                  simp [hWots'] at h
+              | some wotsPk =>
+                  have hWots' :
+                      c13PrimitivesConcrete.wotsPkFromSig c13 pk
+                        (idxTree / 2 ^ c13.subtreeH) (idxTree % 2 ^ c13.subtreeH)
+                        node lsig.wots = some wotsPk := by
+                    simpa [idxLeaf, nextTree] using hWots
+                  simp only [hWots'] at h
+                  cases hXmss :
+                      c13PrimitivesConcrete.xmssRootFromSig c13 pk nextTree idxLeaf
+                        wotsPk lsig.authPath with
+                  | none =>
+                      have hXmss' :
+                          c13PrimitivesConcrete.xmssRootFromSig c13 pk
+                            (idxTree / 2 ^ c13.subtreeH) (idxTree % 2 ^ c13.subtreeH)
+                            wotsPk lsig.authPath = none := by
+                        simpa [idxLeaf, nextTree] using hXmss
+                      simp [hXmss'] at h
+                  | some xmssRoot =>
+                      have hXmss' :
+                          c13PrimitivesConcrete.xmssRootFromSig c13 pk
+                            (idxTree / 2 ^ c13.subtreeH) (idxTree % 2 ^ c13.subtreeH)
+                            wotsPk lsig.authPath = some xmssRoot := by
+                        simpa [idxLeaf, nextTree] using hXmss
+                      simp only [hXmss'] at h
+                      have hx : xmssRoot.size = 16 := by
+                        exact xmssRootFromSigC13_size
+                          (by simpa [c13PrimitivesConcrete] using hXmss')
+                      exact ih (layer + 1) nextTree xmssRoot hx h
+      · simp only [hlt, ↓reduceIte] at h
+        injection h with hEq
+        rw [← hEq]
+        exact hNode
+
+/-- C13 `foldHypertree` preserves 16-byte roots on successful `.ok` output. -/
+theorem foldHypertree_c13_ok_root_size
+    {pk : PublicKey} {digest : HMsg} {forsPk : Bytes} {layers : List XmssLayerSig}
+    {root : Bytes}
+    (hForsPk : forsPk.size = 16)
+    (h : foldHypertree c13PrimitivesConcrete c13 pk digest forsPk layers = .ok root) :
+    root.size = 16 :=
+  foldHypertreeAux_c13_ok_root_size pk c13.d 0 digest.hyperIndex forsPk layers hForsPk h
+
+/-- C13 `foldHypertree` returns a 16-byte root after successful C13 FORS
+reconstruction. -/
+theorem foldHypertree_c13_ok_root_size_of_fors
+    {pk : PublicKey} {digest : HMsg} {fors : ForsSig} {forsPk root : Bytes}
+    {layers : List XmssLayerSig}
+    (hFors : c13PrimitivesConcrete.forsPkFromSig c13 pk digest fors = some forsPk)
+    (hFold : foldHypertree c13PrimitivesConcrete c13 pk digest forsPk layers = .ok root) :
+    root.size = 16 :=
+  foldHypertree_c13_ok_root_size
+    (forsPkFromSigC13_size (by simpa [c13PrimitivesConcrete] using hFors)) hFold
+
+/-- If the C13 hypertree climb returns `.ok root`, then the returned root is
+canonical, provided the starting FORS public key is canonical. -/
+theorem foldHypertreeAux_c13_ok_root_canonical
+    (pk : PublicKey) (fuel layer idxTree : Nat) (node : Bytes)
+    (layers : List XmssLayerSig) {root : Bytes}
+    (hNode : CanonicalHash16 node)
+    (h : foldHypertreeAux c13PrimitivesConcrete c13 pk fuel layer idxTree node layers
+        = .ok root) :
+    CanonicalHash16 root := by
+  induction fuel generalizing layer idxTree node root with
+  | zero =>
+      unfold foldHypertreeAux at h
+      injection h with hEq
+      rw [← hEq]
+      exact hNode
+  | succ fuel ih =>
+      unfold foldHypertreeAux at h
+      by_cases hlt : layer < c13.d
+      · simp only [hlt, ↓reduceIte] at h
+        cases hLayer : layers[layer]? with
+        | none => simp [hLayer] at h
+        | some lsig =>
+            simp only [hLayer] at h
+            let idxLeaf := idxTree % 2 ^ c13.subtreeH
+            let nextTree := idxTree / 2 ^ c13.subtreeH
+            by_cases hgrind :
+                wotsGrindingFails c13PrimitivesConcrete c13 pk nextTree idxLeaf node lsig.wots
+                  = true
+            · simp [idxLeaf, nextTree, hgrind] at h
+            · simp only [idxLeaf, nextTree, hgrind] at h
+              cases hWots :
+                  c13PrimitivesConcrete.wotsPkFromSig c13 pk nextTree idxLeaf node lsig.wots
+                  with
+              | none =>
+                  have hWots' :
+                      c13PrimitivesConcrete.wotsPkFromSig c13 pk
+                        (idxTree / 2 ^ c13.subtreeH) (idxTree % 2 ^ c13.subtreeH)
+                        node lsig.wots = none := by
+                    simpa [idxLeaf, nextTree] using hWots
+                  simp [hWots'] at h
+              | some wotsPk =>
+                  have hWots' :
+                      c13PrimitivesConcrete.wotsPkFromSig c13 pk
+                        (idxTree / 2 ^ c13.subtreeH) (idxTree % 2 ^ c13.subtreeH)
+                        node lsig.wots = some wotsPk := by
+                    simpa [idxLeaf, nextTree] using hWots
+                  simp only [hWots'] at h
+                  cases hXmss :
+                      c13PrimitivesConcrete.xmssRootFromSig c13 pk nextTree idxLeaf
+                        wotsPk lsig.authPath with
+                  | none =>
+                      have hXmss' :
+                          c13PrimitivesConcrete.xmssRootFromSig c13 pk
+                            (idxTree / 2 ^ c13.subtreeH) (idxTree % 2 ^ c13.subtreeH)
+                            wotsPk lsig.authPath = none := by
+                        simpa [idxLeaf, nextTree] using hXmss
+                      simp [hXmss'] at h
+                  | some xmssRoot =>
+                      have hXmss' :
+                          c13PrimitivesConcrete.xmssRootFromSig c13 pk
+                            (idxTree / 2 ^ c13.subtreeH) (idxTree % 2 ^ c13.subtreeH)
+                            wotsPk lsig.authPath = some xmssRoot := by
+                        simpa [idxLeaf, nextTree] using hXmss
+                      simp only [hXmss'] at h
+                      have hx : CanonicalHash16 xmssRoot := by
+                        exact xmssRootFromSigC13_canonical
+                          (by simpa [c13PrimitivesConcrete] using hXmss')
+                      exact ih (layer + 1) nextTree xmssRoot hx h
+      · simp only [hlt, ↓reduceIte] at h
+        injection h with hEq
+        rw [← hEq]
+        exact hNode
+
+/-- C13 `foldHypertree` preserves canonical roots on successful `.ok` output. -/
+theorem foldHypertree_c13_ok_root_canonical
+    {pk : PublicKey} {digest : HMsg} {forsPk : Bytes} {layers : List XmssLayerSig}
+    {root : Bytes}
+    (hForsPk : CanonicalHash16 forsPk)
+    (h : foldHypertree c13PrimitivesConcrete c13 pk digest forsPk layers = .ok root) :
+    CanonicalHash16 root :=
+  foldHypertreeAux_c13_ok_root_canonical
+    pk c13.d 0 digest.hyperIndex forsPk layers hForsPk h
+
+/-- C13 `foldHypertree` returns a canonical root after successful C13 FORS
+reconstruction. -/
+theorem foldHypertree_c13_ok_root_canonical_of_fors
+    {pk : PublicKey} {digest : HMsg} {fors : ForsSig} {forsPk root : Bytes}
+    {layers : List XmssLayerSig}
+    (hFors : c13PrimitivesConcrete.forsPkFromSig c13 pk digest fors = some forsPk)
+    (hFold : foldHypertree c13PrimitivesConcrete c13 pk digest forsPk layers = .ok root) :
+    CanonicalHash16 root :=
+  foldHypertree_c13_ok_root_canonical
+    (forsPkFromSigC13_canonical (by simpa [c13PrimitivesConcrete] using hFors)) hFold
+
+#print axioms forsAllRootsC13_length
+#print axioms forsNormalRootsC13_getElem?
+#print axioms forsNormalRootsC13_getElem
+#print axioms forsAllRootsC13_getElem?_normal
+#print axioms forsAllRootsC13_getElem?_forced
+#print axioms forsAllRootsC13_getElem_normal
+#print axioms forsAllRootsC13_getElem_forced
+#print axioms forsPkFromSigC13_eq_named
+#print axioms forsPkFromSigC13_some_eq_hash16_named
+#print axioms hash16OfWord_size
+#print axioms CanonicalHash16
+#print axioms hash16OfWord_canonical
+#print axioms forsPkFromSigC13_size
+#print axioms forsPkFromSigC13_canonical
+#print axioms wotsPkFromSigC13_size
+#print axioms wotsPkFromSigC13_canonical
+#print axioms xmssRootFromSigC13_size
+#print axioms xmssRootFromSigC13_canonical
+#print axioms foldHypertreeAux_c13_ok_root_size
+#print axioms foldHypertree_c13_ok_root_size
+#print axioms foldHypertree_c13_ok_root_size_of_fors
+#print axioms foldHypertreeAux_c13_ok_root_canonical
+#print axioms foldHypertree_c13_ok_root_canonical
+#print axioms foldHypertree_c13_ok_root_canonical_of_fors
+#print axioms parseSignatureC13_R
+#print axioms parseSignatureC13_shape
+#print axioms publicKeyOk_c13
+#print axioms parsePublicKey_c13
+#print axioms forcedZeroOk_c13_forsIndex_six
+#print axioms hMsgC13_forsIndex_six
 
 end C13Concrete
 end SphincsMinusVerifierSpec

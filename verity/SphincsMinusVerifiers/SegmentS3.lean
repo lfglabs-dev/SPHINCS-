@@ -90,6 +90,84 @@ def stepS3 (st : RuntimeState) : RuntimeState :=
   let b3 := bindValue b2 "sigBase" (lookupValue st.bindings "sig_data_offset")
   { st with bindings := b3 }
 
+/-! ## 1a. Closed form for the forced-zero guard mask.
+
+The interpreter exposes the guard as a `Uint256.and` with literal mask
+`0x7FFFF`.  The byte spec exposes the same value as FORS index 6,
+`digest >>> 114` reduced modulo `2^19`.  The two facts below are the pure
+arithmetic bridge between those presentations. -/
+
+theorem nat_land_low19 (x : Nat) : Nat.land x 0x7FFFF = x % 2 ^ 19 := by
+  change (x &&& (2 ^ 19 - 1)) = x % 2 ^ 19
+  apply Nat.eq_of_testBit_eq
+  intro i
+  rw [Nat.testBit_land]
+  by_cases hi : i < 19
+  · have hmask : (2 ^ 19 - 1).testBit i = true := by
+      rw [Nat.testBit_two_pow_sub_one]
+      exact decide_eq_true hi
+    rw [hmask, Bool.and_true]
+    rw [Nat.testBit_mod_two_pow]
+    simp [hi]
+  · have hmask : (2 ^ 19 - 1).testBit i = false := by
+      rw [Nat.testBit_two_pow_sub_one]
+      exact decide_eq_false hi
+    rw [hmask, Bool.and_false]
+    rw [Nat.testBit_mod_two_pow]
+    simp [hi]
+
+theorem s3Guard_eq_forsIndex6
+    (st : RuntimeState) (digest : Nat)
+    (hdigest : lookupValue st.bindings "digest" = digest)
+    (hBound : digest < 2 ^ 256) :
+    s3Guard st = (digest >>> 114) % 2 ^ 19 := by
+  unfold s3Guard
+  rw [hdigest]
+  have h114 : wordNormalize 114 = 114 := by
+    rw [wordNormalize_eq_mod]
+    exact Nat.mod_eq_of_lt (by decide : 114 < 2 ^ 256)
+  have hmask : wordNormalize 0x7FFFF = 0x7FFFF := by
+    rw [wordNormalize_eq_mod]
+    exact Nat.mod_eq_of_lt (by decide : 0x7FFFF < 2 ^ 256)
+  rw [h114, hmask]
+  show (Verity.Core.Uint256.and (Verity.Core.Uint256.shr 114 digest).val 0x7FFFF).val
+      = (digest >>> 114) % 2 ^ 19
+  show ((Verity.Core.Uint256.ofNat
+        (Nat.land (Verity.Core.Uint256.ofNat
+          (Verity.Core.Uint256.shr 114 digest).val).val
+          (Verity.Core.Uint256.ofNat 0x7FFFF).val)).val)
+      = (digest >>> 114) % 2 ^ 19
+  have h114v : (Verity.Core.Uint256.ofNat 114).val = 114 :=
+    Nat.mod_eq_of_lt (by decide : 114 < 2 ^ 256)
+  have hdv : (Verity.Core.Uint256.ofNat digest).val = digest :=
+    Nat.mod_eq_of_lt hBound
+  have hshrval : (Verity.Core.Uint256.shr 114 digest).val = digest >>> 114 := by
+    show ((Verity.Core.Uint256.ofNat
+            ((Verity.Core.Uint256.ofNat digest).val >>>
+              (Verity.Core.Uint256.ofNat 114).val)).val)
+        = digest >>> 114
+    rw [hdv, h114v]
+    show (digest >>> 114) % Verity.Core.Uint256.modulus = digest >>> 114
+    have hlt : digest >>> 114 < 2 ^ 256 := by
+      rw [Nat.shiftRight_eq_div_pow]
+      exact Nat.lt_of_le_of_lt (Nat.div_le_self digest (2 ^ 114)) hBound
+    rw [show Verity.Core.Uint256.modulus = 2 ^ 256 from rfl, Nat.mod_eq_of_lt hlt]
+  rw [hshrval]
+  have hshrBound : digest >>> 114 < 2 ^ 256 := by
+    rw [Nat.shiftRight_eq_div_pow]
+    exact Nat.lt_of_le_of_lt (Nat.div_le_self digest (2 ^ 114)) hBound
+  have hshrv : (Verity.Core.Uint256.ofNat (digest >>> 114)).val = digest >>> 114 :=
+    Nat.mod_eq_of_lt hshrBound
+  have hmaskv : (Verity.Core.Uint256.ofNat 0x7FFFF).val = 0x7FFFF :=
+    Nat.mod_eq_of_lt (by decide : 0x7FFFF < 2 ^ 256)
+  rw [hshrv, hmaskv]
+  show Nat.land (digest >>> 114) 0x7FFFF % Verity.Core.Uint256.modulus =
+      (digest >>> 114) % 2 ^ 19
+  have hlandBound : Nat.land (digest >>> 114) 0x7FFFF < 2 ^ 256 :=
+    Nat.lt_of_le_of_lt Nat.and_le_left hshrBound
+  rw [show Verity.Core.Uint256.modulus = 2 ^ 256 from rfl, Nat.mod_eq_of_lt hlandBound]
+  exact nat_land_low19 (digest >>> 114)
+
 /-! ## 2. Local interpreter combinators (self-contained copies). -/
 
 private theorem letVar_continue
@@ -273,5 +351,7 @@ theorem execSegmentS3 (st : RuntimeState) :
 
 #print axioms execSegmentS3
 #print axioms segmentS3_eq_slice
+#print axioms nat_land_low19
+#print axioms s3Guard_eq_forsIndex6
 
 end SphincsMinusVerifiers.SegmentS3

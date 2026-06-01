@@ -46,6 +46,31 @@ def allGuardsPass (varName : String) (step : RuntimeState → RuntimeState)
           (step { state with bindings := bindValue state.bindings varName (wordNormalize index) })
           (index + 1) remaining
 
+/-- If a relation `R` supplies both the guard fact for the current loop state and
+the related post-step accumulator, then every threaded guard in the corresponding
+fuel-bounded loop passes.  This is the guarded analogue of
+`ClimbLoop.foldLoop_invariant`, but it returns only the control-flow trace needed
+by `execStmt_forEach_of_guarded_step`. -/
+theorem allGuardsPass_of_rel
+    {α : Type} (varName : String) (step : RuntimeState → RuntimeState)
+    (guard : RuntimeState → Bool) (specStep : Nat → α → α)
+    (R : RuntimeState → α → Prop)
+    (hstep : ∀ (s : RuntimeState) (a : α) (idx : Nat),
+      R s a →
+        guard { s with bindings := bindValue s.bindings varName (wordNormalize idx) } = true ∧
+        R (step { s with bindings := bindValue s.bindings varName (wordNormalize idx) })
+          (specStep idx a)) :
+    ∀ (state : RuntimeState) (a : α) (index remaining : Nat),
+      R state a →
+      allGuardsPass varName step guard state index remaining := by
+  intro state a index remaining hR
+  induction remaining generalizing state a index with
+  | zero => exact True.intro
+  | succ remaining ih =>
+      exact ⟨(hstep state a index hR).1,
+        ih (step { state with bindings := bindValue state.bindings varName (wordNormalize index) })
+          (specStep index a) (index + 1) (hstep state a index hR).2⟩
+
 /-! ## 2. The headline guarded loop-threading lemma. -/
 
 /-- **`execForEachLoop_of_guarded_step`** — if the loop body either continues to
@@ -109,5 +134,6 @@ theorem execStmt_forEach_of_guarded_step
 
 #print axioms execForEachLoop_of_guarded_step
 #print axioms execStmt_forEach_of_guarded_step
+#print axioms allGuardsPass_of_rel
 
 end SphincsMinusVerifiers.ClimbLoopGuarded

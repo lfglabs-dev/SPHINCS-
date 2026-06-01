@@ -26,7 +26,8 @@ lean_lib SphincsMinusVerifierSpec where
 lean_lib SphincsMinusVerifiers where
   srcDir := "."
   roots := #[`SphincsMinusVerifiers.Model, `SphincsMinusVerifiers.Proofs,
-             `SphincsMinusVerifiers.MemoryKit, `SphincsMinusVerifiers.ClimbKit,
+             `SphincsMinusVerifiers.MemoryKit, `SphincsMinusVerifiers.MemoryFrame,
+             `SphincsMinusVerifiers.ClimbKit,
              `SphincsMinusVerifiers.ClimbLoop,
              `SphincsMinusVerifiers.BindingFrame,
              `SphincsMinusVerifiers.RootFrame,
@@ -38,6 +39,7 @@ lean_lib SphincsMinusVerifiers where
              `SphincsMinusVerifiers.SegmentS3,
              `SphincsMinusVerifiers.SegmentSeed,
              `SphincsMinusVerifiers.SegmentS4Fors,
+             `SphincsMinusVerifiers.SegmentS4ForsMerkleFrame,
              `SphincsMinusVerifiers.SegmentS4Finalize,
              `SphincsMinusVerifiers.SegmentS2,
              `SphincsMinusVerifiers.SegmentS2R,

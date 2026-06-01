@@ -330,6 +330,56 @@ theorem forsPkCompressWord_eq_of_afterFors_mkC13State_six_plus_last
     (afterFors_seed_slot_mkC13State_of_forsLeafStep_preserves pkSeed pkRoot message sig hLeaf)
     hmRlo hmRlast
 
+/-- Range-gated frozen-entry FORS-compression adapter.  This is the same
+boundary as `forsPkCompressWord_eq_of_afterFors_mkC13State_six_plus_last`, but
+the seed preservation premise matches the real statement-14 loop range (`i < 6`)
+instead of requiring a globally quantified leaf-step fact. -/
+theorem forsPkCompressWord_eq_of_afterFors_mkC13State_six_plus_last_range
+    (pkSeed pkRoot message sig : ByteArray) (roots : List Nat)
+    (hlen : roots.length = 7)
+    (hLeaf : ∀ (s : RuntimeState) (idx : Nat), idx < 6 →
+      ((SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+          { s with bindings := bindValue s.bindings "i" (wordNormalize idx) }).world.memory 0).val
+        = (s.world.memory 0).val)
+    (hmRlo : ∀ j, (h : j < 6) →
+      ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+          (afterFors (mkC13State pkSeed pkRoot message sig))).world.memory
+          (0x80 + 32 * j)).val = roots[j]'(by omega))
+    (hmRlast :
+      ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+          (afterFors (mkC13State pkSeed pkRoot message sig))).world.memory
+          0x140).val = roots[6]'(by omega)) :
+    forsPkCompressWord (afterFors (mkC13State pkSeed pkRoot message sig))
+      = maskN (keccakWords (wordOfHash16 pkSeed :: adrsForsRoots :: roots)) :=
+  forsPkCompressWord_eq_of_preCopy_frame_six_plus_last
+    (afterFors (mkC13State pkSeed pkRoot message sig)) (wordOfHash16 pkSeed) roots hlen
+    (afterFors_seed_slot_mkC13State_of_forsLeafStep_range_preserves
+      pkSeed pkRoot message sig hLeaf)
+    hmRlo hmRlast
+
+/-- Seed-cell frozen-entry FORS-compression adapter.  This is the narrowest
+S4/FORS-compression boundary: callers supply the single seed-cell fact at
+`afterFors`, plus the six normal root cells and the forced-root cell. -/
+theorem forsPkCompressWord_eq_of_afterFors_seed_mkC13State_six_plus_last
+    (pkSeed pkRoot message sig : ByteArray) (roots : List Nat)
+    (hlen : roots.length = 7)
+    (hmSeed :
+      ((afterFors (mkC13State pkSeed pkRoot message sig)).world.memory 0).val
+        = wordOfHash16 pkSeed)
+    (hmRlo : ∀ j, (h : j < 6) →
+      ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+          (afterFors (mkC13State pkSeed pkRoot message sig))).world.memory
+          (0x80 + 32 * j)).val = roots[j]'(by omega))
+    (hmRlast :
+      ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+          (afterFors (mkC13State pkSeed pkRoot message sig))).world.memory
+          0x140).val = roots[6]'(by omega)) :
+    forsPkCompressWord (afterFors (mkC13State pkSeed pkRoot message sig))
+      = maskN (keccakWords (wordOfHash16 pkSeed :: adrsForsRoots :: roots)) :=
+  forsPkCompressWord_eq_of_preCopy_frame_six_plus_last
+    (afterFors (mkC13State pkSeed pkRoot message sig)) (wordOfHash16 pkSeed) roots hlen
+    hmSeed hmRlo hmRlast
+
 /-! ## Layer-loop lift for `currentNode`. -/
 
 /-- A compact relation saying that a runtime state's `"currentNode"` binding is
@@ -447,6 +497,8 @@ theorem afterLayer_currentNode_wordOfHash16_of_forsPk_step
 #print axioms forsPkCompressWord_eq_of_preCopy_frame
 #print axioms forsPkCompressWord_eq_of_preCopy_frame_six_plus_last
 #print axioms forsPkCompressWord_eq_of_afterFors_mkC13State_six_plus_last
+#print axioms forsPkCompressWord_eq_of_afterFors_mkC13State_six_plus_last_range
+#print axioms forsPkCompressWord_eq_of_afterFors_seed_mkC13State_six_plus_last
 #print axioms stepLayer_currentNodeRel_of_merkleNode
 #print axioms afterLayer_currentNode_of_step
 #print axioms afterLayer_currentNode_of_forsPk_step

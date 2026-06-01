@@ -39,6 +39,15 @@ The primitive packages are deliberately not universally quantified: C13, C12,
 and SHA2 use different hash/address/signature parsing semantics, and a single
 compiled verifier cannot refine every possible `Primitives` instance.
 
+Status and trust-surface companion docs:
+
+- `AUDIT.md` maps `STRATEGY.md` section 6 to the current evidence and remaining
+  gaps.
+- `AXIOMS.md` records the live bridge axioms and the expected axiom footprints
+  for current standalone C13 lemmas.
+- `TRUST_ASSUMPTIONS.md` records the source-to-model fidelity boundary, SHA-2
+  exclusion, and the atomic `execC13`/`c13_refines_byte_spec` soundness rule.
+
 **Phase 0 (STRATEGY §1) — concrete C13 primitives (done).** `c13Primitives` is
 no longer `axiom c13Primitives : Primitives`; it is now
 `def c13Primitives := C13Concrete.c13PrimitivesConcrete`
@@ -78,7 +87,13 @@ loop bounds, digest bit extraction, branchless Merkle swaps, and final
 
 The C12 model expands the plain FORS, FORS-root compression, WOTS+ checksum and
 chains, WOTS public-key compression, and five XMSS layers.  It follows the
-Solidity memory offsets and signature offsets directly.
+Solidity memory offsets and signature offsets directly.  The STRATEGY C12
+word-alignment precheck has been inspected at the model-shape level: C12's
+16-byte values are represented as masked high-half words (`... & N_MASK`) and
+stored at word-aligned scratch/root-array offsets such as `0x20`, `0x40`,
+`0x80 + 32*i`, `0x40 + 32*i`, and `0x100 + 32*i`.  The C12 model therefore does
+not show the SHA2 model's packed sub-word write pattern (`0x56`, `0x66`) that
+requires byte-addressed memory lemmas.
 
 The SHA2 model expands the Hmsg precompile calls, FORS, WOTS+, WOTS public-key
 compression, and XMSS climb.  It is structurally line-by-line, but it still
@@ -176,8 +191,26 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
   - `SegmentS2.execS2` — H_msg digest block, stmts 1..9, `→ .continue (s2Step ·)`.
   - `SegmentS3.execSegmentS3` — htIdx/dVal/forced-zero-guard/sigBase, stmts 10..13,
     `→ if s3Guard = 0 then .continue (stepS3 ·) else .revert`.
+    `SegmentS3.nat_land_low19` and `SegmentS3.s3Guard_eq_forsIndex6` give the
+    matching arithmetic presentation of the guard: for a bounded concrete digest
+    binding, the interpreter's `Uint256.and` mask is exactly
+    `(digest >>> 114) % 2^19`, the C13 FORS-index-6 value.  This is the
+    interpreter-side half of the remaining S3 forced-zero bridge.  Axiom-clean
+    (`[propext, Classical.choice, Quot.sound]`).
   - `SegmentS4Fors.execForsOuter` — FORS tree-root `forEach "i" 6`, stmt 14,
     `→ .continue (foldLoop "i" forsLeafStep ·)` via the generic `ClimbLoop` engine.
+    The same module now exposes `forsLeafBody_eq_segments` plus setup/final-store
+    frame facts for the seed cell and outer `"i"` binding, now including
+    whole-leaf and step-level `"i"` preservation.  Together with the new generic
+    `MemoryFrame` kit, these isolate the remaining range-gated leaf-body
+    seed-preservation work and lift it through the real statement via
+    `execForsOuter_preserves_seed_slot_range`, plus a `idx < 6` adapter
+    `execForsOuter_preserves_seed_slot_range_six`.  The setup/final-store pieces
+    now compose into conditional whole-leaf and step seed frames whose only
+    premise is inner Merkle-climb seed preservation.  The final dynamic store
+    offset is now proved to evaluate to `0x80 + 32*i` and not alias `0x00` for
+    the real `i < 6` loop range; the remaining connection point is the inner
+    Merkle climb seed frame.
   - `SegmentS4Finalize.execForsFinalize` — FORS finalize block (forced 7th leaf,
     copy loop, forsPk), stmts 15..21, `→ .continue (forsFinalizeStep ·)`.
   - `SegmentSeed.execSegmentSeed` — currentNode/idxTree/sigOff seed, stmts 22..24,
@@ -274,6 +307,21 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     compose with `ClimbLoop.foldLoop_preserves_lookup` for loop-containing bodies.
     All six axiom-clean (`[propext, Classical.choice, Quot.sound]`).
 
+  - `MemoryFrame.*` — the memory-cell analogue for values stored at fixed memory
+    offsets.  `letVar`/`assignVar` preserve every memory cell, `mstore` preserves
+    a cell when its resolved store offset cannot alias it, and
+    `execStmtList_preserves_memory_val` lifts those facts over straight-line
+    bodies.  The kit now also has raw `execForEachLoop` and statement-level
+    `.forEach` preservation lifts, plus bounded and range-gated raw
+    `execForEachLoop` and statement-level `.forEach` variants for proofs that
+    depend on the concrete loop index.  This lets loop-containing memory-frame proofs stay at the
+    interpreter-loop level instead of first converting to a pure `foldLoop`.
+    Axiom-clean (`execForEachLoop_preserves_memory_val` and its bounded variant:
+    `[propext]`; the raw range-gated variant: `[propext, Quot.sound]`; the
+    statement-level and straight-line lifts, including the statement-level
+    bounded/range-gated variants:
+    `[propext, Classical.choice, Quot.sound]`).
+
   - `RootFrame.stepLayer_preserves_root` — the first *consumer* of the
     `BindingFrame` kit: one accepting Layer-3 hypertree-climb iteration carries the
     `"root"` binding through untouched.  `root` is written exactly once (in S2,
@@ -334,6 +382,206 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     double-loop feeding `wotsPk`, then the 11-step XMSS climb per layer, across both
     hypertree layers) — months-scale per STRATEGY §5, and the sole remaining blocker
     before `c13_refines_byte_spec` can flip from `axiom` to `theorem`.
+
+  - `CurrentNodeFrame.forsPkCompressWord_eq_of_afterFors_mkC13State_six_plus_last_range`
+    and `forsPkCompressWord_eq_of_afterFors_seed_mkC13State_six_plus_last`
+    — C13 FORS-compression adapters.  The range-gated form is the frozen-entry
+    version of the existing six-roots-plus-forced-root bridge, but its seed-cell
+    premise is scoped to the real statement-14 loop range (`i < 6`) via
+    `afterFors_seed_slot_mkC13State_of_forsLeafStep_range_preserves` instead of a
+    globally quantified leaf-step fact.  The seed-cell form is the narrowest
+    compression boundary: callers supply the single `afterFors` seed-cell fact
+    directly, plus the six normal root cells and the forced-root cell.  Both
+    leave the substantive root-cell data correspondence as explicit hypotheses.
+    Axiom-clean (`[propext, Classical.choice, Quot.sound]`).
+
+  - `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_fors_roots_and_layer_step_range`
+    `accept_path_returns_verifyParsed_bool_from_seed_and_fors_roots_and_layer_step`,
+    `accept_path_returns_verifyParsed_bool_from_named_fors_roots_and_layer_step_range`,
+    `accept_path_returns_verifyParsed_bool_from_seed_and_named_fors_roots_and_layer_step`,
+    and
+    `accept_path_returns_verifyParsed_bool_from_named_fors_roots_roundtrip_and_layer_step_range`
+    and
+    `accept_path_returns_verifyParsed_bool_from_seed_and_named_fors_roots_roundtrip_and_layer_step`
+    — the corresponding final-accept adapters.  They feed the range-gated
+    FORS-compression frame into the existing `verifyParsed` composition.  The
+    first consumes an explicit seven-root word list behind the `hLeaf` seed-loop
+    premise; the seed-cell variant consumes the same explicit root list but takes
+    the exact `afterFors` seed cell directly.  The named-root variant specializes
+    the root list to `C13Concrete.forsAllRootsC13`, so callers state the six low
+    root cells and the forced-root cell directly against the named spec roots,
+    plus a named `forsPkWordC13 = wordOfHash16 forsPk` compression fact; its
+    seed-cell sibling combines that named root surface with the direct `afterFors`
+    seed-cell handoff.  The roundtrip variants derive that byte-result equality
+    from `hFors` and `forsPkFromSigC13_some_eq_hash16_named`, leaving only the
+    canonical `wordOfHash16 (hash16OfWord forsPkWordC13) = forsPkWordC13`
+    roundtrip premise, with or without the direct seed-cell handoff.  All return
+    the same `execStmtList ... c13VerifyBody = .return ...` conclusion as the
+    previous compose stubs, with no `execC13` definition and no bridge axiom.
+    Axiom-clean (`[propext, Classical.choice, Quot.sound]`).
+
+  - `SegmentAcceptSpec.C13SeedNamedAcceptObligations` and
+    `accept_path_returns_verifyParsed_bool_from_seed_named_obligations` package
+    the current narrow accept handoff into the shape intended for integration.
+    The parse/spec facts (`hShape`, `hZero`, `hFors`, `hFold`) stay explicit,
+    while the remaining model/spec correspondence surface is one named contract:
+    length and loop guards, the direct `afterFors` seed cell, the six named FORS
+    root cells plus forced root cell, the `hash16OfWord`/`wordOfHash16`
+    roundtrip for `forsPkWordC13`, the layer-step/fold bridge, and the final
+    word-comparison bridge.  `c13_sig_length_of_parseSignatureC13` derives the
+    model `sig_length = 3688` fact from a successful concrete C13 parse, and
+    `c13_s3Guard_of_parse_forcedZero` derives the S3 forced-zero model guard
+    from the same parse fact plus successful spec-side `forcedZeroOk`.
+    `C13SeedNamedAcceptDataObligations` /
+    `accept_path_returns_verifyParsed_bool_from_seed_named_data_obligations_of_parse`
+    use that parse fact to omit the length guard from the residual bundle, while
+    `C13SeedNamedAcceptParsedObligations` /
+    `accept_path_returns_verifyParsed_bool_from_seed_named_parsed_obligations`
+    omit both the length guard and the S3 guard.  `LayerGuardedStep`,
+    `ClimbLoopGuarded.allGuardsPass_of_rel`, and
+    `C13SeedNamedAcceptGuardedLayerObligations` replace the separate `hgL` trace
+    and `hLayerStep` proof with one per-layer guarded correspondence: guard
+    passes and `currentNode` tracks the spec step.
+    `layerStart_of_seed_named_fors_roots_roundtrip`,
+    `C13SeedNamedAcceptGuardedObligations`, and
+    `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_obligations`
+    go one step narrower by deriving the initial layer `currentNode` relation
+    from the named S4/FORS seed/root frame, so the current parsed guarded handoff
+    no longer carries a separate `hLayerStart` field.
+    `parseSignatureC13_shape` and
+    `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_obligations_of_parse`
+    additionally derive the C13 `signatureShapeOk` guard from successful
+    concrete parsing, so the current parse-based adapter no longer carries a
+    separate `hShape` premise.  `C13Concrete.publicKeyOk_c13`,
+    `C13Concrete.parsePublicKey_c13`, and
+    `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_obligations_of_bytes`
+    specialize the public key to the contract-facing `pkSeed`/`pkRoot` byte
+    arguments, so the current byte-shaped adapter also no longer carries a
+    separate `hPk` premise.
+    `C13SeedNamedAcceptGuardedRoundtripObligations` and
+    `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_roundtrip_obligations_of_bytes`
+    then replace the raw final `hWordCmp` field with the two canonical
+    final-root roundtrips, deriving the comparison by
+    `wordCmp_of_wordOfHash16_roundtrip`.
+    `C13SeedNamedAcceptGuardedPkRoundtripObligations` and
+    `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_roundtrip_obligations_of_bytes`
+    derive the spec-root roundtrip from successful C13 FORS reconstruction and
+    hypertree folding via `specRoot_roundtrip_of_c13_fors_fold`.
+    `baToNatBE_hash16OfWord`, `wordOfHash16_hash16OfWord_highHalf`,
+    `wordOfHash16_hash16OfWord_maskN_of_lt`, and
+    `forsPkWordC13_roundtrip` prove that the named FORS public-key compression
+    word is already canonical because it is a bounded Keccak word masked by
+    `N_MASK`.  `C13SeedNamedAcceptGuardedPkRootObligations` and
+    `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_obligations_of_bytes`
+    derive both C13-produced roundtrips internally, leaving only the
+    public-key-root byte roundtrip as the final comparison boundary premise.
+    `base256_digit_decomp`, `base256_uint8_fold_init`,
+    `base256_uint8_fold_lt`, `base256_fold_digit_of_list`,
+    `baToNatBE_eq_data_toList`, `baToNatBE_lt_of_size`, and
+    `hash16OfWord_wordOfHash16_of_size` then prove a size-based byte roundtrip:
+    any 16-byte root roundtrips through `wordOfHash16`/`hash16OfWord`.
+    `C13SeedNamedAcceptGuardedPkRootSizeObligations` and
+    `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_obligations_of_bytes`
+    derive the public-key-root
+    roundtrip from `pkRoot.size = 16`, so the final comparison boundary is now an
+    ordinary public-key-root size premise rather than a raw roundtrip equality.
+    `C13SeedNamedAcceptGuardedPkRootSizeLeafObligations` and
+    `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_leaf_obligations_of_bytes`
+    are the current narrowest byte-shaped handoff: they also derive the
+    `afterFors` seed-cell fact from a range-gated `forsLeafStep` seed-preservation
+    premise using
+    `CurrentNodeFrame.afterFors_seed_slot_mkC13State_of_forsLeafStep_range_preserves`.
+    `SegmentS4Fors` now proves the straight-line setup and final-store frame
+    pieces needed by that premise, including the in-range final-store offset
+    non-aliasing arithmetic, and a statement-level outer-loop seed-cell handoff
+    for the real `forEach "i" (u 6)` statement in both `wordNormalize 6` and
+    `idx < 6` adapter shapes.  It also proves that the inner Merkle climb and
+    whole FORS leaf step preserve the outer `"i"` binding, and that inner
+    seed-cell preservation is enough for whole-leaf seed-cell preservation.
+    `SegmentS4ForsMerkleFrame` keeps the heavier Merkle frame import out of S4
+    itself while connecting the inner climb statement, whole leaf step, and full
+    outer FORS loop to bounded/range-gated per-`stepMerkle` seed-cell
+    preservation.  `stepMerkle_preserves_seed_slot_of_s4_eval` now discharges the
+    pure local eval and parity-offset parts of that per-step seed-cell frame for
+    the actual S4 variable names; `forsLeafInner_preserves_seed_slot_bound_of_s4_eval`
+    and `execForsOuter_preserves_seed_slot_range_of_s4_eval` lift that site-fact
+    shape through the inner Merkle climb and full FORS outer loop.
+    `s4_address_assembly_eval_exists` now supplies the address-assembly eval
+    witness from the ordinary `treeAdrsBase` binding, `treeAdrsBase` bound,
+    `pathIdx` bound, and `idx < 19` facts.  The remaining live connection point
+    is the site-specific masked sibling calldata read, plus those ordinary
+    binding/bounds inputs where callers use the address witness.
+    These are only
+    bundles/adapters for real residual obligations; they do not define `execC13`
+    and do not discharge the bridge axiom.  Axiom-clean
+    (`c13_sig_length_of_parseSignatureC13`: `[propext, Quot.sound]`; the S3 guard
+    adapter, guarded-layer adapter, bundles, and accept adapters:
+    `[propext, Classical.choice, Quot.sound]`; the public-key parse facts:
+    `[propext]`).
+
+  - `C13Concrete.{forsNormalRootsC13, forsForcedRootC13, forsAllRootsC13,
+    forsPkWordC13}` and `forsPkFromSigC13_eq_named` — the spec-side FORS root
+    mirror now names the exact six normal roots, forced-zero root, seven-root
+    compression list, and masked FORS public-key word used by
+    `forsPkFromSigC13`.  `forsAllRootsC13_length` proves the named list has
+    length 7; `forsNormalRootsC13_getElem?`,
+    `forsNormalRootsC13_getElem`, `forsAllRootsC13_getElem?_normal`,
+    `forsAllRootsC13_getElem?_forced`, `forsAllRootsC13_getElem_normal`, and
+    `forsAllRootsC13_getElem_forced` expose the six normal roots and the forced
+    seventh root at stable indices in both `getElem?` and `getElem` forms;
+    `forsPkFromSigC13_eq_named` factors the concrete primitive to
+    `some (hash16OfWord (forsPkWordC13 ...))`, and
+    `forsPkFromSigC13_some_eq_hash16_named` extracts the corresponding byte
+    equality from any successful FORS reconstruction.  This gives the model-side
+    root cell correspondence a stable RHS without replaying the spec's `let`
+    chain.  `parseSignatureC13_R` fixes the parsed C13 randomness field to
+    `read16 sig 0`, `parseSignatureC13_shape` derives the full C13
+    `signatureShapeOk` guard from successful parsing, `publicKeyOk_c13` proves
+    that C13 imposes no low-byte public-key canonicality check, `parsePublicKey_c13`
+    packages the byte-level `pkSeed`/`pkRoot` arguments as the C13 public key,
+    `forcedZeroOk_c13_forsIndex_six` extracts the spec-side
+    seventh-FORS-index-is-zero fact from a successful C13 forced-zero check, and
+    `hMsgC13_forsIndex_six` exposes that index as the concrete H_msg digest's
+    `((digest >>> 114) % 2^19)` value.  Together with
+    `SegmentS3.s3Guard_eq_forsIndex6`, these feed the parsed S3-guard adapter.
+    The result-shape facts `hash16OfWord_size`, `forsPkFromSigC13_size`,
+    `wotsPkFromSigC13_size`, `xmssRootFromSigC13_size`,
+    `foldHypertreeAux_c13_ok_root_size`, `foldHypertree_c13_ok_root_size`, and
+    `foldHypertree_c13_ok_root_size_of_fors` establish that successful C13
+    reconstruction outputs are 16-byte roots; this is the canonical root-size
+    side needed by the eventual final word-comparison/injectivity bridge.
+    `CanonicalHash16` plus
+    `forsPkFromSigC13_canonical`, `wotsPkFromSigC13_canonical`,
+    `xmssRootFromSigC13_canonical`,
+    `foldHypertreeAux_c13_ok_root_canonical`,
+    `foldHypertree_c13_ok_root_canonical`, and
+    `foldHypertree_c13_ok_root_canonical_of_fors` further show successful C13
+    reconstruction outputs are projections of some `hash16OfWord` word.
+    `SegmentAcceptSpec.hash16OfWord_wordOfHash16_hash16OfWord` closes the
+    numeric base-256 roundtrip
+    `hash16OfWord (wordOfHash16 (hash16OfWord w)) = hash16OfWord w`, and
+    `specRoot_roundtrip_of_c13_fors_fold` applies it to successful C13
+    FORS+hypertree outputs.  `hash16OfWord_wordOfHash16_of_size` separately
+    closes the public-key-root byte roundtrip from `pkRoot.size = 16`; the size
+    itself remains a boundary premise because the C13 public-key parser does not
+    check low-byte canonicality.  The latest accept adapter separately reduces
+    the S4 seed-cell boundary to a range-gated `forsLeafStep` preservation fact;
+    the six normal FORS root cells and forced-root cell remain the S4 root
+    correspondence boundary.
+    `SegmentAcceptSpec.hash16OfWord_beq_eq_decide`,
+    `byteRoot_beq_eq_decide_of_wordOfHash16_roundtrip`, and
+    `wordCmp_of_wordOfHash16_roundtrip` now reduce the final `hWordCmp` handoff
+    to canonical `hash16OfWord (wordOfHash16 root) = root` roundtrips for the
+    two compared roots, without assuming a global `LawfulBEq ByteArray`
+    instance.
+    Axiom-clean (`parseSignatureC13_R`: `[propext]`;
+    `parseSignatureC13_shape`: `[propext, Classical.choice, Quot.sound]`; the
+    public-key parse facts and `hash16OfWord_size`: `[propext]`; the
+    `CanonicalHash16` facts: `[propext]`; the other C13Concrete facts listed
+    here: `[propext, Quot.sound]`; the SegmentS3
+    guard arithmetic, the final roundtrip comparison adapters, and the base-256
+    roundtrip arithmetic lemmas are recorded above as
+    `[propext, Classical.choice, Quot.sound]`).
 
   - `ClimbStepSpec.{xmssClimb_succ, xmssClimb_zero, forsClimb_succ, forsClimb_zero}`
     — the **spec-side induction anchors** for that open correspondence.  Each names
@@ -461,10 +709,38 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     parity-xored child-slot offsets `o5 = 0x40 xor s` / `o6 = 0x60 xor s`
     (`s = (idx & 1) << 5`), and the node/sibling values.  The trailing masked-keccak
     `assignVar` and the `idx := parentIdx` update never touch memory, so this triple
-    update is exactly the body's `keccak 0x00 0x80` read window.  This is the
-    parity-agnostic frame; resolving `s ∈ {0, 0x20}` into the spec word order
-    (even → `[node, sibling]`, odd → `[sibling, node]`) is the consumer's step.
-    Axiom-clean (`[propext, Classical.choice, Quot.sound]`).
+    write is the complete memory footprint for one climb step.  The same module
+    also exposes `merkleFold_preserves_memory_val_of_step` plus bounded and
+    range-gated variants, with matching statement-level
+    `execStmt_forEach_h_merkleClimb_preserves_memory_val_*` adapters.  These lift
+    per-step memory-cell frames, including loop-index-dependent ones, through the
+    literal-count `"h"` Merkle climb statement without importing this heavy
+    module back into S4.  Axiom-clean (`[propext, Classical.choice, Quot.sound]`).
+    This is the parity-agnostic frame; resolving `s ∈ {0, 0x20}` into the spec
+    word order (even → `[node, sibling]`, odd → `[sibling, node]`) is the
+    consumer's step.
+    `ClimbMemFrameMerkle.{stepMerkle_mem_zero_of_parity,
+    stepMerkle_mem_zero_val_of_parity}` package the local seed-cell non-aliasing
+    needed by S4 consumers: from the standard parity-offset disjunction and the
+    usual `stepMerkle` eval facts, they prove the `0x00` seed word is preserved
+    across one Merkle step, with both word and `.val` projections.  This reduces
+    the S4 per-step seed-frame premise to parity-offset resolution plus the
+    already-local Merkle eval facts.  Axiom-clean
+    (`[propext, Classical.choice, Quot.sound]`).
+    `SegmentS4ForsMerkleFrame.stepMerkle_preserves_seed_slot_of_s4_eval`
+    specializes that wrapper to the FORS inner-climb variable names and composes
+    the pure local eval dischargers (`eval_parentIdx_shr`, `eval_selector_shl`,
+    `eval_childOffset_xor`) plus `merkle_offsets_even/odd`; callers supply only
+    the masked sibling calldata read and address-assembly eval.
+    `SegmentS4ForsMerkleFrame.s4_address_assembly_eval_exists` supplies the
+    address eval from `treeAdrsBase`/`pathIdx` binding and bounds plus `idx < 19`,
+    so the S4-shaped proof surface is now the sibling read plus those ordinary
+    binding/bound facts.  The companion
+    `forsLeafInner_preserves_seed_slot_bound_of_s4_eval` and
+    `execForsOuter_preserves_seed_slot_range_of_s4_eval` adapters lift that
+    existential site-fact package through the inner climb and the full S4 FORS
+    loop.  Axiom-clean
+    (`[propext, Classical.choice, Quot.sound]`).
     `ClimbMemFrameMerkle.{merkle_hmem_even, merkle_hmem_odd}` then resolve that
     parity, reading the triple-write memory back in the
     `∀ i < 4, (memory (0 + 32*i)).val = (merkleScratchWords … parity)[i]` shape
