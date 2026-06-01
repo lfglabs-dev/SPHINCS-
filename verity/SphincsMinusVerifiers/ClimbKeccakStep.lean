@@ -132,6 +132,31 @@ theorem evalExpr_bitOr_bounded
   have hmod : Verity.Core.Uint256.modulus = 2 ^ 256 := rfl
   rw [hmod, Nat.mod_eq_of_lt hlor]
 
+/-- `xor(a, b)` evaluates to `Nat.xor k l` when `a ↦ k`, `b ↦ l` with both
+`< 2^256`: the interpreter's `Uint256.xor` reduces mod `2^256`, and
+`Nat.xor k l < 2^256` (`Nat.xor_lt_two_pow`) kills the outer mod.  Resolves the
+climb body's parity-xored child slots (`merkleClimbBody` stmts 5/6:
+`0x40 ^^^ s`, `0x60 ^^^ s`). -/
+theorem evalExpr_bitXor_bounded
+    (st : RuntimeState) (a b : Expr) (k l : Nat)
+    (ha : evalExpr [] st a = some k) (hb : evalExpr [] st b = some l)
+    (hk : k < 2 ^ 256) (hl : l < 2 ^ 256) :
+    evalExpr [] st (.bitXor a b) = some (Nat.xor k l) := by
+  show (do
+        let lhs ← evalExpr [] st a
+        let rhs ← evalExpr [] st b
+        pure (Verity.Core.Uint256.xor lhs rhs).val) = some (Nat.xor k l)
+  rw [ha, hb]
+  show some ((Verity.Core.Uint256.ofNat (Nat.xor (Verity.Core.Uint256.ofNat k).val
+        (Verity.Core.Uint256.ofNat l).val)).val) = some (Nat.xor k l)
+  have hkv : (Verity.Core.Uint256.ofNat k).val = k := Nat.mod_eq_of_lt hk
+  have hlv : (Verity.Core.Uint256.ofNat l).val = l := Nat.mod_eq_of_lt hl
+  rw [hkv, hlv]
+  show some (Nat.xor k l % Verity.Core.Uint256.modulus) = some (Nat.xor k l)
+  have hxor : Nat.xor k l < 2 ^ 256 := Nat.xor_lt_two_pow hk hl
+  have hmod : Verity.Core.Uint256.modulus = 2 ^ 256 := rfl
+  rw [hmod, Nat.mod_eq_of_lt hxor]
+
 /-- `shl(sh, val)` evaluates to `v <<< s` when `sh ↦ s`, `val ↦ v` with both
 `< 2^256` and the shifted result still `< 2^256`: the interpreter's
 `Uint256.shl shiftVal wordVal = ofNat (wordVal.val <<< shiftVal.val)`, so the
@@ -313,6 +338,7 @@ theorem evalExpr_siblingOffset
 #print axioms evalExpr_bitAnd_literal
 #print axioms evalExpr_maskedKeccak_eq_maskN
 #print axioms evalExpr_bitOr_bounded
+#print axioms evalExpr_bitXor_bounded
 #print axioms evalExpr_shl_bounded
 #print axioms evalExpr_shr_bounded
 #print axioms evalExpr_add_bounded
