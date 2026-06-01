@@ -1768,6 +1768,41 @@ theorem xmss_climb_data_range
         hparse hlayer hlsig hi]
     rfl
 
+/-- **`fors_climb_data_range`** — the FORS analog of `xmss_climb_data_range`.  The FORS
+outer loop's inner Merkle climb (`SegmentS4Fors.forsLeafBody`, the
+`forEach "h" (u 19) (merkleClimbBody "node" "pathIdx" "treeAdrsBase" "authPtr")`) is the
+*same* `merkleClimbBody`, so its per-height datum is again `MerkleClimbData`.  For FORS
+tree `t < 6` the body sets `authPtr = sigBase + (128 + 304·t)`, hence the per-height read
+sits at `sigDataOffset + (128 + 304·t + 16·h)`; (hcd) is the offset-arithmetic identity
+and (hauth) the FORS auth-path extraction `parseSignatureC13_fors_authPath_getElem?`.
+This supplies the whole-inner-loop range hypothesis `∀ h ∈ [0,19), MerkleClimbData tAuth
+cdAt h` that the FORS inner climb's `foldLoop_invariant_cond` consumes, one FORS tree at a
+time.  No `execC13`, no bridge axiom. -/
+theorem fors_climb_data_range
+    (pkSeed pkRoot message sig : ByteArray)
+    (v : SphincsMinusVerifierSpec.Variant) (s : SphincsMinusVerifierSpec.Signature)
+    (tAuth : List SphincsMinusVerifierSpec.Bytes) (t authPtr : Nat)
+    (hparse : SphincsMinusVerifierSpec.C13Concrete.parseSignatureC13 v sig = some s)
+    (ht : t < 6)
+    (htAuth : s.fors.authPath[t]? = some tAuth)
+    (hap : authPtr
+            = SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t)) :
+    ∀ h, h < 19 → MerkleClimbData tAuth
+        (fun j => Compiler.Proofs.YulGeneration.calldataloadWord 0
+          (SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
+            ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
+          (authPtr + 16 * j)) h := by
+  intro h hh
+  refine merkleClimbData_of_frozenCalldata pkSeed pkRoot message sig tAuth
+    _ h (128 + 304 * t + 16 * h) ?_ ?_
+  · show Compiler.Proofs.YulGeneration.calldataloadWord 0 _ (authPtr + 16 * h)
+        = Compiler.Proofs.YulGeneration.calldataloadWord 0 _
+            (SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t + 16 * h))
+    rw [hap]; congr 1; omega
+  · rw [SphincsMinusVerifierSpec.C13Concrete.parseSignatureC13_fors_authPath_getElem?
+        hparse ht htAuth hh]
+    rfl
+
 /-- **`merkleClimbData_to_sib`** — the state-dependent seam joining the *index-indexed*
 data family `MerkleClimbData auth cdAt h` to the *state-side* sibling component of
 `StepDataObligations` (`wordNormalize vsib2 = wordOfHash16 auth[h]`).  Given the frame
@@ -2036,5 +2071,6 @@ theorem merkle_offsets_odd (n : Nat) (h : n % 2 = 1) :
 #print axioms merkleClimbData_of_frozenCalldata
 #print axioms climb_calldata_read_eq_frozen
 #print axioms xmss_climb_data_range
+#print axioms fors_climb_data_range
 
 end SphincsMinusVerifiers.ClimbMemFrameMerkle
