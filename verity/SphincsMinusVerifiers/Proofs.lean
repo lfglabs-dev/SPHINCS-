@@ -67,6 +67,7 @@
 -/
 
 import SphincsMinusVerifierSpec.Spec
+import SphincsMinusVerifierSpec.C13Concrete
 import SphincsMinusVerifiers.Model
 
 namespace SphincsMinusVerifiers
@@ -80,8 +81,15 @@ This remains an abstract package until the executable Verity semantics and
 byte-level hash models are connected, but it is intentionally fixed per
 verifier: a single compiled contract cannot implement `verifySpec` for every
 possible `Primitives` package.
+
+Phase 0 (STRATEGY §1) discharged: this is now the **concrete**
+`C13Concrete.c13PrimitivesConcrete`, whose hashing is routed through the SAME
+pure `KeccakEngine.keccak256` over the SAME big-endian word-aligned preimage the
+Verity interpreter feeds it. It is no longer an axiom, so the spec's hash is now
+an equation the model→byte bridge proof can rewrite against. `#print axioms`
+shows it rests only on `propext, Quot.sound` (no `sorry`, no opaque axiom).
 -/
-axiom c13Primitives : Primitives
+def c13Primitives : Primitives := C13Concrete.c13PrimitivesConcrete
 
 /-- Concrete primitive semantics for the C12 Keccak/SPHINCS- variant. -/
 axiom c12Primitives : Primitives

@@ -1,0 +1,113 @@
+/-
+  ClimbLoopGuarded — the *guarded* loop-threading engine.
+
+  `ClimbLoop.execForEachLoop_of_step` threads a `forEach` whose body **always**
+  continues (`runBody ls = .continue (step ls)`).  The Layer-3 hypertree-climb
+  loop (`forEach "layer" (u 2)`, Model.lean:153-204) is NOT of that shape: its
+  body contains the WOTS checksum guard
+
+  ```
+  .ite (notE (eqE (v "digitSum") (u 208))) revert0 []
+  ```
+
+  so each iteration either continues to `step ls` (checksum 208 holds) or reverts.
+  This file lifts such a *guarded* body across `execForEachLoop`: if every
+  threaded iteration's guard passes (`allGuardsPass`), the whole loop continues to
+  the same pure `foldLoop` over `step` that the total engine produces; the accept
+  path is then identical to the unguarded case once the guards are discharged.
+
+  This is pure framework-level reasoning over small terms (no giant body term, no
+  `rfl` on `c13VerifyBody`), so it carries no heartbeat risk.  No `sorry`, no new
+  `axiom`, no `native_decide`.
+-/
+
+import SphincsMinusVerifiers.ClimbLoop
+
+namespace SphincsMinusVerifiers.ClimbLoopGuarded
+
+open Compiler.Proofs.IRGeneration.SourceSemantics
+open Compiler.CompilationModel (Expr Stmt)
+open SphincsMinusVerifiers.ClimbLoop (foldLoop foldLoop_zero foldLoop_succ)
+
+/-! ## 1. The per-iteration guard trace.
+
+`allGuardsPass varName step guard state index remaining` mirrors `foldLoop`'s
+recursion exactly: at each iteration it binds `varName` to `wordNormalize index`,
+asserts `guard` holds on that loop-state, then recurses on `step ·` and the next
+index — so it is precisely "every iteration of the threaded fold passes its
+guard".  Vacuously true at `remaining = 0`. -/
+def allGuardsPass (varName : String) (step : RuntimeState → RuntimeState)
+    (guard : RuntimeState → Bool) :
+    RuntimeState → Nat → Nat → Prop
+  | _, _, 0 => True
+  | state, index, remaining + 1 =>
+      guard { state with bindings := bindValue state.bindings varName (wordNormalize index) } = true
+      ∧ allGuardsPass varName step guard
+          (step { state with bindings := bindValue state.bindings varName (wordNormalize index) })
+          (index + 1) remaining
+
+/-! ## 2. The headline guarded loop-threading lemma. -/
+
+/-- **`execForEachLoop_of_guarded_step`** — if the loop body either continues to
+`step ·` (when `guard` holds) or reverts, and every threaded iteration's guard
+passes (`allGuardsPass`), then `execForEachLoop` continues to the pure `foldLoop`
+over `step` — exactly as in the unguarded engine.  Proved by induction on the
+iteration count, threading `execForEachLoop_succ_continue` per step. -/
+theorem execForEachLoop_of_guarded_step
+    (varName : String) (runBody : RuntimeState → StmtResult)
+    (step : RuntimeState → RuntimeState) (guard : RuntimeState → Bool)
+    (hstep : ∀ ls, runBody ls = if guard ls then .continue (step ls) else .revert) :
+    ∀ (state : RuntimeState) (index remaining : Nat),
+      allGuardsPass varName step guard state index remaining →
+      execForEachLoop varName runBody state index remaining
+        = .continue (foldLoop varName step state index remaining)
+  | state, index, 0, _ => by
+      rw [execForEachLoop_zero, foldLoop_zero]
+  | state, index, remaining + 1, hg => by
+      obtain ⟨hguard, htail⟩ := hg
+      have hbody :
+          runBody { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+            = .continue
+                (step { state with bindings := bindValue state.bindings varName (wordNormalize index) }) := by
+        rw [hstep, if_pos hguard]
+      refine execForEachLoop_succ_continue hbody ?_
+      rw [foldLoop_succ]
+      exact execForEachLoop_of_guarded_step varName runBody step guard hstep
+        _ (index + 1) remaining htail
+
+/-! ## 3. The `.forEach`-statement bridge. -/
+
+/-- **`execStmt_forEach_of_guarded_step`** — the statement-level form: a
+`.forEach varName count body` whose count evaluates to `bound`, whose body steps
+guardedly to `step ·`, and all of whose threaded guards pass, continues to the
+pure `foldLoop` over `step`.  Mirrors `ClimbLoop.execStmt_forEach_of_step` with a
+guard. -/
+theorem execStmt_forEach_of_guarded_step
+    (varName : String) (count : Expr) (body : List Stmt)
+    (state : RuntimeState) (bound : Nat)
+    (step : RuntimeState → RuntimeState) (guard : RuntimeState → Bool)
+    (hcount : evalExpr [] state count = some bound)
+    (hstep : ∀ ls, execStmtList [] ls body = if guard ls then .continue (step ls) else .revert)
+    (hguards : allGuardsPass varName step guard
+        { state with bindings := bindValue state.bindings varName (wordNormalize 0) } 0 bound) :
+    execStmt [] state (.forEach varName count body)
+      = .continue
+          (foldLoop varName step
+            { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+            0 bound) := by
+  show (match evalExpr [] state count with
+        | some bound =>
+            execForEachLoop varName
+              (fun loopState => execStmtList [] loopState body)
+              { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+              0 bound
+        | none => .revert) = _
+  rw [hcount]
+  exact execForEachLoop_of_guarded_step varName _ step guard hstep _ 0 bound hguards
+
+/-! ## 4. Axiom audit. -/
+
+#print axioms execForEachLoop_of_guarded_step
+#print axioms execStmt_forEach_of_guarded_step
+
+end SphincsMinusVerifiers.ClimbLoopGuarded

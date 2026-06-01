@@ -21,8 +21,28 @@ lean_lib SphincsKernel where
 
 lean_lib SphincsMinusVerifierSpec where
   srcDir := "."
-  roots := #[`SphincsMinusVerifierSpec.Spec]
+  roots := #[`SphincsMinusVerifierSpec.Spec, `SphincsMinusVerifierSpec.C13Concrete, `SphincsMinusVerifierSpec.C13ConcreteAxioms, `SphincsMinusVerifierSpec.C13Mirror, `SphincsMinusVerifierSpec.C13MirrorAxioms]
 
 lean_lib SphincsMinusVerifiers where
   srcDir := "."
-  roots := #[`SphincsMinusVerifiers.Model, `SphincsMinusVerifiers.Proofs]
+  roots := #[`SphincsMinusVerifiers.Model, `SphincsMinusVerifiers.Proofs,
+             `SphincsMinusVerifiers.MemoryKit, `SphincsMinusVerifiers.ClimbKit,
+             `SphincsMinusVerifiers.ClimbLoop,
+             `SphincsMinusVerifiers.BindingFrame,
+             `SphincsMinusVerifiers.RootFrame,
+             `SphincsMinusVerifiers.ClimbStepSpec,
+             `SphincsMinusVerifiers.ClimbKeccakStep,
+             `SphincsMinusVerifiers.ClimbMemFrame,
+             `SphincsMinusVerifiers.ClimbMemFrameMerkle,
+             `SphincsMinusVerifiers.ClimbLoopGuarded,
+             `SphincsMinusVerifiers.SegmentS3,
+             `SphincsMinusVerifiers.SegmentSeed,
+             `SphincsMinusVerifiers.SegmentS4Fors,
+             `SphincsMinusVerifiers.SegmentS4Finalize,
+             `SphincsMinusVerifiers.SegmentS2,
+             `SphincsMinusVerifiers.SegmentS2R,
+             `SphincsMinusVerifiers.MkC13State,
+             `SphincsMinusVerifiers.KeccakBridge,
+             `SphincsMinusVerifiers.SegmentLayer3,
+             `SphincsMinusVerifiers.SegmentCompose,
+             `SphincsMinusVerifiers.SegmentAcceptSpec]
