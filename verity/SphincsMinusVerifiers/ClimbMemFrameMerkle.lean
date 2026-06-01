@@ -1790,6 +1790,55 @@ theorem merkle_sibling_read_frozen
     (.add (.localVar authPtrVar) (.shl (.literal 4) (.localVar "h"))) _ hraw hbound
   exact hmasked
 
+/-! ## 6a. STEP-1: the frame-carrying climb invariant `MerkleClimbFrame`.
+
+`MerkleClimbRel` (idx + node bindings only) is too weak to be self-preserved by one
+`stepMerkle` step: `MerkleClimbRel_step` consumes eight `evalExpr` frame facts
+(`h1..h6`) plus `hparOff`/`hvpar`/`hnode`/`StepDataObligations`, which need the
+state to additionally fix the `adrsBaseVar`/`authPtrVar` bindings, the seed cell
+`mem[0x00]`, the calldata selector/image, and a battery of name-distinctness
+inequalities — *none* carried by `MerkleClimbRel`.  `MerkleClimbFrame` bundles
+`MerkleClimbRel` together with exactly that static frame, so that (a) it projects
+back to `MerkleClimbRel` (`MerkleClimbFrame.toRel`), and (b) it is preserved by one
+`stepMerkle` step (the step writes only `mem 0x20/0x40/0x60` and rebinds
+`sibling/parentIdx/s/nodeVar/idxVar`, leaving `selector`, `calldata`, `mem[0x00]`,
+and the `adrsBaseVar`/`authPtrVar` bindings untouched).  This is the STEP-1
+interface deliverable; the preservation proof (STEP-2) and the loop lift (STEP-3)
+build on it. -/
+def MerkleClimbFrame
+    (nodeVar idxVar adrsBaseVar authPtrVar : String)
+    (pkSeed pkRoot message sig : ByteArray)
+    (seed treeAdrs merklePtr : Nat)
+    (s : RuntimeState) (a : Nat × Nat) : Prop :=
+  MerkleClimbRel nodeVar idxVar s a
+  ∧ lookupValue s.bindings adrsBaseVar = treeAdrs
+  ∧ lookupValue s.bindings authPtrVar = merklePtr
+  ∧ (s.world.memory 0x00).val = seed
+  ∧ s.selector = 0
+  ∧ s.world.calldata
+      = SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
+          ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig
+  ∧ nodeVar ≠ idxVar ∧ nodeVar ≠ "parentIdx" ∧ nodeVar ≠ "sibling" ∧ nodeVar ≠ "s"
+      ∧ nodeVar ≠ "h"
+  ∧ idxVar ≠ "sibling" ∧ idxVar ≠ "parentIdx" ∧ idxVar ≠ "s" ∧ idxVar ≠ "h"
+  ∧ adrsBaseVar ≠ "sibling" ∧ adrsBaseVar ≠ "parentIdx" ∧ adrsBaseVar ≠ "s"
+      ∧ adrsBaseVar ≠ nodeVar ∧ adrsBaseVar ≠ idxVar ∧ adrsBaseVar ≠ "h"
+  ∧ authPtrVar ≠ "sibling" ∧ authPtrVar ≠ "parentIdx" ∧ authPtrVar ≠ "s"
+      ∧ authPtrVar ≠ nodeVar ∧ authPtrVar ≠ idxVar ∧ authPtrVar ≠ "h"
+
+/-- **`MerkleClimbFrame.toRel`** — the STEP-1 projection: the frame-carrying
+invariant implies the bare `MerkleClimbRel` (its first conjunct).  This is what lets
+a frame-threaded loop lift feed the node/idx-only consumers (`xmssClimb_model_node`'s
+`.node` projection) unchanged. -/
+theorem MerkleClimbFrame.toRel
+    {nodeVar idxVar adrsBaseVar authPtrVar : String}
+    {pkSeed pkRoot message sig : ByteArray}
+    {seed treeAdrs merklePtr : Nat}
+    {s : RuntimeState} {a : Nat × Nat}
+    (h : MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+          pkSeed pkRoot message sig seed treeAdrs merklePtr s a) :
+    MerkleClimbRel nodeVar idxVar s a := h.1
+
 /-- **`xmss_climb_data_range`** — the P1+P2 composition: the *whole-loop* range
 hypothesis `∀ i ∈ [0,11), MerkleClimbData lsig.authPath cdAt i` that
 `ClimbLoop.foldLoop_invariant_cond` consumes for one XMSS hypertree climb, with `cdAt`
@@ -2204,5 +2253,6 @@ theorem xmssClimb_model_node
 #print axioms xmssClimb_model_node
 #print axioms calldataloadWord_lt_of_ge4
 #print axioms merkle_sibling_read_frozen
+#print axioms MerkleClimbFrame.toRel
 
 end SphincsMinusVerifiers.ClimbMemFrameMerkle
