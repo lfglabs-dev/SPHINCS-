@@ -29,6 +29,7 @@ namespace SphincsMinusVerifiers.ClimbMemFrameMerkle
 open Compiler.Proofs.IRGeneration.SourceSemantics
 open Compiler.CompilationModel (Expr Stmt)
 open SphincsMinusVerifiers.ClimbKit (merkleClimbBody stepMerkle N_MASK)
+open SphincsMinusVerifiers.ClimbLoop (foldLoop)
 open SphincsMinusVerifiers.ClimbKeccakStep (evalExpr_maskedKeccak_eq_maskN)
 open SphincsMinusVerifierSpec.C13Concrete (maskN nMask keccakWords)
 
@@ -2923,6 +2924,26 @@ theorem xmssClimbFrame_model_node
   rw [xmssClimb_eq_specFold]
   exact hframe.toRel.node
 
+/-! ## 6d. Memory-frame loop adapters. -/
+
+/-- If one branchless-Merkle step preserves a memory-cell value, then a full
+literal-count Merkle climb loop preserves that memory-cell value.  This is the
+memory-frame analogue of the node/index relational climb lifts above. -/
+theorem merkleFold_preserves_memory_val_of_step
+    (nodeVar idxVar adrsBaseVar authPtrVar : String) (addr n : Nat)
+    (hstep : ∀ s,
+      ((stepMerkle nodeVar idxVar adrsBaseVar authPtrVar s).world.memory addr).val
+        = (s.world.memory addr).val)
+    (state : RuntimeState) :
+    ((foldLoop "h" (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar)
+        { state with bindings := bindValue state.bindings "h" (wordNormalize 0) }
+        0 (wordNormalize n)).world.memory addr).val
+      = (state.world.memory addr).val := by
+  rw [ClimbLoop.foldLoop_preserves_memory_val "h"
+    (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar) addr hstep
+    { state with bindings := bindValue state.bindings "h" (wordNormalize 0) }
+    0 (wordNormalize n)]
+
 /-! ## 7. Axiom audit. -/
 
 #print axioms StepDataObligations.intro
@@ -2991,5 +3012,6 @@ theorem xmssClimbFrame_model_node
 #print axioms MerkleClimbFrame_hstep
 #print axioms merkleClimbFrame_foldLoop_correspondence
 #print axioms xmssClimbFrame_model_node
+#print axioms merkleFold_preserves_memory_val_of_step
 
 end SphincsMinusVerifiers.ClimbMemFrameMerkle

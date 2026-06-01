@@ -79,6 +79,61 @@ theorem foldLoop_preserves_lookup
         hstep,
         MemoryKit.lookupValue_bindValue_ne state.bindings varName key (wordNormalize index) hne]
 
+/-- Memory-frame analogue of `foldLoop_preserves_lookup`: if one loop body step
+preserves the word value stored at `addr`, then the whole pure `foldLoop` carries
+that memory-cell value through every iteration.  The loop-variable bind touches
+only bindings, so no name side condition is needed. -/
+theorem foldLoop_preserves_memory_val
+    (varName : String) (step : RuntimeState → RuntimeState) (addr : Nat)
+    (hstep : ∀ s, ((step s).world.memory addr).val = (s.world.memory addr).val) :
+    ∀ (state : RuntimeState) (index remaining : Nat),
+      ((foldLoop varName step state index remaining).world.memory addr).val
+        = (state.world.memory addr).val
+  | state, _, 0 => by rw [foldLoop_zero]
+  | state, index, remaining + 1 => by
+      rw [foldLoop_succ,
+        foldLoop_preserves_memory_val varName step addr hstep _ (index + 1) remaining,
+        hstep]
+
+/-- Bounded-index memory-frame analogue.  The per-step hypothesis sees the
+concrete loop index used for the bind, so callers can prove preservation only
+for the actual loop range instead of all possible pre-bound loop-variable values. -/
+theorem foldLoop_preserves_memory_val_bound
+    (varName : String) (step : RuntimeState → RuntimeState) (addr : Nat)
+    (hstep : ∀ (s : RuntimeState) (idx : Nat),
+      ((step { s with bindings := bindValue s.bindings varName (wordNormalize idx) }).world.memory addr).val
+        = (s.world.memory addr).val) :
+    ∀ (state : RuntimeState) (index remaining : Nat),
+      ((foldLoop varName step state index remaining).world.memory addr).val
+        = (state.world.memory addr).val
+  | state, _, 0 => by rw [foldLoop_zero]
+  | state, index, remaining + 1 => by
+      rw [foldLoop_succ,
+        foldLoop_preserves_memory_val_bound varName step addr hstep _ (index + 1) remaining,
+        hstep]
+
+/-- Range-gated memory-frame fold.  This is the memory analogue of
+`foldLoop_invariant_cond`: the per-step preservation proof can depend on a
+predicate over the concrete loop index, and callers supply that predicate only
+for the executed range `[index, index + remaining)`. -/
+theorem foldLoop_preserves_memory_val_range
+    (varName : String) (step : RuntimeState → RuntimeState) (addr : Nat)
+    (D : Nat → Prop)
+    (hstep : ∀ (s : RuntimeState) (idx : Nat), D idx →
+      ((step { s with bindings := bindValue s.bindings varName (wordNormalize idx) }).world.memory addr).val
+        = (s.world.memory addr).val) :
+    ∀ (state : RuntimeState) (index remaining : Nat),
+      (∀ i, index ≤ i → i < index + remaining → D i) →
+      ((foldLoop varName step state index remaining).world.memory addr).val
+        = (state.world.memory addr).val
+  | state, _, 0, _ => by rw [foldLoop_zero]
+  | state, index, remaining + 1, hD => by
+      rw [foldLoop_succ,
+        foldLoop_preserves_memory_val_range varName step addr D hstep
+          _ (index + 1) remaining
+          (fun i hi1 hi2 => hD i (by omega) (by omega)),
+        hstep _ index (hD index (by omega) (by omega))]
+
 /-! ## 1b. The relational climb-induction engine.
 
 `foldLoop_preserves_lookup` is a *frame* (a binding is unchanged).  The headline
@@ -274,6 +329,9 @@ theorem execStmt_forEach_merkleClimb
 /-! ## 6. Axiom audit. -/
 
 #print axioms foldLoop_invariant
+#print axioms foldLoop_preserves_memory_val
+#print axioms foldLoop_preserves_memory_val_bound
+#print axioms foldLoop_preserves_memory_val_range
 #print axioms foldLoop_invariant_cond
 #print axioms execForEachLoop_of_step
 #print axioms execStmt_forEach_of_step

@@ -44,6 +44,8 @@ lean_lib SphincsMinusVerifiers where
              `SphincsMinusVerifiers.SiblingCalldata,
              `SphincsMinusVerifiers.MkC13State,
              `SphincsMinusVerifiers.KeccakBridge,
+             `SphincsMinusVerifiers.InitialNodeKeccak,
+             `SphincsMinusVerifiers.CurrentNodeFrame,
              `SphincsMinusVerifiers.SegmentLayer3,
              `SphincsMinusVerifiers.SegmentCompose,
              `SphincsMinusVerifiers.SegmentAcceptSpec]

@@ -303,6 +303,19 @@ theorem wordOfHash16_lt (b : ByteArray) : wordOfHash16 b < 2 ^ 256 := by
       < (2 ^ 128) * (2 ^ 128) := Nat.mul_lt_mul_of_pos_right h (by positivity)
     _ = 2 ^ 256 := by rw [← pow_add]
 
+/-- The H_msg block writes the public seed word to scratch slot `0x00` over the
+frozen C13 entry state.  This is the seed-cell endpoint consumed by later FORS and
+hypertree memory-frame composition. -/
+theorem s2Step_seed_mkC13State (pkSeed pkRoot message sig : ByteArray) :
+    ((s2Step (mkC13State pkSeed pkRoot message sig)).world.memory 0).val
+      = wordOfHash16 pkSeed := by
+  rw [s2Step_memory]
+  show wordNormalize (lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkSeed")
+      = wordOfHash16 pkSeed
+  rw [show lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkSeed"
+      = wordOfHash16 pkSeed from rfl]
+  exact wordNormalize_of_lt (wordOfHash16_lt pkSeed)
+
 /-- **S2 value identification (conditional on the R-word sub-brick).**  Over the
 frozen `mkC13State` entry, the five resolved store values equal the spec's
 `hMsgC13` input word list.  The sole hypothesis `hR` is the deep R-word
@@ -399,6 +412,7 @@ theorem s2Step_root_mkC13State (pkSeed pkRoot message sig : ByteArray) :
 #print axioms s2StoreVals_length
 #print axioms s2Step_cell
 #print axioms s2_digest_storeVals
+#print axioms s2Step_seed_mkC13State
 #print axioms wordNormalize_of_lt
 #print axioms wordOfHash16_lt
 #print axioms s2StoreVals_mkC13State
