@@ -2129,6 +2129,330 @@ theorem merkle_offsets_odd (n : Nat) (h : n % 2 = 1) :
     (0x60 : Nat) ^^^ ((n &&& 1) <<< 5) = 0x40 := by
   rw [merkle_selector_odd n h]; exact ⟨rfl, rfl⟩
 
+/-! ## 6a-bis. STEP-2 frame preservation: `stepMerkle` leaves the static frame intact.
+
+The four lemmas below establish that one `stepMerkle` step preserves exactly the
+*static* conjuncts of `MerkleClimbFrame` (selector, calldata image, seed cell
+`mem[0x00]`, and any binding for a variable distinct from the five the body writes).
+Each is a binding/memory-projection of the same eight-statement thread that
+`stepMerkle_memory`/`stepMerkle_idx_binding` already run: the body writes only
+`mem 0x20/0x40/0x60` (the latter two under the parity-xored offsets `o5/o6 ∈
+{0x40,0x60}`, never `0x00`) and rebinds only `sibling/parentIdx/s/nodeVar/idxVar`,
+leaving `selector`, `world.calldata`, `mem[0x00]`, and every other binding untouched.
+These are the frame half of the eventual `MerkleClimbFrame` preservation; no keccak
+or calldata correspondence is involved.  Axiom-clean. -/
+
+/-- **`stepMerkle_selector_calldata`** — one climb step preserves both the EVM
+`selector` and the `world.calldata` image: the body's eight statements are all
+`letVar`/`assignVar`/`mstore`, none of which touches `selector` or the calldata
+field (only `bindings` and `world.memory`).  Same eight `evalExpr` hypotheses as
+`stepMerkle_memory`, threaded identically; the conclusion projects the two
+frame-invariant fields. -/
+theorem stepMerkle_selector_calldata
+    (nodeVar idxVar adrsBaseVar authPtrVar : String)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.bitOr (.localVar adrsBaseVar)
+              (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+                (.localVar "parentIdx"))) = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar st).selector = st.selector
+    ∧ (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar st).world.calldata
+        = st.world.calldata := by
+  have hs1 := MemoryKit.execStmt_letVar_continue st "sibling" _ vsib h1
+  set st1 : RuntimeState :=
+    { st with bindings := bindValue st.bindings "sibling" vsib } with hst1
+  have hs2 := MemoryKit.execStmt_letVar_continue st1 "parentIdx" _ vpar h2
+  set st2 : RuntimeState :=
+    { st1 with bindings := bindValue st1.bindings "parentIdx" vpar } with hst2
+  have hoff3 : evalExpr [] st2 (.literal 0x20) = some 0x20 := rfl
+  have hs3 := MemoryKit.execStmt_mstore_continue st2 (.literal 0x20) _ 0x20 vadr hoff3 h3
+  set st3 : RuntimeState :=
+    { st2 with world := { st2.world with memory := MemoryKit.memUpdate st2.world.memory 0x20 vadr } }
+    with hst3
+  have hs4 := MemoryKit.execStmt_letVar_continue st3 "s" _ sval h4
+  set st4 : RuntimeState :=
+    { st3 with bindings := bindValue st3.bindings "s" sval } with hst4
+  have hs5 := MemoryKit.execStmt_mstore_continue st4 (.bitXor (.literal 0x40) (.localVar "s")) _
+      o5 vnode h5off h5val
+  set st5 : RuntimeState :=
+    { st4 with world := { st4.world with memory := MemoryKit.memUpdate st4.world.memory o5 vnode } }
+    with hst5
+  have hs6 := MemoryKit.execStmt_mstore_continue st5 (.bitXor (.literal 0x60) (.localVar "s")) _
+      o6 vsib2 h6off h6val
+  set st6 : RuntimeState :=
+    { st5 with world := { st5.world with memory := MemoryKit.memUpdate st5.world.memory o6 vsib2 } }
+    with hst6
+  set kv : Nat := (Verity.Core.Uint256.and (keccakMemorySlice st6.world.memory (wordNormalize 0x00) (wordNormalize 0x80)) (wordNormalize N_MASK)).val with hkv
+  have hval7 : evalExpr [] st6
+      (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
+      = some kv := rfl
+  have hs7 := assignVar_continue st6 nodeVar _ _ hval7
+  set st7 : RuntimeState :=
+    { st6 with bindings := bindValue st6.bindings nodeVar kv } with hst7
+  have hval8 : evalExpr [] st7 (.localVar "parentIdx")
+      = some (lookupValue st7.bindings "parentIdx") := rfl
+  have hs8 := assignVar_continue st7 idxVar _ _ hval8
+  show ((match execStmtList [] st
+            ([ Stmt.letVar "sibling"
+                (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+                  (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK))
+             , Stmt.letVar "parentIdx" (.shr (.literal 1) (.localVar idxVar))
+             , Stmt.mstore (.literal 0x20)
+                (.bitOr (.localVar adrsBaseVar)
+                  (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+                    (.localVar "parentIdx")))
+             , Stmt.letVar "s" (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1)))
+             , Stmt.mstore (.bitXor (.literal 0x40) (.localVar "s")) (.localVar nodeVar)
+             , Stmt.mstore (.bitXor (.literal 0x60) (.localVar "s")) (.localVar "sibling")
+             , Stmt.assignVar nodeVar
+                (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
+             , Stmt.assignVar idxVar (.localVar "parentIdx") ]) with
+          | .continue s' => s' | _ => st).selector = st.selector)
+      ∧ ((match execStmtList [] st
+            ([ Stmt.letVar "sibling"
+                (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+                  (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK))
+             , Stmt.letVar "parentIdx" (.shr (.literal 1) (.localVar idxVar))
+             , Stmt.mstore (.literal 0x20)
+                (.bitOr (.localVar adrsBaseVar)
+                  (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+                    (.localVar "parentIdx")))
+             , Stmt.letVar "s" (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1)))
+             , Stmt.mstore (.bitXor (.literal 0x40) (.localVar "s")) (.localVar nodeVar)
+             , Stmt.mstore (.bitXor (.literal 0x60) (.localVar "s")) (.localVar "sibling")
+             , Stmt.assignVar nodeVar
+                (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
+             , Stmt.assignVar idxVar (.localVar "parentIdx") ]) with
+          | .continue s' => s' | _ => st).world.calldata = st.world.calldata)
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs1]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs2]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs3]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs4]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs5]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs6]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs7]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs8]
+  exact ⟨rfl, rfl⟩
+
+/-- **`stepMerkle_binding_frozen`** — one climb step preserves the binding of any
+variable `w` distinct from the five the body rebinds (`sibling`, `parentIdx`, `s`,
+`nodeVar`, `idxVar`).  This is exactly what carries the frame's `adrsBaseVar` and
+`authPtrVar` bindings (the ADRS base and auth-path pointer) across the step.  Same
+eight-statement thread; the conclusion skips the five rebinds via
+`lookupValue_bindValue_ne`. -/
+theorem stepMerkle_binding_frozen
+    (nodeVar idxVar adrsBaseVar authPtrVar w : String)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (hwsib : w ≠ "sibling") (hwpar : w ≠ "parentIdx") (hws : w ≠ "s")
+    (hwnode : w ≠ nodeVar) (hwidx : w ≠ idxVar)
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.bitOr (.localVar adrsBaseVar)
+              (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+                (.localVar "parentIdx"))) = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    lookupValue (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar st).bindings w
+      = lookupValue st.bindings w := by
+  have hs1 := MemoryKit.execStmt_letVar_continue st "sibling" _ vsib h1
+  set st1 : RuntimeState :=
+    { st with bindings := bindValue st.bindings "sibling" vsib } with hst1
+  have hs2 := MemoryKit.execStmt_letVar_continue st1 "parentIdx" _ vpar h2
+  set st2 : RuntimeState :=
+    { st1 with bindings := bindValue st1.bindings "parentIdx" vpar } with hst2
+  have hoff3 : evalExpr [] st2 (.literal 0x20) = some 0x20 := rfl
+  have hs3 := MemoryKit.execStmt_mstore_continue st2 (.literal 0x20) _ 0x20 vadr hoff3 h3
+  set st3 : RuntimeState :=
+    { st2 with world := { st2.world with memory := MemoryKit.memUpdate st2.world.memory 0x20 vadr } }
+    with hst3
+  have hs4 := MemoryKit.execStmt_letVar_continue st3 "s" _ sval h4
+  set st4 : RuntimeState :=
+    { st3 with bindings := bindValue st3.bindings "s" sval } with hst4
+  have hs5 := MemoryKit.execStmt_mstore_continue st4 (.bitXor (.literal 0x40) (.localVar "s")) _
+      o5 vnode h5off h5val
+  set st5 : RuntimeState :=
+    { st4 with world := { st4.world with memory := MemoryKit.memUpdate st4.world.memory o5 vnode } }
+    with hst5
+  have hs6 := MemoryKit.execStmt_mstore_continue st5 (.bitXor (.literal 0x60) (.localVar "s")) _
+      o6 vsib2 h6off h6val
+  set st6 : RuntimeState :=
+    { st5 with world := { st5.world with memory := MemoryKit.memUpdate st5.world.memory o6 vsib2 } }
+    with hst6
+  set kv : Nat := (Verity.Core.Uint256.and (keccakMemorySlice st6.world.memory (wordNormalize 0x00) (wordNormalize 0x80)) (wordNormalize N_MASK)).val with hkv
+  have hval7 : evalExpr [] st6
+      (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
+      = some kv := rfl
+  have hs7 := assignVar_continue st6 nodeVar _ _ hval7
+  set st7 : RuntimeState :=
+    { st6 with bindings := bindValue st6.bindings nodeVar kv } with hst7
+  have hval8 : evalExpr [] st7 (.localVar "parentIdx")
+      = some (lookupValue st7.bindings "parentIdx") := rfl
+  have hs8 := assignVar_continue st7 idxVar _ _ hval8
+  show lookupValue (match execStmtList [] st
+          ([ Stmt.letVar "sibling"
+              (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+                (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK))
+           , Stmt.letVar "parentIdx" (.shr (.literal 1) (.localVar idxVar))
+           , Stmt.mstore (.literal 0x20)
+              (.bitOr (.localVar adrsBaseVar)
+                (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+                  (.localVar "parentIdx")))
+           , Stmt.letVar "s" (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1)))
+           , Stmt.mstore (.bitXor (.literal 0x40) (.localVar "s")) (.localVar nodeVar)
+           , Stmt.mstore (.bitXor (.literal 0x60) (.localVar "s")) (.localVar "sibling")
+           , Stmt.assignVar nodeVar
+              (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
+           , Stmt.assignVar idxVar (.localVar "parentIdx") ]) with
+        | .continue s' => s' | _ => st).bindings w = lookupValue st.bindings w
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs1]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs2]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs3]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs4]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs5]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs6]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs7]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs8]
+  show lookupValue
+      (bindValue (bindValue st6.bindings nodeVar kv) idxVar
+        (lookupValue st7.bindings "parentIdx")) w = lookupValue st.bindings w
+  rw [MemoryKit.lookupValue_bindValue_ne _ idxVar w _ (Ne.symm hwidx),
+      MemoryKit.lookupValue_bindValue_ne _ nodeVar w _ (Ne.symm hwnode)]
+  show lookupValue
+      (bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval) w
+        = lookupValue st.bindings w
+  rw [MemoryKit.lookupValue_bindValue_ne _ "s" w _ (Ne.symm hws),
+      MemoryKit.lookupValue_bindValue_ne _ "parentIdx" w _ (Ne.symm hwpar),
+      MemoryKit.lookupValue_bindValue_ne _ "sibling" w _ (Ne.symm hwsib)]
+
+/-- **`stepMerkle_mem_zero`** — one climb step preserves the seed cell `mem[0x00]`.
+The body's three memory writes land at `0x20` and the parity-xored child slots
+`o5`/`o6` (both `∈ {0x40,0x60}`, supplied here as `≠ 0x00`), so a read at `0x00`
+falls through all three `memUpdate`s to the entry memory.  Derived from
+`stepMerkle_memory` + `memUpdate_diff`. -/
+theorem stepMerkle_mem_zero
+    (nodeVar idxVar adrsBaseVar authPtrVar : String)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (ho5 : (0x00 : Nat) ≠ o5) (ho6 : (0x00 : Nat) ≠ o6)
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.bitOr (.localVar adrsBaseVar)
+              (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+                (.localVar "parentIdx"))) = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar st).world.memory 0x00
+      = st.world.memory 0x00 := by
+  rw [stepMerkle_memory nodeVar idxVar adrsBaseVar authPtrVar st
+        vsib vpar vadr sval o5 vnode o6 vsib2 h1 h2 h3 h4 h5off h5val h6off h6val]
+  rw [MemoryKit.memUpdate_diff _ o6 0x00 vsib2 ho6,
+      MemoryKit.memUpdate_diff _ o5 0x00 vnode ho5,
+      MemoryKit.memUpdate_diff _ 0x20 0x00 vadr (by decide)]
+
 /-! ## 6b. STEP-2 climb-loop lift: whole-loop `MerkleClimbRel` ↔ `specFold`/`xmssClimb`.
 
 The per-step pieces above (`MerkleClimbRel_step`, `stepDataObligations_of_calldata`,
@@ -2254,5 +2578,8 @@ theorem xmssClimb_model_node
 #print axioms calldataloadWord_lt_of_ge4
 #print axioms merkle_sibling_read_frozen
 #print axioms MerkleClimbFrame.toRel
+#print axioms stepMerkle_selector_calldata
+#print axioms stepMerkle_binding_frozen
+#print axioms stepMerkle_mem_zero
 
 end SphincsMinusVerifiers.ClimbMemFrameMerkle
