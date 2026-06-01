@@ -154,7 +154,15 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   `hash16OfWord_wordOfHash16_of_size`, and
   `specRoot_roundtrip_of_c13_fors_fold`;
 - guarded layer-loop relation adapter
-  `ClimbLoopGuarded.allGuardsPass_of_rel`.
+  `ClimbLoopGuarded.allGuardsPass_of_rel`;
+- reject-subdomain correspondence over the accept-path `mkC13State` constructor
+  and concrete `c13Primitives` in `SphincsMinusVerifiers/SegmentRejectSpec.lean`:
+  `mkC13State_lookup_sigLength`, `c13_body_reverts_on_bad_length`,
+  `c13_verifyBytes_none_on_bad_length`, and `c13_revert_on_bad_length` (bad
+  signature length, fully discharged both sides), plus
+  `c13_body_reverts_on_forced_zero` (FORS forced-zero guard, model side fully
+  discharged) and `c13_revert_on_forced_zero` (spec side surfaced as the
+  keccak digest↔H_msg `hCorr` hypothesis, not discharged).
 
 The current narrow C13 accept handoff still has real residual obligations:
 

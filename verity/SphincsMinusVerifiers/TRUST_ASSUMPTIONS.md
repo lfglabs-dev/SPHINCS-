@@ -16,6 +16,16 @@ close, and what remains outside its scope.
 - Standalone segment, memory-frame, FORS, and accept-path lemmas that do not
   touch `execC13` or `c13_refines_byte_spec` before final integration.
 
+- Standalone reject-subdomain lemmas (`SegmentRejectSpec`) framed over the
+  accept-path `mkC13State` constructor and concrete `c13Primitives`.  The
+  bad-length correspondence is fully discharged on both sides.  The FORS
+  forced-zero revert is discharged on the model side; its spec-side connection
+  (`verifyBytes = none ↔ ¬forcedZeroOk`) depends on the keccak digest↔H_msg data
+  correspondence and is surfaced as an explicit `hCorr` hypothesis in
+  `c13_revert_on_forced_zero` rather than discharged — the revert-side analogue
+  of the accept path's surfaced `hCmp`.  These do not touch `execC13` or the
+  bridge axiom and do not change the bridge trust surface.
+
 - Boundary byte-shape premises, such as `pkRoot.size = 16`, may remain as
   explicit input-shape obligations until they are connected to a parser, ABI, or
   caller-side assumption.

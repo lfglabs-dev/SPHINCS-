@@ -1076,6 +1076,31 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
   (whose `Primitives` are still axioms) — **no bridge axiom, no `sorryAx`**.  The
   accept path remains the carried axiom.
 
+  **Reject subdomain over the accept-path constructor (`SegmentRejectSpec.lean`).**
+  `SegmentAcceptSpec` closes the accept subdomain (the compiled body *returns* the
+  boolean `verifyParsed` yields); `SegmentRejectSpec` is its disjoint companion,
+  framing the revert subdomain over the *same* `mkC13State` constructor and
+  concrete `c13Primitives` the eventual `ImplementsByteVerifier` integration uses.
+  Two revert sources:
+  - **Bad signature length** — fully discharged on both sides.
+    `c13_body_reverts_on_bad_length` specialises the generic length-guard revert to
+    `mkC13State` (whose `sig_length` binding is definitionally `sig.size`, via
+    `mkC13State_lookup_sigLength`); `c13_verifyBytes_none_on_bad_length` specialises
+    `ByteLevel.verifyBytes_bad_length`; `c13_revert_on_bad_length` pairs them:
+    every wrong-length input makes the compiled model `.revert` **and** the byte
+    spec `none`.
+  - **FORS forced-zero guard** (statement 12) — model side fully discharged
+    (`c13_body_reverts_on_forced_zero`): under the length-guard pass-through it
+    threads the S2 straight-line prefix to `afterS2` then reverts at `segmentS3`
+    when `s3Guard ≠ 0` (branchless, no data correspondence).  The spec connection
+    (`verifyBytes = none ↔ ¬forcedZeroOk`) needs the deep keccak digest↔H_msg
+    correspondence, so `c13_revert_on_forced_zero` *surfaces* that as an explicit
+    hypothesis (`hCorr`) rather than discharging it — mirroring how
+    `SegmentAcceptSpec` surfaces `hCmp`.
+  All discharged theorems show `#print axioms` =
+  `[propext, Classical.choice, Quot.sound]`; the file touches neither `execC13` nor
+  the bridge axiom, with no `sorry`, no new axiom, no `native_decide`.
+
   **Pre-flight (STRATEGY §4) — end-to-end executable, PASS.**  Before investing
   in the climb-equivalence proof, `PreflightC13.lean` de-risks the accept path by
   running the *entire* compiled `c13VerifyBody` (all 29 statements) through the

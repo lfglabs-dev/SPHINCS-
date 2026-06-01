@@ -127,6 +127,15 @@ are:
 - `SegmentAcceptSpec.c13_s3Guard_of_parse_forcedZero`:
   `[propext, Classical.choice, Quot.sound]`.
 
+- `SegmentRejectSpec.mkC13State_lookup_sigLength`,
+  `SegmentRejectSpec.c13_body_reverts_on_bad_length`,
+  `SegmentRejectSpec.c13_verifyBytes_none_on_bad_length`,
+  `SegmentRejectSpec.c13_revert_on_bad_length`,
+  `SegmentRejectSpec.c13_body_reverts_on_forced_zero`, and
+  `SegmentRejectSpec.c13_revert_on_forced_zero` (the last takes the spec-side
+  forced-zero connection as a surfaced hypothesis):
+  `[propext, Classical.choice, Quot.sound]`.
+
 - `ClimbLoopGuarded.allGuardsPass_of_rel`:
   `[propext]`.
 
