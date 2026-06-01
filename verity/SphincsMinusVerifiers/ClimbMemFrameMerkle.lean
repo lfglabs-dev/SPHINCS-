@@ -2629,6 +2629,52 @@ theorem MerkleClimbFrame_step
   · rw [hsc.1]; exact hsel
   · rw [hsc.2]; exact hcd
 
+/-- **`MerkleClimbFrame_h_inject`** — STEP-3 plumbing: the frame survives the loop's
+own `h` loop-variable binding.  `ClimbLoop.foldLoop` rebinds `"h"` before each
+`stepMerkle`, so the per-step engine hands the step a state of the shape
+`{ s with bindings := bindValue s.bindings "h" v }`.  None of the frame's four tracked
+variables (`nodeVar`/`idxVar`/`adrsBaseVar`/`authPtrVar`) is `"h"` — that is exactly
+what the `≠ "h"` distinctness leaves guarantee — so every binding lookup is unchanged
+(`lookupValue_bindValue_ne`); the `world` (seed cell + calldata) and `selector` are
+untouched by a `bindings`-only structure update (defeq).  This lets a frame-threaded
+loop lift feed `MerkleClimbFrame_step` at the `h`-injected state.  Axiom-clean. -/
+theorem MerkleClimbFrame_h_inject
+    (nodeVar idxVar adrsBaseVar authPtrVar : String)
+    (pkSeed pkRoot message sig : ByteArray)
+    (seed treeAdrs merklePtr : Nat)
+    (s : RuntimeState) (a : Nat × Nat) (v : Nat)
+    (hframe : MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+                pkSeed pkRoot message sig seed treeAdrs merklePtr s a) :
+    MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+      pkSeed pkRoot message sig seed treeAdrs merklePtr
+      { s with bindings := bindValue s.bindings "h" v } a := by
+  obtain ⟨hN_i, hN_p, hN_sib, hN_s, hN_h, hI_sib, hI_p, hI_s, hI_h,
+          hA_sib, hA_p, hA_s, hA_n, hA_i, hA_h,
+          hP_sib, hP_p, hP_s, hP_n, hP_i, hP_h⟩ := hframe.2.2.2.2.2.2
+  have hrel := hframe.1
+  have hadrs := hframe.2.1
+  have hauth := hframe.2.2.1
+  have hmem0 := hframe.2.2.2.1
+  have hsel := hframe.2.2.2.2.1
+  have hcd := hframe.2.2.2.2.2.1
+  refine ⟨?_, ?_, ?_, hmem0, hsel, hcd,
+    hN_i, hN_p, hN_sib, hN_s, hN_h, hI_sib, hI_p, hI_s, hI_h,
+    hA_sib, hA_p, hA_s, hA_n, hA_i, hA_h,
+    hP_sib, hP_p, hP_s, hP_n, hP_i, hP_h⟩
+  · refine MerkleClimbRel.intro ?_ ?_
+    · show lookupValue (bindValue s.bindings "h" v) idxVar = a.1
+      rw [MemoryKit.lookupValue_bindValue_ne s.bindings "h" idxVar v (Ne.symm hI_h)]
+      exact hrel.idx
+    · show wordNormalize (lookupValue (bindValue s.bindings "h" v) nodeVar) = a.2
+      rw [MemoryKit.lookupValue_bindValue_ne s.bindings "h" nodeVar v (Ne.symm hN_h)]
+      exact hrel.node
+  · show lookupValue (bindValue s.bindings "h" v) adrsBaseVar = treeAdrs
+    rw [MemoryKit.lookupValue_bindValue_ne s.bindings "h" adrsBaseVar v (Ne.symm hA_h)]
+    exact hadrs
+  · show lookupValue (bindValue s.bindings "h" v) authPtrVar = merklePtr
+    rw [MemoryKit.lookupValue_bindValue_ne s.bindings "h" authPtrVar v (Ne.symm hP_h)]
+    exact hauth
+
 /-! ## 6b. STEP-2 climb-loop lift: whole-loop `MerkleClimbRel` ↔ `specFold`/`xmssClimb`.
 
 The per-step pieces above (`MerkleClimbRel_step`, `stepDataObligations_of_calldata`,
@@ -2697,6 +2743,94 @@ theorem xmssClimb_model_node
   rw [xmssClimb_eq_specFold]
   exact hrel.node
 
+/-! ## 6c. STEP-3 frame-carrying loop lift: whole-loop `MerkleClimbFrame` ↔
+`specFold`/`xmssClimb`.
+
+The STEP-2 lift above threads the *bare* `MerkleClimbRel` through the engine, so its
+per-step premise `hstep` must be supplied with the full static frame baked into each
+hypothesis instance — the frame is *not* carried by the invariant, so it cannot be
+reused across iterations.  The STEP-3 lift threads the *frame* `MerkleClimbFrame`
+itself as the loop invariant, so the static frame (adrs/auth bindings, seed cell,
+selector, calldata image, name-distinctness) is available at *every* iteration's
+`hstep`.  Combined with `MerkleClimbFrame_h_inject` (frame survives the `"h"` rebind)
+and `MerkleClimbFrame_step` (frame preserved by one `stepMerkle`), the per-step premise
+now reduces to exactly the *data-level* facts (`h1..h6val`/`StepDataObligations`/parity)
+at the `h`-injected state — the same residual the STEP-2 lift had, but now with the
+frame no longer a separate obligation. -/
+
+/-- **`merkleClimbFrame_foldLoop_correspondence`** — STEP-3 loop lift.
+`foldLoop_invariant_cond` specialised with `R = MerkleClimbFrame …`,
+`specStep = merkleSpecStep`, `D = MerkleClimbData auth cdAt`, `step = stepMerkle`: the
+whole climb loop advances the *frame* `MerkleClimbFrame` together with
+`ClimbLoop.specFold`, gated on the frame-shaped per-step advance `hstep` and the range
+hypothesis (`xmss_climb_data_range`/`fors_climb_data_range`).  Pure instantiation of the
+engine; no new evaluation, no axioms.  Unlike the bare-relation STEP-2 lift, the static
+frame rides along the invariant, so each `hstep` instance receives it for free. -/
+theorem merkleClimbFrame_foldLoop_correspondence
+    (nodeVar idxVar adrsBaseVar authPtrVar : String)
+    (pkSeed pkRoot message sig : ByteArray)
+    (seed treeAdrs merklePtr : Nat)
+    (auth : List SphincsMinusVerifierSpec.Bytes) (cdAt : Nat → Nat)
+    (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+        MerkleClimbData auth cdAt idx →
+        MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+          pkSeed pkRoot message sig seed treeAdrs merklePtr s a →
+        MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+          pkSeed pkRoot message sig seed treeAdrs merklePtr
+          (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+          (merkleSpecStep seed treeAdrs auth idx a))
+    (state : RuntimeState) (a : Nat × Nat) (index remaining : Nat)
+    (hD : ∀ i, index ≤ i → i < index + remaining → MerkleClimbData auth cdAt i)
+    (hR : MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+            pkSeed pkRoot message sig seed treeAdrs merklePtr state a) :
+    MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+      pkSeed pkRoot message sig seed treeAdrs merklePtr
+      (ClimbLoop.foldLoop "h" (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar)
+        state index remaining)
+      (ClimbLoop.specFold (merkleSpecStep seed treeAdrs auth) a index remaining) :=
+  ClimbLoop.foldLoop_invariant_cond "h"
+    (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar)
+    (merkleSpecStep seed treeAdrs auth)
+    (MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+      pkSeed pkRoot message sig seed treeAdrs merklePtr)
+    (MerkleClimbData auth cdAt) hstep state a index remaining hD hR
+
+/-- **`xmssClimbFrame_model_node`** — STEP-3 climb-correspondence equality threaded
+through the *frame*.  Same conclusion as `xmssClimb_model_node` (model node binding
+after the whole `"h"` climb loop EVM-normalises to the spec `xmssClimb` root), but the
+loop invariant is `MerkleClimbFrame`, so the per-step premise `hstep` enjoys the static
+frame at each iteration.  The node projection goes through `MerkleClimbFrame.toRel` then
+`MerkleClimbRel.node`.  Conditional on the frame-shaped per-step advance `hstep`, range
+`hD`, and initial-frame `hR`.  Axiom-clean. -/
+theorem xmssClimbFrame_model_node
+    (nodeVar idxVar adrsBaseVar authPtrVar : String)
+    (pkSeed pkRoot message sig : ByteArray)
+    (seed treeAdrs merklePtr : Nat)
+    (auth : List SphincsMinusVerifierSpec.Bytes) (cdAt : Nat → Nat)
+    (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+        MerkleClimbData auth cdAt idx →
+        MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+          pkSeed pkRoot message sig seed treeAdrs merklePtr s a →
+        MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+          pkSeed pkRoot message sig seed treeAdrs merklePtr
+          (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+          (merkleSpecStep seed treeAdrs auth idx a))
+    (state : RuntimeState) (mIdx node h fuel : Nat)
+    (hD : ∀ i, h ≤ i → i < h + fuel → MerkleClimbData auth cdAt i)
+    (hR : MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+            pkSeed pkRoot message sig seed treeAdrs merklePtr state (mIdx, node)) :
+    wordNormalize (lookupValue
+        (ClimbLoop.foldLoop "h" (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar)
+          state h fuel).bindings nodeVar)
+      = xmssClimb seed treeAdrs fuel h mIdx node auth := by
+  have hframe := merkleClimbFrame_foldLoop_correspondence nodeVar idxVar adrsBaseVar
+    authPtrVar pkSeed pkRoot message sig seed treeAdrs merklePtr auth cdAt
+    hstep state (mIdx, node) h fuel hD hR
+  rw [xmssClimb_eq_specFold]
+  exact hframe.toRel.node
+
 /-! ## 7. Axiom audit. -/
 
 #print axioms StepDataObligations.intro
@@ -2761,5 +2895,8 @@ theorem xmssClimb_model_node
 #print axioms eval_selector_shl
 #print axioms eval_childOffset_xor
 #print axioms MerkleClimbFrame_step
+#print axioms MerkleClimbFrame_h_inject
+#print axioms merkleClimbFrame_foldLoop_correspondence
+#print axioms xmssClimbFrame_model_node
 
 end SphincsMinusVerifiers.ClimbMemFrameMerkle
