@@ -134,6 +134,11 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   `C13SeedNamedAcceptGuardedPkRootSizeObligations` /
   `C13SeedNamedAcceptGuardedPkRootSizeLeafObligations` contracts in
   `SphincsMinusVerifiers/SegmentAcceptSpec.lean`;
+- concrete C13 per-layer hypertree spec-step adapters in
+  `SphincsMinusVerifiers/SegmentAcceptSpec.lean`:
+  `c13HypertreeSpecStep_eq_root_of_success`,
+  `layerGuardedStep_c13HypertreeSpecStep_of_merkleNode`, and
+  `stepLayer_currentNodeRel_c13HypertreeSpecStep_of_success`;
 - canonical final word-comparison adapters in
   `SphincsMinusVerifiers/SegmentAcceptSpec.lean`:
   `hash16OfWord_beq_eq_decide`,
@@ -179,7 +184,8 @@ The current narrow C13 accept handoff still has real residual obligations:
   inner climb and full outer loop by the `*_of_s4_eval` adapters;
 - six named normal FORS root cells plus the forced root cell;
 - per-layer guarded WOTS/XMSS correspondence;
-- hypertree layer-step and fold correspondence;
+- remaining concrete data-cell proof for the new C13 hypertree layer step and
+  hypertree fold correspondence;
 - public-key root byte size `pkRoot.size = 16`.
 
 The successful C13 FORS/WOTS/XMSS/hypertree outputs now have standalone 16-byte
