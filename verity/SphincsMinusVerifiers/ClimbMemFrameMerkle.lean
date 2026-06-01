@@ -2020,6 +2020,74 @@ theorem merkle_offsets_odd (n : Nat) (h : n % 2 = 1) :
     (0x60 : Nat) ^^^ ((n &&& 1) <<< 5) = 0x40 := by
   rw [merkle_selector_odd n h]; exact ⟨rfl, rfl⟩
 
+/-! ## 6b. STEP-2 climb-loop lift: whole-loop `MerkleClimbRel` ↔ `specFold`/`xmssClimb`.
+
+The per-step pieces above (`MerkleClimbRel_step`, `stepDataObligations_of_calldata`,
+`sibling_load_eq_maskN`, `address_assembly_eq`) and the whole-loop range suppliers
+(`xmss_climb_data_range`, `fors_climb_data_range`) are threaded through the conditional
+climb-induction engine `ClimbLoop.foldLoop_invariant_cond` here.  These two lemmas are
+*conditional* on the per-step advance `hstep` (the `MerkleClimbRel_step` shape, whose
+remaining open content is the frame bookkeeping `h1..h6`/seed/adr that holds only at the
+concrete climb-entry state from the segment trace) and the initial-node relation `hR`
+(the climb's seed node — for XMSS the WOTS-PK keccak, for FORS the leaf keccak).  They do
+*not* discharge those; they isolate exactly that residual while showing the range
+suppliers plug straight into the loop. -/
+
+/-- **`merkleClimb_foldLoop_correspondence`** — STEP-2 loop lift.  `foldLoop_invariant_cond`
+specialised to the Merkle climb (`R = MerkleClimbRel`, `specStep = merkleSpecStep`,
+`D = MerkleClimbData auth cdAt`, `step = stepMerkle`): the whole climb loop advances
+`MerkleClimbRel` together with `ClimbLoop.specFold`, gated on the per-step advance `hstep`
+and the range hypothesis (supplied by `xmss_climb_data_range`/`fors_climb_data_range`).
+Pure instantiation of the engine; no new evaluation, no axioms. -/
+theorem merkleClimb_foldLoop_correspondence
+    (nodeVar idxVar adrsBaseVar authPtrVar : String)
+    (seed treeAdrs : Nat) (auth : List SphincsMinusVerifierSpec.Bytes) (cdAt : Nat → Nat)
+    (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+        MerkleClimbData auth cdAt idx → MerkleClimbRel nodeVar idxVar s a →
+        MerkleClimbRel nodeVar idxVar
+          (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+          (merkleSpecStep seed treeAdrs auth idx a))
+    (state : RuntimeState) (a : Nat × Nat) (index remaining : Nat)
+    (hD : ∀ i, index ≤ i → i < index + remaining → MerkleClimbData auth cdAt i)
+    (hR : MerkleClimbRel nodeVar idxVar state a) :
+    MerkleClimbRel nodeVar idxVar
+      (ClimbLoop.foldLoop "h" (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar)
+        state index remaining)
+      (ClimbLoop.specFold (merkleSpecStep seed treeAdrs auth) a index remaining) :=
+  ClimbLoop.foldLoop_invariant_cond "h"
+    (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar)
+    (merkleSpecStep seed treeAdrs auth) (MerkleClimbRel nodeVar idxVar)
+    (MerkleClimbData auth cdAt) hstep state a index remaining hD hR
+
+/-- **`xmssClimb_model_node`** — STEP-2 climb-correspondence equality for one XMSS
+hypertree layer (or one FORS tree): the model node binding after the whole `forEach "h"`
+climb loop EVM-normalises to the spec `xmssClimb` root piece.  Combines
+`merkleClimb_foldLoop_correspondence` (node projection) with `xmssClimb_eq_specFold`.
+Conditional on the same per-step advance `hstep`, range hypothesis `hD`, and initial-node
+relation `hR`.  This is the STEP-2 "model root = spec root piece" equality, modulo the two
+isolated residuals carried in `hstep`/`hR`. -/
+theorem xmssClimb_model_node
+    (nodeVar idxVar adrsBaseVar authPtrVar : String)
+    (seed treeAdrs : Nat) (auth : List SphincsMinusVerifierSpec.Bytes) (cdAt : Nat → Nat)
+    (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+        MerkleClimbData auth cdAt idx → MerkleClimbRel nodeVar idxVar s a →
+        MerkleClimbRel nodeVar idxVar
+          (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+          (merkleSpecStep seed treeAdrs auth idx a))
+    (state : RuntimeState) (mIdx node h fuel : Nat)
+    (hD : ∀ i, h ≤ i → i < h + fuel → MerkleClimbData auth cdAt i)
+    (hR : MerkleClimbRel nodeVar idxVar state (mIdx, node)) :
+    wordNormalize (lookupValue
+        (ClimbLoop.foldLoop "h" (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar)
+          state h fuel).bindings nodeVar)
+      = xmssClimb seed treeAdrs fuel h mIdx node auth := by
+  have hrel := merkleClimb_foldLoop_correspondence nodeVar idxVar adrsBaseVar authPtrVar
+    seed treeAdrs auth cdAt hstep state (mIdx, node) h fuel hD hR
+  rw [xmssClimb_eq_specFold]
+  exact hrel.node
+
 /-! ## 7. Axiom audit. -/
 
 #print axioms StepDataObligations.intro
@@ -2072,5 +2140,7 @@ theorem merkle_offsets_odd (n : Nat) (h : n % 2 = 1) :
 #print axioms climb_calldata_read_eq_frozen
 #print axioms xmss_climb_data_range
 #print axioms fors_climb_data_range
+#print axioms merkleClimb_foldLoop_correspondence
+#print axioms xmssClimb_model_node
 
 end SphincsMinusVerifiers.ClimbMemFrameMerkle
