@@ -238,6 +238,10 @@ are:
   `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_leaf_obligations_of_bytes`:
   `[propext, Classical.choice, Quot.sound]`.
 
+- `SegmentS4ForsDataObligations.hLeaf_of_stepMerkle_seed_frame` and
+  `SegmentS4ForsDataObligations.hmRlo_of_afterFors_root_slots`:
+  `[propext, Classical.choice, Quot.sound]`.
+
 These are ordinary Lean/meta foundations for the existing development.  The
 forbidden dependencies for these standalone bricks are `sorryAx`, the
 MODEL-EXEC-BRIDGE axiom, and an opaque-primitives axiom.
