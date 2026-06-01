@@ -1683,6 +1683,91 @@ theorem merkleClimbData_of_frozenCalldata
   exact SphincsMinusVerifiers.SiblingCalldata.masked_sig_read_eq_wordOfHash16_gen
     pkSeed pkRoot message sig sOff
 
+/-- **`climb_calldata_read_eq_frozen`** (the `hcd` supplier) — the climb body's raw
+per-height calldata read `calldataload(authPtr + (h << 4))` (statement 1 of
+`merkleClimbBody`, before the `N_MASK`) resolves, over any state carrying the frozen
+C13 calldata image and `selector = 0`, to the frozen word
+`calldataloadWord 0 (headWords … ++ bytesToWords sig) (sigDataOffset + sOff)`.
+
+This is the model-side `hcd` premise of `merkleClimbData_of_frozenCalldata` with
+`cdAt h` taken to be this raw read.  It is *pure interpreter evaluation* over the
+concrete `merkleClimbBody` offset expression — `evalExpr_siblingOffset` threads
+`shl`→`add` to the bare byte offset `ap + h<<4`, the `.calldataload` evaluator turns
+that into `calldataloadWord state.selector state.world.calldata _`, and the frozen
+state's `selector`/`calldata` plus the offset-arithmetic hypothesis
+`ap + h<<4 = sigDataOffset + sOff` pin the result.  No `execC13`, no bridge axiom: the
+binding values `ap`/`hval` and the offset equation are supplied as hypotheses (the
+segment-execution bookkeeping that establishes `merklePtr = sigBase + authOff` etc.
+lives in the climb-loop wiring, not here). -/
+theorem climb_calldata_read_eq_frozen
+    (st : RuntimeState) (authPtrVar : String)
+    (pkSeed pkRoot message sig : ByteArray)
+    (ap hval sOff : Nat)
+    (hsel : st.selector = 0)
+    (hcd : st.world.calldata
+            = SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
+                ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
+    (hap : evalExpr [] st (.localVar authPtrVar) = some ap)
+    (hh : evalExpr [] st (.localVar "h") = some hval)
+    (haplt : ap < 2 ^ 256) (hhlt : hval < 2 ^ 256)
+    (hshift : hval <<< 4 < 2 ^ 256) (hsum : ap + hval <<< 4 < 2 ^ 256)
+    (hoff : ap + hval <<< 4 = SphincsMinusVerifiers.MkC13State.sigDataOffset + sOff) :
+    evalExpr [] st
+        (.calldataload (.add (.localVar authPtrVar) (.shl (.literal 4) (.localVar "h"))))
+      = some (Compiler.Proofs.YulGeneration.calldataloadWord 0
+          (SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
+            ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
+          (SphincsMinusVerifiers.MkC13State.sigDataOffset + sOff)) := by
+  have hoffset := SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_siblingOffset
+    st (.localVar authPtrVar) (.localVar "h") ap hval hap hh haplt hhlt hshift hsum
+  have hcdl : evalExpr [] st
+      (.calldataload (.add (.localVar authPtrVar) (.shl (.literal 4) (.localVar "h"))))
+        = some (Compiler.Proofs.YulGeneration.calldataloadWord st.selector st.world.calldata
+            (ap + hval <<< 4)) := by
+    show (evalExpr [] st (.add (.localVar authPtrVar) (.shl (.literal 4) (.localVar "h")))).bind
+          (fun ro => some (Compiler.Proofs.YulGeneration.calldataloadWord
+            st.selector st.world.calldata ro)) = _
+    rw [hoffset]; rfl
+  rw [hcdl, hsel, hcd, hoff]
+
+/-- **`xmss_climb_data_range`** — the P1+P2 composition: the *whole-loop* range
+hypothesis `∀ i ∈ [0,11), MerkleClimbData lsig.authPath cdAt i` that
+`ClimbLoop.foldLoop_invariant_cond` consumes for one XMSS hypertree climb, with `cdAt`
+the model's per-height frozen calldata read `calldataloadWord 0 (image) (merklePtr+16·i)`.
+
+Each height is discharged by `merkleClimbData_of_frozenCalldata`, fed (hcd) the
+offset-arithmetic identity `merklePtr + 16·i = sigDataOffset + (1952+868·layer+692+16·i)`
+— `merklePtr = sigBase + authOff` from the layer's straight-line setup — and (hauth) the
+pure-spec auth-path extraction `parseSignatureC13_layer_authPath_getElem?`.  This
+collapses the per-step "blocker #20" datum for the *entire* XMSS climb loop into the
+single parsed-signature + frozen-calldata + `merklePtr`-value premise; it neither runs
+`execC13` nor touches any bridge axiom.  (The `merklePtr` value itself is fixed by the
+`stepLayer` segment trace, supplied here as `hmp`.) -/
+theorem xmss_climb_data_range
+    (pkSeed pkRoot message sig : ByteArray)
+    (v : SphincsMinusVerifierSpec.Variant) (s : SphincsMinusVerifierSpec.Signature)
+    (lsig : SphincsMinusVerifierSpec.XmssLayerSig) (layer merklePtr : Nat)
+    (hparse : SphincsMinusVerifierSpec.C13Concrete.parseSignatureC13 v sig = some s)
+    (hlayer : layer < 2)
+    (hlsig : s.layers[layer]? = some lsig)
+    (hmp : merklePtr
+            = SphincsMinusVerifiers.MkC13State.sigDataOffset + (1952 + 868 * layer + 692)) :
+    ∀ i, i < 11 → MerkleClimbData lsig.authPath
+        (fun j => Compiler.Proofs.YulGeneration.calldataloadWord 0
+          (SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
+            ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
+          (merklePtr + 16 * j)) i := by
+  intro i hi
+  refine merkleClimbData_of_frozenCalldata pkSeed pkRoot message sig lsig.authPath
+    _ i (1952 + 868 * layer + 692 + 16 * i) ?_ ?_
+  · show Compiler.Proofs.YulGeneration.calldataloadWord 0 _ (merklePtr + 16 * i)
+        = Compiler.Proofs.YulGeneration.calldataloadWord 0 _
+            (SphincsMinusVerifiers.MkC13State.sigDataOffset + (1952 + 868 * layer + 692 + 16 * i))
+    rw [hmp]; congr 1; omega
+  · rw [SphincsMinusVerifierSpec.C13Concrete.parseSignatureC13_layer_authPath_getElem?
+        hparse hlayer hlsig hi]
+    rfl
+
 /-- **`merkleClimbData_to_sib`** — the state-dependent seam joining the *index-indexed*
 data family `MerkleClimbData auth cdAt h` to the *state-side* sibling component of
 `StepDataObligations` (`wordNormalize vsib2 = wordOfHash16 auth[h]`).  Given the frame
@@ -1949,5 +2034,7 @@ theorem merkle_offsets_odd (n : Nat) (h : n % 2 = 1) :
 #print axioms merkle_offsets_even
 #print axioms merkle_offsets_odd
 #print axioms merkleClimbData_of_frozenCalldata
+#print axioms climb_calldata_read_eq_frozen
+#print axioms xmss_climb_data_range
 
 end SphincsMinusVerifiers.ClimbMemFrameMerkle
