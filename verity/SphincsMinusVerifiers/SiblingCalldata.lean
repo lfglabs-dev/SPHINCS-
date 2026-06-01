@@ -134,6 +134,71 @@ theorem cd_getD (pkSeed pkRoot message sig : ByteArray) (n : Nat) :
       List.getElem?_append_right (by simp [headWords])]
   simp [headWords]
 
+/-! ## 3b. Length-indexed byte read and its general split (for arbitrary offsets). -/
+
+/-- The big-endian value of the `len` byte digits of `sig` starting at byte `off`
+(zero past the end). -/
+def readBE (sig : ByteArray) (off len : Nat) : Nat :=
+  (List.range len).foldl (fun acc j => acc * 256 + bAt sig (off + j)) 0
+
+/-- A `len`-byte big-endian read is `< 256 ^ len`. -/
+theorem readBE_lt (sig : ByteArray) (off len : Nat) : readBE sig off len < 256 ^ len := by
+  have := be_fold_lt (fun j => bAt sig (off + j)) (fun j => bAt_lt sig (off + j))
+    (List.range len) 0 0 (by norm_num)
+  simpa [readBE, List.length_range] using this
+
+/-- **General byte-fold split.**  Reading `s + t` bytes at `off` splits into the
+high `s` bytes (shifted up by `t` byte positions) plus the low `t` bytes at
+`off + s`. -/
+theorem readBE_split (sig : ByteArray) (off s t : Nat) :
+    readBE sig off (s + t)
+      = readBE sig off s * 256 ^ t + readBE sig (off + s) t := by
+  unfold readBE
+  rw [List.range_add, List.foldl_append, List.foldl_map,
+      be_fold_init (fun j => bAt sig (off + (s + j))) (List.range t)]
+  simp only [List.length_range]
+  have hfe : (fun (acc j : Nat) => acc * 256 + bAt sig (off + (s + j)))
+           = (fun (acc j : Nat) => acc * 256 + bAt sig (off + s + j)) := by
+    funext acc j
+    rw [show off + (s + j) = off + s + j from by omega]
+  rw [hfe]
+
+/-! ## 3c. Small div/mod and power identities for the straddle algebra. -/
+
+/-- `2 ^ (8 * k) = 256 ^ k`. -/
+private theorem pow8 (k : Nat) : (2 : Nat) ^ (8 * k) = 256 ^ k := by
+  rw [pow_mul]; norm_num
+
+private theorem mod_helper (a b m : Nat) (hb : b < m) : (a * m + b) % m = b := by
+  rw [Nat.mul_comm a m, Nat.mul_add_mod, Nat.mod_eq_of_lt hb]
+
+private theorem div_helper (a b m : Nat) (hm : 0 < m) (hb : b < m) : (a * m + b) / m = a := by
+  rw [Nat.add_comm, Nat.add_mul_div_right b a hm, Nat.div_eq_of_lt hb, Nat.zero_add]
+
+/-- Taking a `s + t` byte read mod `256 ^ t` keeps the low `t` bytes (at `off + s`). -/
+theorem readBE_split_at (sig : ByteArray) (off s t : Nat) :
+    readBE sig off (s + t) % 256 ^ t = readBE sig (off + s) t := by
+  rw [readBE_split]
+  exact mod_helper _ _ _ (readBE_lt sig (off + s) t)
+
+/-- Dividing a `s + t` byte read by `256 ^ t` keeps the high `s` bytes (at `off`). -/
+theorem readBE_split_div (sig : ByteArray) (off s t : Nat) :
+    readBE sig off (s + t) / 256 ^ t = readBE sig off s := by
+  rw [readBE_split]
+  exact div_helper _ _ _ (by positivity) (readBE_lt sig (off + s) t)
+
+/-- A `bytesToWords` entry is exactly the 32-byte big-endian read at its byte start. -/
+theorem word_eq_readBE (sig : ByteArray) (q : Nat) :
+    (bytesToWords sig).getD q 0 = readBE sig (32 * q) 32 := by
+  unfold readBE
+  rw [bytesToWords_eq_fold]
+
+/-- A 16-byte big-endian read is exactly `baToNatBE (read16 …)`. -/
+theorem readBE_eq_read16 (sig : ByteArray) (off : Nat) :
+    readBE sig off 16 = baToNatBE (read16 sig off) := by
+  unfold readBE
+  rw [read16_eq_fold]
+
 /-! ## 4. The headline correspondence (16-byte-aligned offsets). -/
 
 /-- Word-bound helper: any `bytesToWords` entry is `< evmModulus`. -/
@@ -256,6 +321,98 @@ theorem masked_sig_read_eq_wordOfHash16
   · exact masked_aligned pkSeed pkRoot message sig sOff hs
   · exact masked_straddle pkSeed pkRoot message sig sOff hs
 
+/-! ## 4b. The general-offset correspondence (arbitrary byte offsets). -/
+
+set_option maxHeartbeats 1000000 in
+/-- **Frozen calldata 32-byte read = big-endian byte read.**  For ANY signature
+byte offset `sOff`, the frozen `mkC13State` calldata word at `sigDataOffset + sOff`
+is exactly the 32-byte big-endian read `readBE sig sOff 32`.  The aligned case
+returns one whole word; the straddle case stitches the low `32 - r` bytes of word
+`Q` with the high `r` bytes of word `Q + 1` (`r = sOff % 32`, `Q = sOff / 32`). -/
+theorem read32BE_calldata
+    (pkSeed pkRoot message sig : ByteArray) (sOff : Nat) :
+    calldataloadWord 0
+        (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+        (sigDataOffset + sOff)
+      = readBE sig sOff 32 := by
+  set cd := headWords pkSeed pkRoot message sig.size ++ bytesToWords sig with hcd
+  set Q := sOff / 32 with hQ
+  set r := sOff % 32 with hr
+  have hsOff : sOff = 32 * Q + r := by omega
+  show calldataloadWord 0 cd (164 + sOff) = readBE sig sOff 32
+  unfold calldataloadWord
+  rw [if_neg (by omega), if_neg (by omega)]
+  -- Zeta-reduce the `let p/q/r` bindings (defeq) so the rewrites below can fire.
+  show (if (164 + sOff - 4) % 32 = 0 then
+          cd.getD ((164 + sOff - 4) / 32) 0 % evmModulus
+        else
+          (cd.getD ((164 + sOff - 4) / 32) 0 % evmModulus
+              % 2 ^ (8 * (32 - (164 + sOff - 4) % 32))
+              * 2 ^ (8 * ((164 + sOff - 4) % 32))
+            + cd.getD ((164 + sOff - 4) / 32 + 1) 0 % evmModulus
+              / 2 ^ (8 * (32 - (164 + sOff - 4) % 32)))
+            % evmModulus) = readBE sig sOff 32
+  rw [show (164 + sOff - 4) % 32 = r from by omega,
+      show (164 + sOff - 4) / 32 = 5 + Q from by omega]
+  by_cases hr0 : r = 0
+  · -- Aligned: read returns the whole word `Q`.
+    rw [if_pos hr0, hcd, cd_getD pkSeed pkRoot message sig Q,
+        Nat.mod_eq_of_lt (word_lt_evmModulus sig Q), word_eq_readBE sig Q,
+        show 32 * Q = sOff from by omega]
+  · -- Straddle: stitch low `32-r` bytes of word `Q` with high `r` bytes of word `Q+1`.
+    rw [if_neg hr0, hcd, show (5 : Nat) + Q + 1 = 5 + (Q + 1) from rfl,
+        cd_getD pkSeed pkRoot message sig Q, cd_getD pkSeed pkRoot message sig (Q + 1),
+        Nat.mod_eq_of_lt (word_lt_evmModulus sig Q),
+        Nat.mod_eq_of_lt (word_lt_evmModulus sig (Q + 1)),
+        word_eq_readBE sig Q, word_eq_readBE sig (Q + 1)]
+    have hpow1 : (2 : Nat) ^ (8 * (32 - r)) = 256 ^ (32 - r) := pow8 (32 - r)
+    have h32a : readBE sig (32 * Q) 32 = readBE sig (32 * Q) (r + (32 - r)) := by
+      rw [show r + (32 - r) = 32 from by omega]
+    have h32b : readBE sig (32 * (Q + 1)) 32 = readBE sig (32 * (Q + 1)) (r + (32 - r)) := by
+      rw [show r + (32 - r) = 32 from by omega]
+    have h32c : readBE sig sOff 32 = readBE sig sOff ((32 - r) + r) := by
+      rw [show (32 - r) + r = 32 from by omega]
+    have hhi : readBE sig (32 * Q) 32 % 2 ^ (8 * (32 - r))
+        = readBE sig (32 * Q + r) (32 - r) := by
+      rw [hpow1, h32a, readBE_split_at]
+    have hlo : readBE sig (32 * (Q + 1)) 32 / 2 ^ (8 * (32 - r))
+        = readBE sig (32 * (Q + 1)) r := by
+      rw [hpow1, h32b, readBE_split_div]
+    rw [hhi, hlo, pow8 r]
+    have htgt : readBE sig sOff 32
+        = readBE sig (32 * Q + r) (32 - r) * 256 ^ r + readBE sig (32 * (Q + 1)) r := by
+      rw [h32c, readBE_split, hsOff, show 32 * Q + r + (32 - r) = 32 * (Q + 1) from by omega]
+    rw [← htgt]
+    apply Nat.mod_eq_of_lt
+    calc readBE sig sOff 32 < 256 ^ 32 := readBE_lt sig sOff 32
+      _ = evmModulus := by rw [show evmModulus = 2 ^ 256 from rfl]; norm_num
+
+/-- **Masked sibling read = `wordOfHash16`, for ANY byte offset.**  Generalizes
+`masked_sig_read_eq_wordOfHash16` to drop the `sOff % 16 = 0` hypothesis: masking
+the frozen calldata word at `sigDataOffset + sOff` with `N_MASK` yields the spec's
+high-16-byte read `wordOfHash16 (read16 sig sOff)` for every `sOff` (in particular
+the XMSS auth offsets `≡ 4` / `≡ 8 mod 16`).  Axiom-clean. -/
+theorem masked_sig_read_eq_wordOfHash16_gen
+    (pkSeed pkRoot message sig : ByteArray) (sOff : Nat) :
+    Nat.land
+      (calldataloadWord 0
+        (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+        (sigDataOffset + sOff)) N_MASK
+      = wordOfHash16 (read16 sig sOff) := by
+  rw [read32BE_calldata]
+  have hHlt : readBE sig sOff 16 < 2 ^ 128 := by
+    have := readBE_lt sig sOff 16
+    rwa [show (256 : Nat) ^ 16 = 2 ^ 128 from by norm_num] at this
+  have hLlt : readBE sig (sOff + 16) 16 < 2 ^ 128 := by
+    have := readBE_lt sig (sOff + 16) 16
+    rwa [show (256 : Nat) ^ 16 = 2 ^ 128 from by norm_num] at this
+  have hsplit : readBE sig sOff 32
+      = readBE sig sOff 16 * 2 ^ 128 + readBE sig (sOff + 16) 16 := by
+    rw [show (32 : Nat) = 16 + 16 from rfl, readBE_split,
+        show (256 : Nat) ^ 16 = 2 ^ 128 from by norm_num]
+  rw [hsplit, land_nmask _ _ hHlt hLlt, wordOfHash16,
+      ← readBE_eq_read16 sig sOff, Nat.mod_eq_of_lt hHlt]
+
 /-! ## 5. Axiom audit. -/
 
 #print axioms read16_eq_fold
@@ -265,5 +422,7 @@ theorem masked_sig_read_eq_wordOfHash16
 #print axioms masked_aligned
 #print axioms masked_straddle
 #print axioms masked_sig_read_eq_wordOfHash16
+#print axioms read32BE_calldata
+#print axioms masked_sig_read_eq_wordOfHash16_gen
 
 end SphincsMinusVerifiers.SiblingCalldata
