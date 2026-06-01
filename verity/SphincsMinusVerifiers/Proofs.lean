@@ -68,6 +68,7 @@
 
 import SphincsMinusVerifierSpec.Spec
 import SphincsMinusVerifierSpec.C13Concrete
+import SphincsMinusVerifierSpec.C12Concrete
 import SphincsMinusVerifiers.Model
 
 namespace SphincsMinusVerifiers
@@ -91,8 +92,13 @@ shows it rests only on `propext, Quot.sound` (no `sorry`, no opaque axiom).
 -/
 def c13Primitives : Primitives := C13Concrete.c13PrimitivesConcrete
 
-/-- Concrete primitive semantics for the C12 Keccak/SPHINCS- variant. -/
-axiom c12Primitives : Primitives
+/-- Concrete primitive semantics for the C12 Keccak/SPHINCS- variant.
+
+Phase 0 discharged: this is now the **concrete**
+`C12Concrete.c12PrimitivesConcrete`, mirroring `c13Primitives`. No longer an
+axiom; `#print axioms` shows it rests only on `propext, Quot.sound` (no `sorry`,
+no opaque axiom). -/
+def c12Primitives : Primitives := C12Concrete.c12PrimitivesConcrete
 
 /-- Concrete primitive semantics for the SHA2 SLH-DSA verifier variant. -/
 axiom slhDsaSha2_128_24_Primitives : Primitives
