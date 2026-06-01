@@ -76,8 +76,55 @@ theorem accept_path_returns_verifyParsed_bool
   refine ⟨fs, hSpec, ?_⟩
   rw [hfs, hAcc]
 
+/-- **`accept_path_returns_verifyParsed_bool_linked`** — the same compose stub as
+`accept_path_returns_verifyParsed_bool`, but with the spec-side inputs *pinned to
+the byte inputs* via two linkage hypotheses:
+
+* `hPk : pk = { pkSeed := pkSeed, pkRoot := pkRoot }` — the public key is exactly
+  what `ByteLevel.parsePublicKey`/`verifyBytes` reconstructs from the two `bytes32`
+  arguments (Spec.lean:347–350).
+* `hSig : parseSignatureC13 c13 sig = some sigParsed` — the parsed signature is
+  exactly what `c13PrimitivesConcrete.parseSignature` yields on the raw bytes.
+
+With these, `specBool` (constrained by `hSpec` over `pk`/`sigParsed`) becomes a
+*function of the byte inputs alone*, the same bytes the model's
+`currentNode`/`root` bindings are computed from.  This makes the residual
+data-correspondence goal `decide (currentNode = root) = specBool` **well-posed**
+(both sides range over the same `pkSeed pkRoot message sig`), closing *Blocker A*
+(the floating-`pk`/`sigParsed` ill-posedness).  It still carries `hCmp` and does
+not discharge the keccak correspondence (*Blocker B*).  Axiom-clean. -/
+theorem accept_path_returns_verifyParsed_bool_linked
+    (pkSeed pkRoot message sig : ByteArray)
+    (pk : PublicKey) (sigParsed : Signature) (specBool : Bool)
+    (hPk : pk = { pkSeed := pkSeed, pkRoot := pkRoot })
+    (hSig : parseSignatureC13 c13 sig = some sigParsed)
+    (hlen : lookupValue (mkC13State pkSeed pkRoot message sig).bindings "sig_length"
+              = wordNormalize 3688)
+    (hg3 : SegmentS3.s3Guard (afterS2 (mkC13State pkSeed pkRoot message sig)) = 0)
+    (hgL : ClimbLoopGuarded.allGuardsPass "layer" SegmentLayer3.stepLayer SegmentLayer3.layerGuard
+        { (afterSeed (mkC13State pkSeed pkRoot message sig)) with
+            bindings := bindValue
+              (afterSeed (mkC13State pkSeed pkRoot message sig)).bindings "layer" (wordNormalize 0) }
+        0 (wordNormalize 2))
+    (hSpec : verifyParsed C13Concrete.c13PrimitivesConcrete c13 pk message sigParsed
+              = some specBool)
+    (hCmp : decide
+        (lookupValue (afterLayer (mkC13State pkSeed pkRoot message sig)).bindings "currentNode"
+          = lookupValue (afterLayer (mkC13State pkSeed pkRoot message sig)).bindings "root")
+        = specBool) :
+    ∃ finalState,
+      verifyParsed C13Concrete.c13PrimitivesConcrete c13 pk message sigParsed = some specBool ∧
+      execStmtList [] (mkC13State pkSeed pkRoot message sig) c13VerifyBody
+        = .return (wordNormalize (boolWord specBool)) finalState := by
+  -- The linkage hypotheses pin the spec inputs to the bytes (Blocker A); the proof
+  -- itself is the same as the unlinked stub.
+  clear hPk hSig
+  exact accept_path_returns_verifyParsed_bool
+    pkSeed pkRoot message sig pk sigParsed specBool hlen hg3 hgL hSpec hCmp
+
 /-! ## Axiom audit. -/
 
 #print axioms accept_path_returns_verifyParsed_bool
+#print axioms accept_path_returns_verifyParsed_bool_linked
 
 end SphincsMinusVerifiers.SegmentAcceptSpec
