@@ -1422,6 +1422,132 @@ def LayerGuardedStep (specStep : Nat → ByteArray → ByteArray) : Prop :=
           { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) })
         (specStep idx node)
 
+/-! ## Concrete C13 hypertree layer step
+
+The accept-path bundles above intentionally quantify over an abstract
+`specStep`.  The definitions and lemmas in this section instantiate that hook
+with the concrete one-layer C13 WOTS/XMSS transition used by
+`foldHypertree`.  They are still standalone: the actual model data-cell
+correspondence is supplied by explicit hypotheses, and neither `execC13` nor the
+byte-level bridge axiom is touched. -/
+
+/-- The pre-shift hypertree index seen by layer `idx`, computed from the original
+`H_msg` hypertree index. -/
+def c13LayerTreeIdx (digest : HMsg) (idx : Nat) : Nat :=
+  digest.hyperIndex / 2 ^ (c13.subtreeH * idx)
+
+/-- The XMSS leaf index consumed by layer `idx`. -/
+def c13LayerLeafIdx (digest : HMsg) (idx : Nat) : Nat :=
+  c13LayerTreeIdx digest idx % 2 ^ c13.subtreeH
+
+/-- The post-shift tree index used to address WOTS and XMSS at layer `idx`. -/
+def c13LayerNextTree (digest : HMsg) (idx : Nat) : Nat :=
+  c13LayerTreeIdx digest idx / 2 ^ c13.subtreeH
+
+/-- Concrete byte-level C13 hypertree step for one layer.
+
+On the accepting path this is the successful WOTS+C public-key reconstruction
+followed by one XMSS root reconstruction.  The fallback branches make the
+function total; accept-path lemmas use explicit hypotheses that rule them out. -/
+def c13HypertreeSpecStep
+    (pk : PublicKey) (digest : HMsg) (layers : List XmssLayerSig) :
+    Nat → ByteArray → ByteArray
+  | idx, node =>
+      match layers[idx]? with
+      | none => node
+      | some lsig =>
+          let treeIdx := c13LayerNextTree digest idx
+          let leafIdx := c13LayerLeafIdx digest idx
+          if wotsGrindingFails C13Concrete.c13PrimitivesConcrete c13 pk
+              treeIdx leafIdx node lsig.wots then
+            node
+          else
+            match C13Concrete.c13PrimitivesConcrete.wotsPkFromSig c13 pk
+                treeIdx leafIdx node lsig.wots with
+            | none => node
+            | some wotsPk =>
+                match C13Concrete.c13PrimitivesConcrete.xmssRootFromSig c13 pk
+                    treeIdx leafIdx wotsPk lsig.authPath with
+                | none => node
+                | some root => root
+
+/-- The concrete C13 step unfolds to the successful WOTS/XMSS root when the
+corresponding layer, grinding check, WOTS reconstruction, and XMSS reconstruction
+facts are supplied. -/
+theorem c13HypertreeSpecStep_eq_root_of_success
+    (pk : PublicKey) (digest : HMsg) (layers : List XmssLayerSig)
+    (idx : Nat) (node wotsPk root : ByteArray) (lsig : XmssLayerSig)
+    (hLayer : layers[idx]? = some lsig)
+    (hGrinding :
+      wotsGrindingFails C13Concrete.c13PrimitivesConcrete c13 pk
+        (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx) node lsig.wots = false)
+    (hWots :
+      C13Concrete.c13PrimitivesConcrete.wotsPkFromSig c13 pk
+        (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx) node lsig.wots
+          = some wotsPk)
+    (hXmss :
+      C13Concrete.c13PrimitivesConcrete.xmssRootFromSig c13 pk
+        (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx) wotsPk lsig.authPath
+          = some root) :
+    c13HypertreeSpecStep pk digest layers idx node = root := by
+  simp [c13HypertreeSpecStep, hLayer, hGrinding, hWots, hXmss]
+
+/-- A reusable accept-path layer-step adapter: explicit guard and data-cell facts
+for `SegmentLayer3.stepLayer` discharge `LayerGuardedStep` for the concrete C13
+hypertree step.  The substantive WOTS/XMSS correspondence is isolated in
+`hMerkleNode`, a direct post-step data-cell equality for `"merkleNode"`. -/
+theorem layerGuardedStep_c13HypertreeSpecStep_of_merkleNode
+    (pk : PublicKey) (digest : HMsg) (layers : List XmssLayerSig)
+    (hGuard : ∀ (s : RuntimeState) (node : ByteArray) (idx : Nat),
+      CurrentNodeRel wordOfHash16 s node →
+        SegmentLayer3.layerGuard
+          { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) } = true)
+    (hMerkleNode : ∀ (s : RuntimeState) (node : ByteArray) (idx : Nat),
+      CurrentNodeRel wordOfHash16 s node →
+        lookupValue
+            (SegmentLayer3.stepLayer
+              { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) }).bindings
+            "merkleNode"
+          = wordOfHash16 (c13HypertreeSpecStep pk digest layers idx node)) :
+    LayerGuardedStep (c13HypertreeSpecStep pk digest layers) := by
+  intro s node idx hRel
+  refine ⟨hGuard s node idx hRel, ?_⟩
+  exact CurrentNodeFrame.stepLayer_currentNodeRel_of_merkleNode
+    s (c13HypertreeSpecStep pk digest layers) node idx
+    (hMerkleNode s node idx hRel)
+
+/-- A single successful concrete layer fact is enough to rewrite the
+post-`stepLayer` `"currentNode"` relation to the successful XMSS root. -/
+theorem stepLayer_currentNodeRel_c13HypertreeSpecStep_of_success
+    (pk : PublicKey) (digest : HMsg) (layers : List XmssLayerSig)
+    (s : RuntimeState) (idx : Nat) (node wotsPk root : ByteArray) (lsig : XmssLayerSig)
+    (hLayer : layers[idx]? = some lsig)
+    (hGrinding :
+      wotsGrindingFails C13Concrete.c13PrimitivesConcrete c13 pk
+        (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx) node lsig.wots = false)
+    (hWots :
+      C13Concrete.c13PrimitivesConcrete.wotsPkFromSig c13 pk
+        (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx) node lsig.wots
+          = some wotsPk)
+    (hXmss :
+      C13Concrete.c13PrimitivesConcrete.xmssRootFromSig c13 pk
+        (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx) wotsPk lsig.authPath
+          = some root)
+    (hMerkleNode :
+      lookupValue
+          (SegmentLayer3.stepLayer
+            { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) }).bindings
+          "merkleNode"
+        = wordOfHash16 root) :
+    CurrentNodeRel wordOfHash16
+      (SegmentLayer3.stepLayer
+        { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) })
+      (c13HypertreeSpecStep pk digest layers idx node) := by
+  rw [c13HypertreeSpecStep_eq_root_of_success
+    pk digest layers idx node wotsPk root lsig hLayer hGrinding hWots hXmss]
+  exact CurrentNodeFrame.stepLayer_currentNodeRel_of_merkleNode
+    s (fun _ _ => root) node idx hMerkleNode
+
 theorem layerGuardsPass_of_guarded_step
     (pkSeed pkRoot message sig : ByteArray)
     (forsPk : ByteArray) (specStep : Nat → ByteArray → ByteArray)
@@ -2425,6 +2551,9 @@ theorem accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_si
 #print axioms c13_sig_length_of_parseSignatureC13
 #print axioms c13_s3Guard_of_parse_forcedZero
 #print axioms LayerGuardedStep
+#print axioms c13HypertreeSpecStep_eq_root_of_success
+#print axioms layerGuardedStep_c13HypertreeSpecStep_of_merkleNode
+#print axioms stepLayer_currentNodeRel_c13HypertreeSpecStep_of_success
 #print axioms layerGuardsPass_of_guarded_step
 #print axioms layerStep_of_guarded_step
 #print axioms layerStart_of_seed_named_fors_roots_roundtrip

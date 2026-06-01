@@ -204,6 +204,9 @@ are:
   `[propext, Classical.choice, Quot.sound]`.
 
 - `SegmentAcceptSpec.LayerGuardedStep`,
+  `SegmentAcceptSpec.c13HypertreeSpecStep_eq_root_of_success`,
+  `SegmentAcceptSpec.layerGuardedStep_c13HypertreeSpecStep_of_merkleNode`,
+  `SegmentAcceptSpec.stepLayer_currentNodeRel_c13HypertreeSpecStep_of_success`,
   `SegmentAcceptSpec.layerGuardsPass_of_guarded_step`, and
   `SegmentAcceptSpec.layerStep_of_guarded_step`:
   `[propext, Classical.choice, Quot.sound]`.

@@ -442,6 +442,11 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `C13SeedNamedAcceptGuardedLayerObligations` replace the separate `hgL` trace
     and `hLayerStep` proof with one per-layer guarded correspondence: guard
     passes and `currentNode` tracks the spec step.
+    `c13HypertreeSpecStep`, `c13HypertreeSpecStep_eq_root_of_success`,
+    `layerGuardedStep_c13HypertreeSpecStep_of_merkleNode`, and
+    `stepLayer_currentNodeRel_c13HypertreeSpecStep_of_success` instantiate that
+    hook with the concrete C13 WOTS/XMSS one-layer transition, leaving only
+    explicit guard and post-step `"merkleNode"` data-cell facts for callers.
     `layerStart_of_seed_named_fors_roots_roundtrip`,
     `C13SeedNamedAcceptGuardedObligations`, and
     `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_obligations`
