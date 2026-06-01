@@ -2675,6 +2675,98 @@ theorem MerkleClimbFrame_h_inject
     rw [MemoryKit.lookupValue_bindValue_ne s.bindings "h" authPtrVar v (Ne.symm hP_h)]
     exact hauth
 
+/-- **`MerkleClimbFrame_hstep`** — STEP-3 per-step `hstep` builder: the *exact* body of
+the `merkleClimbFrame_foldLoop_correspondence`/`xmssClimbFrame_model_node` `hstep`
+premise, derived by composing `MerkleClimbFrame_h_inject` (frame survives the loop's
+`"h"` rebind) with `MerkleClimbFrame_step` (frame preserved by one `stepMerkle`).
+
+Given the frame at the iterate `s` and the per-step data bundle *at the `h`-injected
+state* (`hparOff`/`hvpar`/`hnode`/`StepDataObligations` + the eight `evalExpr` facts
+`h1..h6val`), it produces the frame at `stepMerkle (h-injected state)` paired with the
+spec-advanced accumulator.  This packages precisely what the loop's `hstep` premise
+demands, with the static frame folded in for free — so a concrete climb-entry
+instantiation need only supply the per-step *data* facts (which, for `h1`, bottom out at
+the site-specific offset identity `merklePtr + idx<<4 = sigDataOffset + sOff` via
+`merkle_sibling_read_frozen`, not carried by the generic frame).  Pure composition, no
+new evaluation.  Axiom-clean. -/
+theorem MerkleClimbFrame_hstep
+    (nodeVar idxVar adrsBaseVar authPtrVar : String)
+    (pkSeed pkRoot message sig : ByteArray)
+    (seed treeAdrs merklePtr : Nat)
+    (s : RuntimeState) (mIdx node idx : Nat)
+    (auth : List SphincsMinusVerifierSpec.Bytes)
+    (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (hframe : MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+                pkSeed pkRoot message sig seed treeAdrs merklePtr s (mIdx, node))
+    (hparOff : (mIdx % 2 = 0 ∧ o5 = 0x40 ∧ o6 = 0x60)
+             ∨ (mIdx % 2 = 1 ∧ o5 = 0x60 ∧ o6 = 0x40))
+    (hvpar : vpar = mIdx / 2)
+    (hnode : wordNormalize vnode = node)
+    (hdata : StepDataObligations
+              { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+              vadr vsib2 seed treeAdrs idx mIdx auth)
+    (h1 : evalExpr [] { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr []
+            { s with bindings :=
+              bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { s with bindings :=
+              bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+                "sibling" vsib) "parentIdx" vpar }
+            (.bitOr (.localVar adrsBaseVar)
+              (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+                (.localVar "parentIdx"))) = some vadr)
+    (h4 : evalExpr []
+            { s with
+              world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+                  "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { s with
+              world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+                  "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { s with
+              world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+                  "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { s with
+              world := { s.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate s.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+                  "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { s with
+              world := { s.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate s.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+                  "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+      pkSeed pkRoot message sig seed treeAdrs merklePtr
+      (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar
+        { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+      (merkleSpecStep seed treeAdrs auth idx (mIdx, node)) :=
+  MerkleClimbFrame_step nodeVar idxVar adrsBaseVar authPtrVar pkSeed pkRoot message sig
+    seed treeAdrs merklePtr
+    { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+    vsib vpar vadr sval o5 vnode o6 vsib2 idx mIdx node auth
+    (MerkleClimbFrame_h_inject nodeVar idxVar adrsBaseVar authPtrVar pkSeed pkRoot message sig
+      seed treeAdrs merklePtr s (mIdx, node) (wordNormalize idx) hframe)
+    hparOff hvpar hnode hdata h1 h2 h3 h4 h5off h5val h6off h6val
+
 /-! ## 6b. STEP-2 climb-loop lift: whole-loop `MerkleClimbRel` ↔ `specFold`/`xmssClimb`.
 
 The per-step pieces above (`MerkleClimbRel_step`, `stepDataObligations_of_calldata`,
@@ -2896,6 +2988,7 @@ theorem xmssClimbFrame_model_node
 #print axioms eval_childOffset_xor
 #print axioms MerkleClimbFrame_step
 #print axioms MerkleClimbFrame_h_inject
+#print axioms MerkleClimbFrame_hstep
 #print axioms merkleClimbFrame_foldLoop_correspondence
 #print axioms xmssClimbFrame_model_node
 
