@@ -447,6 +447,10 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `stepLayer_currentNodeRel_c13HypertreeSpecStep_of_success` instantiate that
     hook with the concrete C13 WOTS/XMSS one-layer transition, leaving only
     explicit guard and post-step `"merkleNode"` data-cell facts for callers.
+    `specFold_c13HypertreeSpecStep_eq_of_foldHypertree_ok` closes the pure
+    two-layer spec-fold side for that concrete step from a successful
+    `foldHypertree` result, so the remaining layer work is model data-cell
+    correspondence rather than spec-fold plumbing.
     `layerStart_of_seed_named_fors_roots_roundtrip`,
     `C13SeedNamedAcceptGuardedObligations`, and
     `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_obligations`

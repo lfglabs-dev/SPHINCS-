@@ -1548,6 +1548,241 @@ theorem stepLayer_currentNodeRel_c13HypertreeSpecStep_of_success
   exact CurrentNodeFrame.stepLayer_currentNodeRel_of_merkleNode
     s (fun _ _ => root) node idx hMerkleNode
 
+/-- The pure `specFold` used by the loop invariant agrees with the concrete C13
+`foldHypertree` result when the concrete two-layer climb succeeds.  This removes
+one integration premise from callers that instantiate `specStep` with
+`c13HypertreeSpecStep`; the model-side data-cell facts remain separate. -/
+theorem specFold_c13HypertreeSpecStep_eq_of_foldHypertree_ok
+    (pk : PublicKey) (digest : HMsg) (forsPk specRoot : ByteArray)
+    (layers : List XmssLayerSig)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13 pk digest forsPk layers
+        = .ok specRoot) :
+    ClimbLoop.specFold (c13HypertreeSpecStep pk digest layers)
+        forsPk 0 (wordNormalize 2) = specRoot := by
+  have hTwo : wordNormalize 2 = 2 := by
+    exact SegmentS2.wordNormalize_of_lt (by norm_num [Verity.Core.Uint256.modulus])
+  rw [hTwo]
+  unfold foldHypertree at hFold
+  unfold foldHypertreeAux at hFold
+  simp [c13] at hFold
+  cases hLayer0 : layers[0]? with
+  | none =>
+      simp [hLayer0] at hFold
+  | some lsig0 =>
+      simp [hLayer0] at hFold
+      by_cases hGrinding0 :
+          wotsGrindingFails C13Concrete.c13PrimitivesConcrete c13 pk
+            (digest.hyperIndex / 2048) (digest.hyperIndex % 2048) forsPk lsig0.wots = true
+      · have hGrinding0' :
+            wotsGrindingFails C13Concrete.c13PrimitivesConcrete
+              { name := "SPHINCS-C13", n := 16, fullPkSeed := true, fullPkRoot := true,
+                h := 22, d := 2, subtreeH := 11, forsK := 7, forsA := 19,
+                forsAuthTrees := 6, wotsW := 8, wotsLen := 43, rBytes := 16,
+                sigBytes := 3688, hashAlg := HashAlg.keccak256,
+                adrsFormat := AddressFormat.fipsUncompressed,
+                wotsMode := WotsMode.grindingTarget 208,
+                forsMode := ForsMode.grindingForcedZero 6 }
+              pk (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+              forsPk lsig0.wots = true := by
+          simpa [c13] using hGrinding0
+        simp [hGrinding0'] at hFold
+      · have hGrinding0' :
+            ¬ wotsGrindingFails C13Concrete.c13PrimitivesConcrete
+              { name := "SPHINCS-C13", n := 16, fullPkSeed := true, fullPkRoot := true,
+                h := 22, d := 2, subtreeH := 11, forsK := 7, forsA := 19,
+                forsAuthTrees := 6, wotsW := 8, wotsLen := 43, rBytes := 16,
+                sigBytes := 3688, hashAlg := HashAlg.keccak256,
+                adrsFormat := AddressFormat.fipsUncompressed,
+                wotsMode := WotsMode.grindingTarget 208,
+                forsMode := ForsMode.grindingForcedZero 6 }
+              pk (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+              forsPk lsig0.wots = true := by
+          simpa [c13] using hGrinding0
+        simp only [hGrinding0'] at hFold
+        cases hWots0 :
+            C13Concrete.c13PrimitivesConcrete.wotsPkFromSig c13 pk
+              (digest.hyperIndex / 2048) (digest.hyperIndex % 2048) forsPk lsig0.wots with
+        | none =>
+            have hWots0' :
+                C13Concrete.c13PrimitivesConcrete.wotsPkFromSig
+                  { name := "SPHINCS-C13", n := 16, fullPkSeed := true,
+                    fullPkRoot := true, h := 22, d := 2, subtreeH := 11,
+                    forsK := 7, forsA := 19, forsAuthTrees := 6, wotsW := 8,
+                    wotsLen := 43, rBytes := 16, sigBytes := 3688,
+                    hashAlg := HashAlg.keccak256,
+                    adrsFormat := AddressFormat.fipsUncompressed,
+                    wotsMode := WotsMode.grindingTarget 208,
+                    forsMode := ForsMode.grindingForcedZero 6 }
+                  pk (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+                  forsPk lsig0.wots = none := by
+              simpa [c13] using hWots0
+            simp [hWots0'] at hFold
+        | some wotsPk0 =>
+            have hWots0' :
+                C13Concrete.c13PrimitivesConcrete.wotsPkFromSig
+                  { name := "SPHINCS-C13", n := 16, fullPkSeed := true,
+                    fullPkRoot := true, h := 22, d := 2, subtreeH := 11,
+                    forsK := 7, forsA := 19, forsAuthTrees := 6, wotsW := 8,
+                    wotsLen := 43, rBytes := 16, sigBytes := 3688,
+                    hashAlg := HashAlg.keccak256,
+                    adrsFormat := AddressFormat.fipsUncompressed,
+                    wotsMode := WotsMode.grindingTarget 208,
+                    forsMode := ForsMode.grindingForcedZero 6 }
+                  pk (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+                  forsPk lsig0.wots = some wotsPk0 := by
+              simpa [c13] using hWots0
+            simp [hWots0'] at hFold
+            cases hXmss0 :
+                C13Concrete.c13PrimitivesConcrete.xmssRootFromSig c13 pk
+                  (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+                  wotsPk0 lsig0.authPath with
+            | none =>
+                have hXmss0' :
+                    C13Concrete.c13PrimitivesConcrete.xmssRootFromSig
+                      { name := "SPHINCS-C13", n := 16, fullPkSeed := true,
+                        fullPkRoot := true, h := 22, d := 2, subtreeH := 11,
+                        forsK := 7, forsA := 19, forsAuthTrees := 6, wotsW := 8,
+                        wotsLen := 43, rBytes := 16, sigBytes := 3688,
+                        hashAlg := HashAlg.keccak256,
+                        adrsFormat := AddressFormat.fipsUncompressed,
+                        wotsMode := WotsMode.grindingTarget 208,
+                        forsMode := ForsMode.grindingForcedZero 6 }
+                      pk (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+                      wotsPk0 lsig0.authPath = none := by
+                  simpa [c13] using hXmss0
+                simp [hXmss0'] at hFold
+            | some root0 =>
+                have hXmss0' :
+                    C13Concrete.c13PrimitivesConcrete.xmssRootFromSig
+                      { name := "SPHINCS-C13", n := 16, fullPkSeed := true,
+                        fullPkRoot := true, h := 22, d := 2, subtreeH := 11,
+                        forsK := 7, forsA := 19, forsAuthTrees := 6, wotsW := 8,
+                        wotsLen := 43, rBytes := 16, sigBytes := 3688,
+                        hashAlg := HashAlg.keccak256,
+                        adrsFormat := AddressFormat.fipsUncompressed,
+                        wotsMode := WotsMode.grindingTarget 208,
+                        forsMode := ForsMode.grindingForcedZero 6 }
+                      pk (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+                      wotsPk0 lsig0.authPath = some root0 := by
+                  simpa [c13] using hXmss0
+                simp [hXmss0'] at hFold
+                unfold foldHypertreeAux at hFold
+                simp at hFold
+                cases hLayer1 : layers[1]? with
+                | none =>
+                    simp [hLayer1] at hFold
+                | some lsig1 =>
+                    simp [hLayer1] at hFold
+                    by_cases hGrinding1 :
+                        wotsGrindingFails C13Concrete.c13PrimitivesConcrete c13 pk
+                          ((digest.hyperIndex / 2048) / 2048)
+                          ((digest.hyperIndex / 2048) % 2048) root0 lsig1.wots = true
+                    · have hGrinding1' :
+                          wotsGrindingFails C13Concrete.c13PrimitivesConcrete
+                            { name := "SPHINCS-C13", n := 16, fullPkSeed := true,
+                              fullPkRoot := true, h := 22, d := 2, subtreeH := 11,
+                              forsK := 7, forsA := 19, forsAuthTrees := 6,
+                              wotsW := 8, wotsLen := 43, rBytes := 16,
+                              sigBytes := 3688, hashAlg := HashAlg.keccak256,
+                              adrsFormat := AddressFormat.fipsUncompressed,
+                              wotsMode := WotsMode.grindingTarget 208,
+                              forsMode := ForsMode.grindingForcedZero 6 }
+                            pk ((digest.hyperIndex / 2048) / 2048)
+                            ((digest.hyperIndex / 2048) % 2048) root0 lsig1.wots = true := by
+                        simpa [c13] using hGrinding1
+                      simp [hGrinding1'] at hFold
+                    · have hGrinding1' :
+                          ¬ wotsGrindingFails C13Concrete.c13PrimitivesConcrete
+                            { name := "SPHINCS-C13", n := 16, fullPkSeed := true,
+                              fullPkRoot := true, h := 22, d := 2, subtreeH := 11,
+                              forsK := 7, forsA := 19, forsAuthTrees := 6,
+                              wotsW := 8, wotsLen := 43, rBytes := 16,
+                              sigBytes := 3688, hashAlg := HashAlg.keccak256,
+                              adrsFormat := AddressFormat.fipsUncompressed,
+                              wotsMode := WotsMode.grindingTarget 208,
+                              forsMode := ForsMode.grindingForcedZero 6 }
+                            pk ((digest.hyperIndex / 2048) / 2048)
+                            ((digest.hyperIndex / 2048) % 2048) root0 lsig1.wots = true := by
+                        simpa [c13] using hGrinding1
+                      simp only [hGrinding1'] at hFold
+                      cases hWots1 :
+                          C13Concrete.c13PrimitivesConcrete.wotsPkFromSig c13 pk
+                            ((digest.hyperIndex / 2048) / 2048)
+                            ((digest.hyperIndex / 2048) % 2048) root0 lsig1.wots with
+                      | none =>
+                          have hWots1' :
+                              C13Concrete.c13PrimitivesConcrete.wotsPkFromSig
+                                { name := "SPHINCS-C13", n := 16, fullPkSeed := true,
+                                  fullPkRoot := true, h := 22, d := 2, subtreeH := 11,
+                                  forsK := 7, forsA := 19, forsAuthTrees := 6,
+                                  wotsW := 8, wotsLen := 43, rBytes := 16,
+                                  sigBytes := 3688, hashAlg := HashAlg.keccak256,
+                                  adrsFormat := AddressFormat.fipsUncompressed,
+                                  wotsMode := WotsMode.grindingTarget 208,
+                                  forsMode := ForsMode.grindingForcedZero 6 }
+                                pk ((digest.hyperIndex / 2048) / 2048)
+                                ((digest.hyperIndex / 2048) % 2048) root0 lsig1.wots = none := by
+                            simpa [c13] using hWots1
+                          simp [hWots1'] at hFold
+                      | some wotsPk1 =>
+                          have hWots1' :
+                              C13Concrete.c13PrimitivesConcrete.wotsPkFromSig
+                                { name := "SPHINCS-C13", n := 16, fullPkSeed := true,
+                                  fullPkRoot := true, h := 22, d := 2, subtreeH := 11,
+                                  forsK := 7, forsA := 19, forsAuthTrees := 6,
+                                  wotsW := 8, wotsLen := 43, rBytes := 16,
+                                  sigBytes := 3688, hashAlg := HashAlg.keccak256,
+                                  adrsFormat := AddressFormat.fipsUncompressed,
+                                  wotsMode := WotsMode.grindingTarget 208,
+                                  forsMode := ForsMode.grindingForcedZero 6 }
+                                pk ((digest.hyperIndex / 2048) / 2048)
+                                ((digest.hyperIndex / 2048) % 2048) root0 lsig1.wots = some wotsPk1 := by
+                            simpa [c13] using hWots1
+                          simp [hWots1'] at hFold
+                          cases hXmss1 :
+                              C13Concrete.c13PrimitivesConcrete.xmssRootFromSig c13 pk
+                                ((digest.hyperIndex / 2048) / 2048)
+                                ((digest.hyperIndex / 2048) % 2048)
+                                wotsPk1 lsig1.authPath with
+                          | none =>
+                              have hXmss1' :
+                                  C13Concrete.c13PrimitivesConcrete.xmssRootFromSig
+                                    { name := "SPHINCS-C13", n := 16, fullPkSeed := true,
+                                      fullPkRoot := true, h := 22, d := 2, subtreeH := 11,
+                                      forsK := 7, forsA := 19, forsAuthTrees := 6,
+                                      wotsW := 8, wotsLen := 43, rBytes := 16,
+                                      sigBytes := 3688, hashAlg := HashAlg.keccak256,
+                                      adrsFormat := AddressFormat.fipsUncompressed,
+                                      wotsMode := WotsMode.grindingTarget 208,
+                                      forsMode := ForsMode.grindingForcedZero 6 }
+                                    pk ((digest.hyperIndex / 2048) / 2048)
+                                    ((digest.hyperIndex / 2048) % 2048)
+                                    wotsPk1 lsig1.authPath = none := by
+                                simpa [c13] using hXmss1
+                              simp [hXmss1'] at hFold
+                          | some root1 =>
+                              have hXmss1' :
+                                  C13Concrete.c13PrimitivesConcrete.xmssRootFromSig
+                                    { name := "SPHINCS-C13", n := 16, fullPkSeed := true,
+                                      fullPkRoot := true, h := 22, d := 2, subtreeH := 11,
+                                      forsK := 7, forsA := 19, forsAuthTrees := 6,
+                                      wotsW := 8, wotsLen := 43, rBytes := 16,
+                                      sigBytes := 3688, hashAlg := HashAlg.keccak256,
+                                      adrsFormat := AddressFormat.fipsUncompressed,
+                                      wotsMode := WotsMode.grindingTarget 208,
+                                      forsMode := ForsMode.grindingForcedZero 6 }
+                                    pk ((digest.hyperIndex / 2048) / 2048)
+                                    ((digest.hyperIndex / 2048) % 2048)
+                                    wotsPk1 lsig1.authPath = some root1 := by
+                                simpa [c13] using hXmss1
+                              simp [hXmss1'] at hFold
+                              injection hFold with hEq
+                              rw [← hEq]
+                              simp [ClimbLoop.specFold, c13HypertreeSpecStep,
+                                c13LayerTreeIdx, c13LayerLeafIdx, c13LayerNextTree, c13,
+                                hLayer0, hGrinding0', hWots0', hXmss0',
+                                hLayer1, hGrinding1', hWots1', hXmss1']
+
 theorem layerGuardsPass_of_guarded_step
     (pkSeed pkRoot message sig : ByteArray)
     (forsPk : ByteArray) (specStep : Nat → ByteArray → ByteArray)
@@ -2554,6 +2789,7 @@ theorem accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_si
 #print axioms c13HypertreeSpecStep_eq_root_of_success
 #print axioms layerGuardedStep_c13HypertreeSpecStep_of_merkleNode
 #print axioms stepLayer_currentNodeRel_c13HypertreeSpecStep_of_success
+#print axioms specFold_c13HypertreeSpecStep_eq_of_foldHypertree_ok
 #print axioms layerGuardsPass_of_guarded_step
 #print axioms layerStep_of_guarded_step
 #print axioms layerStart_of_seed_named_fors_roots_roundtrip
