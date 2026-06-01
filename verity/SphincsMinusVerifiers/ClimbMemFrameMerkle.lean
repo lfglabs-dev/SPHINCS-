@@ -22,6 +22,7 @@
 import SphincsMinusVerifiers.ClimbKit
 import SphincsMinusVerifiers.ClimbKeccakStep
 import SphincsMinusVerifiers.ClimbLoop
+import SphincsMinusVerifiers.SiblingCalldata
 
 namespace SphincsMinusVerifiers.ClimbMemFrameMerkle
 
@@ -1657,6 +1658,31 @@ theorem MerkleClimbData_iff (auth : List SphincsMinusVerifierSpec.Bytes)
     MerkleClimbData auth cdAt idx
       ↔ maskN (cdAt idx) = wordOfHash16 ((auth[idx]?).getD ⟨#[]⟩) := Iff.rfl
 
+/-- **`merkleClimbData_of_frozenCalldata`** — discharges the lone open per-height
+datum `MerkleClimbData auth cdAt h` (the fully-reduced blocker #20) against the
+*frozen* `mkC13State` calldata image, given the two facts the calldata model
+supplies: (`hcd`) this height's raw calldata word `cdAt h` is the frozen word read
+at signature byte offset `sigDataOffset + sOff`, and (`hauth`) the spec parse fact
+that auth node `h` is the 16-byte read at that same offset.  Closes via the
+general-offset masked-read correspondence
+`SiblingCalldata.masked_sig_read_eq_wordOfHash16_gen` — `maskN` is definitionally
+`Nat.land · N_MASK`, so no residue survives.  Works for *any* `sOff` (in particular
+the XMSS auth offsets `≡ 4` / `≡ 8 mod 16`, not just 16-aligned reads).
+Axiom-clean. -/
+theorem merkleClimbData_of_frozenCalldata
+    (pkSeed pkRoot message sig : ByteArray)
+    (auth : List SphincsMinusVerifierSpec.Bytes) (cdAt : Nat → Nat) (h sOff : Nat)
+    (hcd : cdAt h = Compiler.Proofs.YulGeneration.calldataloadWord 0
+              (SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
+                ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
+              (SphincsMinusVerifiers.MkC13State.sigDataOffset + sOff))
+    (hauth : (auth[h]?).getD ⟨#[]⟩
+              = SphincsMinusVerifierSpec.C13Concrete.read16 sig sOff) :
+    MerkleClimbData auth cdAt h := by
+  rw [MerkleClimbData_iff, hcd, hauth]
+  exact SphincsMinusVerifiers.SiblingCalldata.masked_sig_read_eq_wordOfHash16_gen
+    pkSeed pkRoot message sig sOff
+
 /-- **`merkleClimbData_to_sib`** — the state-dependent seam joining the *index-indexed*
 data family `MerkleClimbData auth cdAt h` to the *state-side* sibling component of
 `StepDataObligations` (`wordNormalize vsib2 = wordOfHash16 auth[h]`).  Given the frame
@@ -1922,5 +1948,6 @@ theorem merkle_offsets_odd (n : Nat) (h : n % 2 = 1) :
 #print axioms parentIdx_shiftRight
 #print axioms merkle_offsets_even
 #print axioms merkle_offsets_odd
+#print axioms merkleClimbData_of_frozenCalldata
 
 end SphincsMinusVerifiers.ClimbMemFrameMerkle
