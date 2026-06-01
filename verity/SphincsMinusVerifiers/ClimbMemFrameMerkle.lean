@@ -2453,6 +2453,71 @@ theorem stepMerkle_mem_zero
       MemoryKit.memUpdate_diff _ o5 0x00 vnode ho5,
       MemoryKit.memUpdate_diff _ 0x20 0x00 vadr (by decide)]
 
+/-! ## 6a-ter. STEP-2 per-fact `evalExpr` discharges for the climb body.
+
+These three generic combinators resolve exactly the `h2`/`h4`/`h5off`/`h6off`
+`evalExpr` hypotheses of `MerkleClimbRel_step` from the *binding* of the relevant
+variable in the (arbitrary) evaluation state.  They read no memory/calldata
+(the climb body's stmts 2/4/5off/6off are pure `shr`/`shl`/`bitXor` over
+`idxVar`/`"s"` and small literals), so they hold at any state whose bindings carry
+`idxVar`/`"s"` — including each threaded intermediate `stN`.  `h1` is
+`merkle_sibling_read_frozen`, `h3` is `address_assembly_eq`; `h5val`/`h6val` are the
+bare `.localVar` reads (`some (lookupValue …)`), discharged definitionally at the
+assembly site.  Axiom-clean. -/
+
+/-- **`eval_parentIdx_shr`** — climb body stmt 2 `shr(1, idxVar)` resolves to
+`mIdx >>> 1` (`= mIdx / 2`, the spec `parentIdx`) whenever `idxVar ↦ mIdx`. -/
+theorem eval_parentIdx_shr (idxVar : String) (s : RuntimeState) (mIdx : Nat)
+    (hidx : lookupValue s.bindings idxVar = mIdx) (hmlt : mIdx < 2 ^ 256) :
+    evalExpr [] s (.shr (.literal 1) (.localVar idxVar)) = some (mIdx >>> 1) := by
+  have hlit : evalExpr [] s (.literal 1) = some 1 := by
+    show some (wordNormalize 1) = some 1
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+        Nat.mod_eq_of_lt (by decide)]
+  have hv : evalExpr [] s (.localVar idxVar) = some mIdx := by
+    show some (lookupValue s.bindings idxVar) = some mIdx; rw [hidx]
+  exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shr_bounded s (.literal 1)
+    (.localVar idxVar) 1 mIdx hlit hv (by decide) hmlt
+
+/-- **`eval_selector_shl`** — climb body stmt 4 `shl(5, and(idxVar, 1))` resolves to
+`(mIdx &&& 1) <<< 5` (the parity selector `s ∈ {0, 0x20}`) whenever `idxVar ↦ mIdx`. -/
+theorem eval_selector_shl (idxVar : String) (s : RuntimeState) (mIdx : Nat)
+    (hidx : lookupValue s.bindings idxVar = mIdx) (hmlt : mIdx < 2 ^ 256) :
+    evalExpr [] s (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1)))
+      = some ((Nat.land mIdx 1) <<< 5) := by
+  have hlit5 : evalExpr [] s (.literal 5) = some 5 := by
+    show some (wordNormalize 5) = some 5
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+        Nat.mod_eq_of_lt (by decide)]
+  have hv : evalExpr [] s (.localVar idxVar) = some mIdx := by
+    show some (lookupValue s.bindings idxVar) = some mIdx; rw [hidx]
+  have hand : evalExpr [] s (.bitAnd (.localVar idxVar) (.literal 1)) = some (Nat.land mIdx 1) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitAnd_literal s (.localVar idxVar) mIdx 1
+      hv hmlt (by decide)
+  have hand_lt : Nat.land mIdx 1 < 2 ^ 256 := Nat.lt_of_le_of_lt Nat.and_le_right (by decide)
+  have hbound : (Nat.land mIdx 1) <<< 5 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    exact Nat.lt_of_le_of_lt (Nat.mul_le_mul Nat.and_le_right (le_refl _)) (by decide)
+  exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded s (.literal 5)
+    (.bitAnd (.localVar idxVar) (.literal 1)) 5 (Nat.land mIdx 1) hlit5 hand (by decide)
+    hand_lt hbound
+
+/-- **`eval_childOffset_xor`** — climb body stmts 5/6 `xor(off, s)` resolve to
+`Nat.xor off sval` whenever `"s" ↦ sval`; with `off ∈ {0x40, 0x60}` and
+`sval ∈ {0, 0x20}` this is the parity-swapped child slot. -/
+theorem eval_childOffset_xor (s : RuntimeState) (off sval : Nat)
+    (hs : lookupValue s.bindings "s" = sval) (hofflt : off < 2 ^ 256)
+    (hsvalt : sval < 2 ^ 256) :
+    evalExpr [] s (.bitXor (.literal off) (.localVar "s")) = some (Nat.xor off sval) := by
+  have hlit : evalExpr [] s (.literal off) = some off := by
+    show some (wordNormalize off) = some off
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+        Nat.mod_eq_of_lt hofflt]
+  have hv : evalExpr [] s (.localVar "s") = some sval := by
+    show some (lookupValue s.bindings "s") = some sval; rw [hs]
+  exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitXor_bounded s (.literal off)
+    (.localVar "s") off sval hlit hv hofflt hsvalt
+
 /-! ## 6b. STEP-2 climb-loop lift: whole-loop `MerkleClimbRel` ↔ `specFold`/`xmssClimb`.
 
 The per-step pieces above (`MerkleClimbRel_step`, `stepDataObligations_of_calldata`,
@@ -2581,5 +2646,8 @@ theorem xmssClimb_model_node
 #print axioms stepMerkle_selector_calldata
 #print axioms stepMerkle_binding_frozen
 #print axioms stepMerkle_mem_zero
+#print axioms eval_parentIdx_shr
+#print axioms eval_selector_shl
+#print axioms eval_childOffset_xor
 
 end SphincsMinusVerifiers.ClimbMemFrameMerkle
