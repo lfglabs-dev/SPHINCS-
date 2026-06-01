@@ -167,6 +167,25 @@ def suffix14 : List Stmt :=
   , .assignVar "currentNode" (v "merkleNode")
   , .assignVar "sigOff" (addE (v "authOff") (u 176)) ]
 
+/-- The straight-line prefix of `suffix14` before the XMSS Merkle climb. -/
+def preMerkle : List Stmt :=
+  [ .letVar "wotsPtr" (addE (v "sigBase") (v "sigOff"))
+  , .forEach "i" (u 43) wotsOuterBody
+  , .letVar "pkAdrs" (orE (shlE (u 224) (v "layer")) (orE (shlE (u 128) (v "idxTree")) (orE (shlE (u 96) (u 1)) (shlE (u 64) (v "idxLeaf")))))
+  , mstore 0x20 (v "pkAdrs")
+  , .forEach "i" (u 43) copyBody
+  , .letVar "wotsPk" (andE (keccak 0x00 0x5A0) (u N_MASK))
+  , .letVar "authOff" (addE (v "countOff") (u 4))
+  , .letVar "treeAdrs" (orE (shlE (u 224) (v "layer")) (orE (shlE (u 128) (v "idxTree")) (shlE (u 96) (u 2))))
+  , .letVar "merkleNode" (v "wotsPk")
+  , .letVar "mIdx" (v "idxLeaf")
+  , .letVar "merklePtr" (addE (v "sigBase") (v "authOff")) ]
+
+/-- The two assignments after the XMSS Merkle climb. -/
+def postMerkle : List Stmt :=
+  [ .assignVar "currentNode" (v "merkleNode")
+  , .assignVar "sigOff" (addE (v "authOff") (u 176)) ]
+
 def layerBody : List Stmt := prefix11 ++ (.ite condE revert0 [] :: suffix14)
 
 def layerStmt : Stmt := .forEach "layer" (u 2) layerBody
@@ -220,6 +239,62 @@ theorem afterDigit_eq (ls : RuntimeState) :
 payload of `suffix14` run from `afterDigit ls`. -/
 def stepLayer (ls : RuntimeState) : RuntimeState :=
   match execStmtList [] (afterDigit ls) suffix14 with | .continue s' => s' | _ => afterDigit ls
+
+/-- The state immediately before the XMSS Merkle climb in an accepting layer. -/
+def beforeMerkle (ls : RuntimeState) : RuntimeState :=
+  match execStmtList [] (afterDigit ls) preMerkle with | .continue s' => s' | _ => afterDigit ls
+
+set_option maxHeartbeats 4000000 in
+theorem preMerkle_continues (ls : RuntimeState) :
+    execStmtList [] (afterDigit ls) preMerkle = .continue (beforeMerkle ls) := by
+  unfold beforeMerkle preMerkle mstore u
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsPtr" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_forEach_of_step "i" (.literal 43) wotsOuterBody _ _ wotsOuterStep rfl wotsOuterStepLemma)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "pkAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_forEach_of_step "i" (.literal 43) copyBody _ _ copyStep rfl copyStepLemma)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsPk" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "authOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "treeAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merkleNode" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "mIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merklePtr" _ _ rfl)]
+  rfl
+
+set_option maxHeartbeats 4000000 in
+/-- The inner XMSS Merkle climb in `suffix14`, isolated as a concrete `foldLoop`.
+This is the structural hook needed before applying the relational climb
+correspondence (`ClimbMemFrameMerkle.xmssClimb_model_node`) to the real
+`stepLayer` output. -/
+theorem stepLayer_merkleNode_eq_innerFold (ls : RuntimeState) :
+    lookupValue (stepLayer ls).bindings "merkleNode"
+      =
+    lookupValue
+      (foldLoop "h" (SphincsMinusVerifiers.ClimbKit.stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr")
+        { beforeMerkle ls with
+          bindings := bindValue (beforeMerkle ls).bindings "h" (wordNormalize 0) }
+        0 (wordNormalize 11)).bindings "merkleNode" := by
+  unfold stepLayer suffix14 preMerkle postMerkle mstore u
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsPtr" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_forEach_of_step "i" (.literal 43) wotsOuterBody _ _ wotsOuterStep rfl wotsOuterStepLemma)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "pkAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_forEach_of_step "i" (.literal 43) copyBody _ _ copyStep rfl copyStepLemma)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsPk" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "authOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "treeAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merkleNode" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "mIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merklePtr" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_forEach_merkleClimb "h" "merkleNode" "mIdx" "treeAdrs" "merklePtr" 11 _)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "currentNode" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "sigOff" _ _ rfl)]
+  simp only [MemoryKit.lookupValue_bindValue_ne, ne_eq, String.reduceEq, not_false_eq_true]
 
 set_option maxHeartbeats 4000000 in
 theorem suffix14_continues (ls : RuntimeState) :
@@ -342,6 +417,8 @@ theorem execLayerLoop (state : RuntimeState)
 /-! ## 7. Axiom audit. -/
 
 #print axioms layerStmt_eq_slice
+#print axioms preMerkle_continues
+#print axioms stepLayer_merkleNode_eq_innerFold
 #print axioms execLayerBody
 #print axioms execLayerLoop
 #print axioms stepLayer_currentNode_eq_merkleNode

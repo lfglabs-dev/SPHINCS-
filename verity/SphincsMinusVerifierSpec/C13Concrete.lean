@@ -138,6 +138,63 @@ def parseSignatureC13 (v : Variant) (sig : Bytes) : Option Signature :=
       ({ wots := { chains := chains, count := count }, authPath := auth } : XmssLayerSig))
     some { R := R, fors := fors, layers := layers }
 
+/-! ### Auth-path extraction lemmas (`hauth`)
+
+These pin the byte-offset of every auth-path sibling the climb reads, purely as a
+list-indexing fact about `parseSignatureC13`'s `(List.range n).map …` fields. -/
+
+/-- Indexing into a `range`-map: `((range n).map f)[h]? = some (f h)` when `h<n`. -/
+theorem getElem?_map_range {α} (f : Nat → α) {n h : Nat} (hh : h < n) :
+    ((List.range n).map f)[h]? = some (f h) := by
+  rw [List.getElem?_map, List.getElem?_range hh]
+  rfl
+
+/-- When `parseSignatureC13` succeeds, its size guard passed. -/
+theorem parseSignatureC13_size {v : Variant} {sig : Bytes} {s : Signature}
+    (hparse : parseSignatureC13 v sig = some s) : sig.size = v.sigBytes := by
+  unfold parseSignatureC13 at hparse
+  by_cases hsz : sig.size = v.sigBytes
+  · exact hsz
+  · simp [hsz] at hparse
+
+/-- **XMSS `hauth`.**  The `h`-th auth-path sibling of climb layer `layer`
+(`layer < 2`, `h < 11`) is the 16-byte hash at sig byte-offset
+`1952 + 868*layer + 692 + 16*h`. -/
+theorem parseSignatureC13_layer_authPath_getElem?
+    {v : Variant} {sig : Bytes} {s : Signature}
+    (hparse : parseSignatureC13 v sig = some s)
+    {layer : Nat} (hlayer : layer < 2)
+    {lsig : XmssLayerSig} (hlsig : s.layers[layer]? = some lsig)
+    {h : Nat} (hh : h < 11) :
+    lsig.authPath[h]? = some (read16 sig (1952 + 868 * layer + 692 + 16 * h)) := by
+  have hsz : sig.size = v.sigBytes := parseSignatureC13_size hparse
+  unfold parseSignatureC13 at hparse
+  simp only [hsz, ne_eq, not_true_eq_false, if_false, Option.some.injEq] at hparse
+  subst hparse
+  rw [getElem?_map_range _ hlayer] at hlsig
+  injection hlsig with hlsig
+  subst hlsig
+  exact getElem?_map_range _ hh
+
+/-- **FORS `hauth`.**  The `h`-th auth-path sibling of FORS tree `t`
+(`t < 6`, `h < 19`) is the 16-byte hash at sig byte-offset
+`128 + 304*t + 16*h`. -/
+theorem parseSignatureC13_fors_authPath_getElem?
+    {v : Variant} {sig : Bytes} {s : Signature}
+    (hparse : parseSignatureC13 v sig = some s)
+    {t : Nat} (ht : t < 6)
+    {tAuth : List Bytes} (htAuth : s.fors.authPath[t]? = some tAuth)
+    {h : Nat} (hh : h < 19) :
+    tAuth[h]? = some (read16 sig (128 + 304 * t + 16 * h)) := by
+  have hsz : sig.size = v.sigBytes := parseSignatureC13_size hparse
+  unfold parseSignatureC13 at hparse
+  simp only [hsz, ne_eq, not_true_eq_false, if_false, Option.some.injEq] at hparse
+  subst hparse
+  rw [getElem?_map_range _ ht] at htAuth
+  injection htAuth with htAuth
+  subst htAuth
+  exact getElem?_map_range _ hh
+
 /-! ### H_msg
 
 The contract computes
