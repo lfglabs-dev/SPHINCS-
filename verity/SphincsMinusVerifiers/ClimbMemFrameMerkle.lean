@@ -1730,6 +1730,66 @@ theorem climb_calldata_read_eq_frozen
     rw [hoffset]; rfl
   rw [hcdl, hsel, hcd, hoff]
 
+/-- A non-prefix calldata word read (`offset ≥ 4`) is a genuine 256-bit value: both
+non-trivial branches of `calldataloadWord` end in `_ % evmModulus`, hence `< 2^256`.
+This is the `cw < 2^256` side-condition `ClimbKeccakStep.evalExpr_maskedCalldata`
+demands.  Axiom-clean. -/
+theorem calldataloadWord_lt_of_ge4 (sel : Nat) (cd : List Nat) (off : Nat)
+    (hoff : 4 ≤ off) :
+    Compiler.Proofs.YulGeneration.calldataloadWord sel cd off < 2 ^ 256 := by
+  have hmod : (0 : Nat) < Compiler.Constants.evmModulus := by
+    show 0 < 2 ^ 256; positivity
+  unfold Compiler.Proofs.YulGeneration.calldataloadWord
+  rw [if_neg (by omega : ¬ off = 0), if_neg (by omega : ¬ off < 4)]
+  show (if _ then _ else _) < Compiler.Constants.evmModulus
+  split
+  · exact Nat.mod_lt _ hmod
+  · exact Nat.mod_lt _ hmod
+
+/-- **`merkle_sibling_read_frozen`** — discharges the per-step **h1** frame fact (the
+masked sibling `calldataload` read of `MerkleClimbRel_step`) for the *frozen* C13
+calldata image, pinning its witnessed value.  Over any state carrying the frozen
+image (`hsel`/`hcd`), with `authPtr`/`h` resolved (`hap`/`hh`) and the offset
+arithmetic `ap + h<<4 = sigDataOffset + sOff` (`hoff`, `sOff ≥ 4-aligned via `hoff4`),
+statement 1's `and(calldataload(authPtr + 16·h), N_MASK)` evaluates to
+`maskN (calldataloadWord 0 image (sigDataOffset + sOff))`.
+
+Composes `climb_calldata_read_eq_frozen` (the raw read resolves to the frozen word)
+with `ClimbKeccakStep.evalExpr_maskedCalldata` (the literal-`N_MASK` `bitAnd` is
+`maskN`).  This is exactly the `h1` shape `MerkleClimbRel_step` consumes, with the
+existential `vsib` now pinned to `maskN (frozen word)` — which `MerkleClimbData`
+(blocker #20) further equates to `wordOfHash16 auth[h]`.  No `execC13`, no bridge
+axiom; pure interpreter evaluation over the concrete climb body.  Axiom-clean. -/
+theorem merkle_sibling_read_frozen
+    (st : RuntimeState) (authPtrVar : String)
+    (pkSeed pkRoot message sig : ByteArray) (ap hval sOff : Nat)
+    (hsel : st.selector = 0)
+    (hcd : st.world.calldata
+            = SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
+                ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
+    (hap : evalExpr [] st (.localVar authPtrVar) = some ap)
+    (hh : evalExpr [] st (.localVar "h") = some hval)
+    (haplt : ap < 2 ^ 256) (hhlt : hval < 2 ^ 256)
+    (hshift : hval <<< 4 < 2 ^ 256) (hsum : ap + hval <<< 4 < 2 ^ 256)
+    (hoff : ap + hval <<< 4 = SphincsMinusVerifiers.MkC13State.sigDataOffset + sOff)
+    (hoff4 : 4 ≤ SphincsMinusVerifiers.MkC13State.sigDataOffset + sOff) :
+    evalExpr [] st
+        (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+          (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK))
+      = some (maskN (Compiler.Proofs.YulGeneration.calldataloadWord 0
+          (SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
+            ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
+          (SphincsMinusVerifiers.MkC13State.sigDataOffset + sOff))) := by
+  have hraw := climb_calldata_read_eq_frozen st authPtrVar pkSeed pkRoot message sig
+    ap hval sOff hsel hcd hap hh haplt hhlt hshift hsum hoff
+  have hbound := calldataloadWord_lt_of_ge4 0
+    (SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
+      ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
+    (SphincsMinusVerifiers.MkC13State.sigDataOffset + sOff) hoff4
+  have hmasked := SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_maskedCalldata st
+    (.add (.localVar authPtrVar) (.shl (.literal 4) (.localVar "h"))) _ hraw hbound
+  exact hmasked
+
 /-- **`xmss_climb_data_range`** — the P1+P2 composition: the *whole-loop* range
 hypothesis `∀ i ∈ [0,11), MerkleClimbData lsig.authPath cdAt i` that
 `ClimbLoop.foldLoop_invariant_cond` consumes for one XMSS hypertree climb, with `cdAt`
@@ -2142,5 +2202,7 @@ theorem xmssClimb_model_node
 #print axioms fors_climb_data_range
 #print axioms merkleClimb_foldLoop_correspondence
 #print axioms xmssClimb_model_node
+#print axioms calldataloadWord_lt_of_ge4
+#print axioms merkle_sibling_read_frozen
 
 end SphincsMinusVerifiers.ClimbMemFrameMerkle
