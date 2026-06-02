@@ -1,6 +1,6 @@
 # C13/C12 MODEL-EXEC-BRIDGE Audit
 
-Status date: 2026-06-01
+Status date: 2026-06-02
 
 This audit tracks the acceptance criteria from `SphincsMinusVerifiers/STRATEGY.md`
 for the C13, then C12, MODEL-EXEC-BRIDGE discharge.  It is intentionally
@@ -13,11 +13,14 @@ completion of the bridge.
   Evidence: `SphincsMinusVerifiers/Proofs.lean` defines
   `c13Primitives : Primitives := C13Concrete.c13PrimitivesConcrete`.
 
-- `execC13` is concrete and introduced atomically with the bridge theorem: not
-  satisfied.
-  Evidence: `SphincsMinusVerifiers/Proofs.lean` still has `opaque execC13`.
-  This is intentional until `c13_refines_byte_spec` can be proved in the same
-  change.
+- Safe `execC13` integration shape: not satisfied in the current branch.
+  Evidence: `SphincsMinusVerifiers/ProofCore.lean` now defines concrete
+  `execC13`, while `SphincsMinusVerifiers/Proofs.lean` still has
+  `axiom c13_refines_byte_spec`.  This is a temporary integration-shape
+  regression that must be repaired before final C13 closure: either restore an
+  opaque exported `execC13` while the bridge remains axiomatized, or replace the
+  bridge axiom with the theorem in the same change that exposes concrete
+  `execC13`.
 
 - `c13_refines_byte_spec` is a theorem, not an axiom: not satisfied.
   Evidence: `SphincsMinusVerifiers/Proofs.lean` still has
@@ -27,12 +30,11 @@ completion of the bridge.
   Current expected evidence still includes the bridge axiom because
   `c13_refines_byte_spec` remains an axiom.
 
-- `lake build SphincsMinusVerifiers` is green: satisfied for the current partial
+- `lake build SphincsMinusVerifiers.Proofs` is green: satisfied for the current partial
   proof state.
-  Last checked in this worktree after adding `MemoryFrame`, the S4 FORS
-  setup/final-store frame facts, and the in-range final-store offset
-  non-aliasing lemmas, plus the Merkle-climb bounded/range memory-frame
-  adapters, then syncing this audit/doc set.
+  Last checked in this worktree on 2026-06-02 after the C13 bridge checkpoint
+  commit, with the current concrete-`execC13`/axiomatized-bridge mismatch still
+  present.
 
 - `AUDIT.md`, `TRUST_ASSUMPTIONS.md`, `AXIOMS.md`, and `README.md` are synced:
   satisfied for the current partial state by these files and the README entries
@@ -51,8 +53,13 @@ completion of the bridge.
 
 ## Current C13 Proof Surface
 
-The current C13 work is still pre-integration.  It proves standalone bridge
-bricks that do not define `execC13` and do not use the bridge axiom:
+The current C13 work is still pre-integration.  Most bridge bricks are
+standalone and do not use the bridge axiom.  The exported runner surface,
+however, is not in the intended safe shape on this branch because
+`ProofCore.lean` defines concrete `execC13` before `c13_refines_byte_spec` has
+been replaced by a theorem.
+
+Standalone bricks include:
 
 - named FORS root/spec mirror facts in
   `SphincsMinusVerifierSpec/C13Concrete.lean`;

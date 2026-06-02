@@ -1,6 +1,6 @@
 # Trust Assumptions
 
-Status date: 2026-06-01
+Status date: 2026-06-02
 
 This document records what the C13/C12 MODEL-EXEC-BRIDGE proof is intended to
 close, and what remains outside its scope.
@@ -68,3 +68,9 @@ The concrete interpreter definition of `execC13` and the theorem replacing
 `c13_refines_byte_spec` must land in one atomic change.  This prevents converting
 the current abstract bridge assumption into a closed claim about a concrete
 interpreter before the proof exists.
+
+Current branch note: this rule is temporarily violated.  `ProofCore.lean`
+contains a concrete `execC13`, while `Proofs.lean` still declares
+`c13_refines_byte_spec` as an axiom.  The next integration step must restore the
+opaque exported runner shape or complete the C13 theorem in the same change that
+keeps `execC13` concrete.

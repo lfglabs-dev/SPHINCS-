@@ -1,6 +1,6 @@
 # Axiom Inventory
 
-Status date: 2026-06-01
+Status date: 2026-06-02
 
 This file records the axiom status relevant to the C13/C12
 MODEL-EXEC-BRIDGE work.  The target state is defined by
@@ -9,9 +9,11 @@ MODEL-EXEC-BRIDGE work.  The target state is defined by
 ## Bridge Axioms
 
 - `c13_refines_byte_spec`: still an axiom.
-  This is the active C13 MODEL-EXEC-BRIDGE gap.  It must remain an axiom until
-  the same atomic change also replaces `opaque execC13` with the interpreter
-  definition and proves the theorem.
+  This is the active C13 MODEL-EXEC-BRIDGE gap.  The intended safe integration
+  rule is that this remains an axiom only while exported `execC13` is opaque, and
+  the theorem replacement lands atomically with a concrete exported runner.  The
+  current branch is out of that shape: `ProofCore.lean` defines concrete
+  `execC13` while this bridge is still axiomatized.
 
 - `c12_refines_byte_spec`: still out of scope until C13 lands.  The early C12
   model-shape word-alignment check has been performed and did not find the
