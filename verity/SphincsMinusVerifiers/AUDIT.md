@@ -82,6 +82,10 @@ Standalone bricks include:
   `foldHypertree_c13_ok_root_canonical_of_fors`;
 - S3 guard arithmetic facts in `SphincsMinusVerifiers/SegmentS3.lean`:
   `nat_land_low19` and `s3Guard_eq_forsIndex6`;
+- Layer-3 pre-digest scratch-cell facts in
+  `SphincsMinusVerifiers/SegmentLayer3.lean`:
+  `beforeDigest_preserves_memory_zero` and
+  `beforeDigest_memory_0x40_eq_currentNode`;
 - seed and FORS-compression frame adapters in
   `SphincsMinusVerifiers/CurrentNodeFrame.lean`;
 - generic memory-cell frame lemmas in

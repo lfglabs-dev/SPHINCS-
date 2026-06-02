@@ -80,6 +80,10 @@ are:
 - `SegmentS3.nat_land_low19` and `SegmentS3.s3Guard_eq_forsIndex6`:
   `[propext, Classical.choice, Quot.sound]`.
 
+- `SegmentLayer3.beforeDigest_preserves_memory_zero` and
+  `SegmentLayer3.beforeDigest_memory_0x40_eq_currentNode`:
+  `[propext, Classical.choice, Quot.sound]`.
+
 - `CurrentNodeFrame` seed/FORS-compression frame adapters:
   `[propext, Classical.choice, Quot.sound]`.
 
