@@ -977,6 +977,24 @@ theorem c13FirstLayerBeforeDigest_currentNode_slot
       rw [c13FirstLayerGuardState_currentNode]
       exact hForsPk)
 
+/-- Layer-0 pre-digest current-node scratch cell contains the parsed C13 FORS
+public key word. -/
+theorem c13FirstLayerBeforeDigest_currentNode_slot_of_parse_fors
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature) (forsPk : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) sigParsed.fors
+          = some forsPk) :
+    ((SegmentLayer3.beforeDigest
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x40).val =
+      C13Concrete.wordOfHash16 forsPk := by
+  exact c13FirstLayerBeforeDigest_currentNode_slot
+    pkSeed pkRoot message sig forsPk
+    (c13AfterFinalize_forsPk_of_parse_fors
+      pkSeed pkRoot message sig sigParsed forsPk hParse hFors)
+
 /-- Layer-1 pre-digest current-node scratch cell, once the incoming executable
 `"currentNode"` binding has been identified as a C13 hash word. -/
 theorem c13SecondLayerBeforeDigest_currentNode_slot
@@ -2445,6 +2463,7 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13SecondLayerBeforeDigest_wotsAdrs_slot
 #print axioms c13SecondLayerBeforeDigest_wotsAdrs_slot_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_currentNode_slot
+#print axioms c13FirstLayerBeforeDigest_currentNode_slot_of_parse_fors
 #print axioms c13SecondLayerBeforeDigest_currentNode_slot
 #print axioms c13FirstLayerBeforeDigest_count_slot
 #print axioms c13SecondLayerBeforeDigest_count_slot
