@@ -550,6 +550,188 @@ theorem beforeDigest_idxTree_eq_of_idxTree
   rw [Nat.shiftRight_eq_div_pow]
   rfl
 
+/-- The pre-digest WOTS prefix assembles the WOTS hash-base address from the
+layer and the split C13 hypertree index. -/
+theorem beforeDigest_wotsAdrs_eq_of_layer_idxTree
+    (ls : RuntimeState) (layer idxTree : Nat)
+    (hLayer : lookupValue ls.bindings "layer" = layer)
+    (hIdxTree : lookupValue ls.bindings "idxTree" = idxTree)
+    (hLayerLt : layer < 2 ^ 32)
+    (hIdxTreeLt : idxTree < 2 ^ 22) :
+    lookupValue (beforeDigest ls).bindings "wotsAdrs" =
+      SphincsMinusVerifierSpec.C13Concrete.adrsWotsHashBase
+        layer (idxTree / 2048) (idxTree % 2048) := by
+  unfold beforeDigest prefixBeforeDigest mstore u andE shrE shlE orE v
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "idxLeaf" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "idxTree" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "countOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  simp only [execStmtList]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "count" "wotsAdrs" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "countOff" "wotsAdrs" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_self]
+  let idxLeafVal :=
+    (evalExpr [] ls (.bitAnd (.localVar "idxTree") (.literal 0x7FF))).getD 0
+  let st1 : RuntimeState := { ls with bindings := bindValue ls.bindings "idxLeaf" idxLeafVal }
+  let idxTreeVal := (evalExpr [] st1 (.shr (.literal 11) (.localVar "idxTree"))).getD 0
+  let st2 : RuntimeState := { st1 with bindings := bindValue st1.bindings "idxTree" idxTreeVal }
+  change (evalExpr [] st2
+      (.bitOr (.shl (.literal 224) (.localVar "layer"))
+        (.bitOr (.shl (.literal 128) (.localVar "idxTree"))
+          (.shl (.literal 64) (.localVar "idxLeaf"))))).getD 0 =
+      SphincsMinusVerifierSpec.C13Concrete.adrsWotsHashBase
+        layer (idxTree / 2048) (idxTree % 2048)
+  have hIdxLeafVal : idxLeafVal = idxTree % 2048 := by
+    unfold idxLeafVal
+    have hLocal : evalExpr [] ls (.localVar "idxTree") = some idxTree := by
+      change some (lookupValue ls.bindings "idxTree") = some idxTree
+      rw [hIdxTree]
+    have hRaw :=
+      SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitAnd_literal
+        ls (.localVar "idxTree") idxTree 0x7FF hLocal
+        (lt_trans hIdxTreeLt (by decide : 2 ^ 22 < 2 ^ 256))
+        (by decide : 0x7FF < 2 ^ 256)
+    rw [hRaw]
+    simp [nat_land_low11]
+  have hIdxTreeVal : idxTreeVal = idxTree / 2048 := by
+    unfold idxTreeVal st1
+    have hLit : evalExpr []
+        { ls with bindings := bindValue ls.bindings "idxLeaf" idxLeafVal }
+        (.literal 11) = some 11 := by
+      rfl
+    have hLocal : evalExpr []
+        { ls with bindings := bindValue ls.bindings "idxLeaf" idxLeafVal }
+        (.localVar "idxTree") = some idxTree := by
+      change some (lookupValue (bindValue ls.bindings "idxLeaf" idxLeafVal) "idxTree")
+        = some idxTree
+      rw [MemoryKit.lookupValue_bindValue_ne _ "idxLeaf" "idxTree" _ (by decide)]
+      rw [hIdxTree]
+    have hShr :=
+      SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shr_bounded
+        { ls with bindings := bindValue ls.bindings "idxLeaf" idxLeafVal }
+        (.literal 11) (.localVar "idxTree") 11 idxTree hLit hLocal
+        (by decide : 11 < 2 ^ 256)
+        (lt_trans hIdxTreeLt (by decide : 2 ^ 22 < 2 ^ 256))
+    rw [hShr, Nat.shiftRight_eq_div_pow]
+    norm_num
+  have hLayerEval : evalExpr [] st2 (.localVar "layer") = some layer := by
+    unfold st2 st1
+    change some (lookupValue
+        (bindValue (bindValue ls.bindings "idxLeaf" idxLeafVal) "idxTree" idxTreeVal)
+        "layer") = some layer
+    rw [MemoryKit.lookupValue_bindValue_ne _ "idxTree" "layer" _ (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "idxLeaf" "layer" _ (by decide)]
+    rw [hLayer]
+  have hIdxTreeEval : evalExpr [] st2 (.localVar "idxTree") = some (idxTree / 2048) := by
+    unfold st2
+    change some (lookupValue (bindValue st1.bindings "idxTree" idxTreeVal) "idxTree")
+      = some (idxTree / 2048)
+    rw [MemoryKit.lookupValue_bindValue_self]
+    exact congrArg some hIdxTreeVal
+  have hIdxLeafEval : evalExpr [] st2 (.localVar "idxLeaf") = some (idxTree % 2048) := by
+    unfold st2 st1
+    change some (lookupValue
+        (bindValue (bindValue ls.bindings "idxLeaf" idxLeafVal) "idxTree" idxTreeVal)
+        "idxLeaf") = some (idxTree % 2048)
+    rw [MemoryKit.lookupValue_bindValue_ne _ "idxTree" "idxLeaf" _ (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_self]
+    exact congrArg some hIdxLeafVal
+  have h224 :
+      evalExpr [] st2 (.shl (.literal 224) (.localVar "layer")) =
+        some (layer <<< 224) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st2 (.literal 224) (.localVar "layer") 224 layer rfl hLayerEval
+      (by decide : 224 < 2 ^ 256)
+      (lt_trans hLayerLt (by decide : 2 ^ 32 < 2 ^ 256))
+      (by
+        rw [Nat.shiftLeft_eq]
+        calc
+          layer * 2 ^ 224 < 2 ^ 32 * 2 ^ 224 :=
+            Nat.mul_lt_mul_of_pos_right hLayerLt (by decide)
+          _ = 2 ^ 256 := by norm_num [Nat.pow_add])
+  have h128 :
+      evalExpr [] st2 (.shl (.literal 128) (.localVar "idxTree")) =
+        some ((idxTree / 2048) <<< 128) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st2 (.literal 128) (.localVar "idxTree") 128 (idxTree / 2048) rfl hIdxTreeEval
+      (by decide : 128 < 2 ^ 256)
+      (lt_trans (Nat.div_lt_of_lt_mul hIdxTreeLt) (by decide : 2048 < 2 ^ 256))
+      (by
+        have hnext : idxTree / 2048 < 2 ^ 11 := by
+          exact Nat.div_lt_of_lt_mul hIdxTreeLt
+        rw [Nat.shiftLeft_eq]
+        calc
+          (idxTree / 2048) * 2 ^ 128 < 2 ^ 11 * 2 ^ 128 :=
+            Nat.mul_lt_mul_of_pos_right hnext (by decide)
+          _ < 2 ^ 256 := by decide)
+  have h64 :
+      evalExpr [] st2 (.shl (.literal 64) (.localVar "idxLeaf")) =
+        some ((idxTree % 2048) <<< 64) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st2 (.literal 64) (.localVar "idxLeaf") 64 (idxTree % 2048) rfl hIdxLeafEval
+      (by decide : 64 < 2 ^ 256)
+      (lt_trans (Nat.mod_lt _ (by decide : 0 < 2048)) (by decide : 2048 < 2 ^ 256))
+      (by
+        have hleaf : idxTree % 2048 < 2048 := Nat.mod_lt _ (by decide : 0 < 2048)
+        rw [Nat.shiftLeft_eq]
+        calc
+          (idxTree % 2048) * 2 ^ 64 < 2048 * 2 ^ 64 :=
+            Nat.mul_lt_mul_of_pos_right hleaf (by decide)
+          _ < 2 ^ 256 := by decide)
+  have h224lt : layer <<< 224 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      layer * 2 ^ 224 < 2 ^ 32 * 2 ^ 224 :=
+        Nat.mul_lt_mul_of_pos_right hLayerLt (by decide)
+      _ = 2 ^ 256 := by norm_num [Nat.pow_add]
+  have h128lt : (idxTree / 2048) <<< 128 < 2 ^ 256 := by
+    have hnext : idxTree / 2048 < 2 ^ 11 := Nat.div_lt_of_lt_mul hIdxTreeLt
+    rw [Nat.shiftLeft_eq]
+    calc
+      (idxTree / 2048) * 2 ^ 128 < 2 ^ 11 * 2 ^ 128 :=
+        Nat.mul_lt_mul_of_pos_right hnext (by decide)
+      _ < 2 ^ 256 := by decide
+  have h64lt : (idxTree % 2048) <<< 64 < 2 ^ 256 := by
+    have hleaf : idxTree % 2048 < 2048 := Nat.mod_lt _ (by decide : 0 < 2048)
+    rw [Nat.shiftLeft_eq]
+    calc
+      (idxTree % 2048) * 2 ^ 64 < 2048 * 2 ^ 64 :=
+        Nat.mul_lt_mul_of_pos_right hleaf (by decide)
+      _ < 2 ^ 256 := by decide
+  have hinner :
+      evalExpr [] st2
+        (.bitOr (.shl (.literal 128) (.localVar "idxTree"))
+          (.shl (.literal 64) (.localVar "idxLeaf"))) =
+        some (((idxTree / 2048) <<< 128) ||| ((idxTree % 2048) <<< 64)) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+      st2 (.shl (.literal 128) (.localVar "idxTree"))
+      (.shl (.literal 64) (.localVar "idxLeaf"))
+      ((idxTree / 2048) <<< 128) ((idxTree % 2048) <<< 64)
+      h128 h64 h128lt h64lt
+  have hinnerLt :
+      (((idxTree / 2048) <<< 128) ||| ((idxTree % 2048) <<< 64)) < 2 ^ 256 :=
+    Nat.bitwise_lt_two_pow h128lt h64lt
+  have hfull :
+      evalExpr [] st2
+        (.bitOr (.shl (.literal 224) (.localVar "layer"))
+          (.bitOr (.shl (.literal 128) (.localVar "idxTree"))
+            (.shl (.literal 64) (.localVar "idxLeaf")))) =
+        some ((layer <<< 224) |||
+          (((idxTree / 2048) <<< 128) ||| ((idxTree % 2048) <<< 64))) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+      st2 (.shl (.literal 224) (.localVar "layer"))
+      (.bitOr (.shl (.literal 128) (.localVar "idxTree"))
+        (.shl (.literal 64) (.localVar "idxLeaf")))
+      (layer <<< 224)
+      (((idxTree / 2048) <<< 128) ||| ((idxTree % 2048) <<< 64))
+      h224 hinner h224lt hinnerLt
+  rw [hfull]
+  simp [SphincsMinusVerifierSpec.C13Concrete.adrsWotsHashBase, Nat.lor_assoc]
+
 /-- If the named WOTS address binding has been identified, the pre-digest
 scratch cell `0x20` contains that word. -/
 theorem beforeDigest_memory_0x20_eq_of_wotsAdrs
@@ -1145,6 +1327,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeDigest_preserves_memory_zero
 #print axioms beforeDigest_idxLeaf_eq_of_idxTree
 #print axioms beforeDigest_idxTree_eq_of_idxTree
+#print axioms beforeDigest_wotsAdrs_eq_of_layer_idxTree
 #print axioms beforeDigest_memory_0x20_eq_of_wotsAdrs
 #print axioms beforeDigest_memory_0x40_eq_currentNode
 #print axioms beforeDigest_memory_0x40_eq_wordOfHash16
