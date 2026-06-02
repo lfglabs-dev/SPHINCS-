@@ -1905,6 +1905,33 @@ theorem finalLayerTail_preserves_merkleNode (st : RuntimeState) :
   simp only [execStmtList, MemoryKit.lookupValue_bindValue_ne,
     ne_eq, String.reduceEq, not_false_eq_true]
 
+/-- The final two layer assignments bind `"sigOff"` to `"authOff" + 176`. -/
+theorem finalLayerTail_sigOff_eq_of_authOff
+    (st : RuntimeState) (authOff : Nat)
+    (hAuthOff : lookupValue st.bindings "authOff" = authOff)
+    (hAuthOffLt : authOff < 2 ^ 256)
+    (hSigOffLt : authOff + 176 < 2 ^ 256) :
+    lookupValue
+        (match execStmtList [] st
+            [ .assignVar "currentNode" (v "merkleNode")
+            , .assignVar "sigOff" (addE (v "authOff") (u 176)) ] with
+          | .continue s' => s'
+          | _ => st).bindings
+        "sigOff"
+      = authOff + 176 := by
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "currentNode" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+      (assignVar_continue _ "sigOff" _ (authOff + 176) (by
+        exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+          _ (v "authOff") (u 176) authOff 176
+          (by
+            change some (lookupValue (bindValue st.bindings "currentNode"
+              (lookupValue st.bindings "merkleNode")) "authOff") = some authOff
+            rw [MemoryKit.lookupValue_bindValue_ne _ "currentNode" "authOff" _ (by decide)]
+            rw [hAuthOff])
+          rfl hAuthOffLt (by decide : 176 < 2 ^ 256) hSigOffLt))]
+  simp only [execStmtList, MemoryKit.lookupValue_bindValue_self]
+
 set_option maxHeartbeats 4000000 in
 /-- **`stepLayer_currentNode_eq_merkleNode`** — structural identification of the
 *left* operand of the final `currentNode == root` compare.  The last two statements
@@ -2158,6 +2185,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms stepLayer_idxTree_eq_of_idxTree
 #print axioms stepLayer_sigBase_eq
 #print axioms finalLayerTail_preserves_merkleNode
+#print axioms finalLayerTail_sigOff_eq_of_authOff
 #print axioms execLayerBody
 #print axioms execLayerLoop
 #print axioms execLayerLoop_reverts_on_first_guard
