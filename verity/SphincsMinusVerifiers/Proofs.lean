@@ -69,6 +69,7 @@
 import SphincsMinusVerifiers.ProofCore
 import SphincsMinusVerifiers.C13BridgePrep
 import SphincsMinusVerifiers.KeccakBridge
+import SphincsMinusVerifiers.SiblingCalldata
 
 namespace SphincsMinusVerifiers
 
@@ -76,6 +77,24 @@ open SphincsMinusVerifierSpec
 open Compiler.Proofs.IRGeneration.SourceSemantics
 open SphincsMinusVerifiers.MkC13State
 open SphincsMinusVerifiers.SegmentCompose
+
+private theorem runtimeState_with_bindings_selector
+    (st : RuntimeState) (bindings : List (String × Nat)) :
+    ({ st with bindings := bindings } : RuntimeState).selector = st.selector := rfl
+
+private theorem runtimeState_with_bindings_calldata
+    (st : RuntimeState) (bindings : List (String × Nat)) :
+    ({ st with bindings := bindings } : RuntimeState).world.calldata =
+      st.world.calldata := rfl
+
+private theorem loopState_selector
+    (varName : String) (st : RuntimeState) (index : Nat) :
+    (ClimbLoopGuarded.loopState varName st index).selector = st.selector := rfl
+
+private theorem loopState_calldata
+    (varName : String) (st : RuntimeState) (index : Nat) :
+    (ClimbLoopGuarded.loopState varName st index).world.calldata =
+      st.world.calldata := rfl
 
 /--
 The proved core: any observable verifier semantics that refines the byte-level
@@ -531,6 +550,23 @@ theorem c13FirstLayerGuardState_layer
   rw [MemoryKit.lookupValue_bindValue_self]
   exact SegmentS2.wordNormalize_of_lt (by decide : 0 < 2 ^ 256)
 
+/-- The layer-0 guarded-loop state carries the frozen ABI selector. -/
+theorem c13FirstLayerGuardState_selector
+    (pkSeed pkRoot message sig : Bytes) :
+    (c13FirstLayerGuardState pkSeed pkRoot message sig).selector = 0 := by
+  unfold c13FirstLayerGuardState
+  rw [loopState_selector, runtimeState_with_bindings_selector]
+  exact CurrentNodeFrame.afterSeed_selector_mkC13State pkSeed pkRoot message sig
+
+/-- The layer-0 guarded-loop state carries the frozen ABI calldata image. -/
+theorem c13FirstLayerGuardState_calldata
+    (pkSeed pkRoot message sig : Bytes) :
+    (c13FirstLayerGuardState pkSeed pkRoot message sig).world.calldata =
+      headWords pkSeed pkRoot message sig.size ++ bytesToWords sig := by
+  unfold c13FirstLayerGuardState
+  rw [loopState_calldata, runtimeState_with_bindings_calldata]
+  exact CurrentNodeFrame.afterSeed_calldata_mkC13State pkSeed pkRoot message sig
+
 /-- Layer-0 pre-digest `"idxLeaf"` is the low 11 bits of the parsed C13
 hypertree index. -/
 theorem c13FirstLayerBeforeDigest_idxLeaf_hyperIndex
@@ -710,6 +746,76 @@ theorem c13FirstLayerBeforeDigest_count_slot
       count := by
   rw [SegmentLayer3.beforeDigest_memory_0x60_eq_of_count _ count hCount]
   exact hNorm
+
+/-- Layer-0 pre-digest `"count"` is the parsed C13 layer-0 WOTS count. -/
+theorem c13FirstLayerBeforeDigest_count_hyperIndex
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (lsig : XmssLayerSig)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hLayer0 : sigParsed.layers[0]? = some lsig) :
+    lookupValue
+        (SegmentLayer3.beforeDigest
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+        "count" = lsig.wots.count := by
+  have hSigOffRaw :
+      lookupValue (c13FirstLayerGuardState pkSeed pkRoot message sig).bindings
+          "sigOff" = 1952 := by
+    rw [c13FirstLayerGuardState_sigOff]
+    exact SegmentS2.wordNormalize_of_lt (by decide : 1952 < 2 ^ 256)
+  have hRaw :=
+    SegmentLayer3.beforeDigest_count_eq_of_sigBase_sigOff_calldata
+      (c13FirstLayerGuardState pkSeed pkRoot message sig)
+      sigDataOffset 1952
+      (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+      (c13FirstLayerGuardState_sigBase pkSeed pkRoot message sig)
+      hSigOffRaw
+      (c13FirstLayerGuardState_selector pkSeed pkRoot message sig)
+      (c13FirstLayerGuardState_calldata pkSeed pkRoot message sig)
+      (by decide : sigDataOffset < 2 ^ 256)
+      (by decide : 1952 < 2 ^ 256)
+      (by decide : 1952 + 688 < 2 ^ 256)
+      (by decide :
+        sigDataOffset + (1952 + 688) < 2 ^ 256)
+  rw [SphincsMinusVerifiers.SiblingCalldata.shr224_calldata_eq_readBE4
+      pkSeed pkRoot message sig (1952 + 688)] at hRaw
+  have hCountSpec :=
+    C13Concrete.parseSignatureC13_layer_wots_count
+      hParse (by decide : 0 < 2) hLayer0
+  rw [hCountSpec]
+  rw [← SphincsMinusVerifiers.SiblingCalldata.readBE4_eq_fold sig (1952 + 688)]
+  exact hRaw
+
+/-- Layer-0 parsed C13 WOTS count is already an EVM word. -/
+theorem c13FirstLayer_wotsCount_norm
+    (sig : Bytes) (sigParsed : Signature) (lsig : XmssLayerSig)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hLayer0 : sigParsed.layers[0]? = some lsig) :
+    wordNormalize lsig.wots.count = lsig.wots.count := by
+  have hCountSpec :=
+    C13Concrete.parseSignatureC13_layer_wots_count
+      hParse (by decide : 0 < 2) hLayer0
+  rw [hCountSpec]
+  rw [← SphincsMinusVerifiers.SiblingCalldata.readBE4_eq_fold sig (1952 + 688)]
+  exact SegmentS2.wordNormalize_of_lt
+    (lt_trans
+      (SphincsMinusVerifiers.SiblingCalldata.readBE_lt sig (1952 + 688) 4)
+      (by decide : 256 ^ 4 < 2 ^ 256))
+
+/-- Layer-0 pre-digest count scratch cell contains the parsed C13 layer-0 WOTS
+count. -/
+theorem c13FirstLayerBeforeDigest_count_slot_hyperIndex
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (lsig : XmssLayerSig)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hLayer0 : sigParsed.layers[0]? = some lsig) :
+    ((SegmentLayer3.beforeDigest
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x60).val =
+      lsig.wots.count := by
+  exact c13FirstLayerBeforeDigest_count_slot
+    pkSeed pkRoot message sig lsig.wots.count
+    (c13FirstLayerBeforeDigest_count_hyperIndex
+      pkSeed pkRoot message sig sigParsed lsig hParse hLayer0)
+    (c13FirstLayer_wotsCount_norm sig sigParsed lsig hParse hLayer0)
 
 /-- Remaining concrete data needed for the C13 `.ok` fold branch at the current
 node boundary. -/
@@ -1915,6 +2021,8 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayerGuardState_sigOff
 #print axioms c13FirstLayerGuardState_sigBase
 #print axioms c13FirstLayerGuardState_layer
+#print axioms c13FirstLayerGuardState_selector
+#print axioms c13FirstLayerGuardState_calldata
 #print axioms c13FirstLayerBeforeDigest_idxLeaf_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_idxTree_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_wotsAdrs_hyperIndex
@@ -1923,6 +2031,9 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayerBeforeDigest_wotsAdrs_slot_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_currentNode_slot
 #print axioms c13FirstLayerBeforeDigest_count_slot
+#print axioms c13FirstLayerBeforeDigest_count_hyperIndex
+#print axioms c13FirstLayer_wotsCount_norm
+#print axioms c13FirstLayerBeforeDigest_count_slot_hyperIndex
 #print axioms c13FoldOkCurrentNodePkRootSizeData_of_current_node_facts
 #print axioms c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
 #print axioms c13FoldOkCurrentNodeWordcmpData_of_two_step_obligations
