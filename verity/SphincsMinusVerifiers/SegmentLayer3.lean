@@ -428,6 +428,26 @@ theorem beforeDigitLoop_eq (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "digitSum" _ _ rfl)]
   rfl
 
+/-- The pre-checksum prefix does not rebind `"sigBase"`. -/
+theorem beforeDigitLoop_preserves_sigBase (ls : RuntimeState) :
+    lookupValue (beforeDigitLoop ls).bindings "sigBase" =
+      lookupValue ls.bindings "sigBase" := by
+  refine execStmtList_preserves_lookup "sigBase" prefixBeforeDigitLoop
+    ls (beforeDigitLoop ls) ?_ (beforeDigitLoop_eq ls)
+  intro s s'' stmt hmem hexec
+  simp [prefixBeforeDigitLoop, mstore] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact execStmt_letVar_preserves_lookup _ _ "idxLeaf" "sigBase" _ (by decide) hexec
+  · exact execStmt_assignVar_preserves_lookup _ _ "idxTree" "sigBase" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "wotsAdrs" "sigBase" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "countOff" "sigBase" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "count" "sigBase" _ (by decide) hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "d" "sigBase" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "digitSum" "sigBase" _ (by decide) hexec
+
 /-- The straight-line WOTS digest setup always continues to `beforeDigest`. -/
 theorem beforeDigest_eq (ls : RuntimeState) :
     execStmtList [] ls prefixBeforeDigest = .continue (beforeDigest ls) := by
@@ -1523,6 +1543,68 @@ theorem suffix14_preserves_idxTree (ls : RuntimeState) :
   · exact execStmt_assignVar_preserves_lookup _ _ "currentNode" "idxTree" _ (by decide) hexec
   · exact execStmt_assignVar_preserves_lookup _ _ "sigOff" "idxTree" _ (by decide) hexec
 
+/-- The accepting layer suffix does not rebind `"sigBase"`. -/
+theorem suffix14_preserves_sigBase (ls : RuntimeState) :
+    lookupValue (stepLayer ls).bindings "sigBase" =
+      lookupValue (afterDigit ls).bindings "sigBase" := by
+  refine execStmtList_preserves_lookup "sigBase" suffix14
+    (afterDigit ls) (stepLayer ls) ?_ (suffix14_continues ls)
+  intro s s'' stmt hmem hexec
+  simp [suffix14, mstore] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact execStmt_letVar_preserves_lookup _ _ "wotsPtr" "sigBase" _ (by decide) hexec
+  · exact execStmt_forEach_preserves_lookup "i" "sigBase" _ _ _ _ (by decide)
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [wotsOuterBody, mstoreE] at hmem'
+        rcases hmem' with rfl | rfl | rfl | rfl | rfl | rfl
+        · exact execStmt_letVar_preserves_lookup _ _ "digit" "sigBase" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "steps" "sigBase" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "val" "sigBase" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "chainBase" "sigBase" _ (by decide) hexec'
+        · exact execStmt_forEach_preserves_lookup "step" "sigBase" _ _ _ _ (by decide)
+            (by
+              intro u u'' stmt'' hmem'' hexec''
+              simp [wotsChainBody, mstoreE] at hmem''
+              rcases hmem'' with rfl | rfl | rfl
+              · exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec''
+              · exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec''
+              · exact execStmt_assignVar_preserves_lookup _ _ "val" "sigBase" _ (by decide) hexec'')
+            hexec'
+        · exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec')
+      hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "pkAdrs" "sigBase" _ (by decide) hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec
+  · exact execStmt_forEach_preserves_lookup "i" "sigBase" _ _ _ _ (by decide)
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [copyBody, mstoreE] at hmem'
+        subst hmem'
+        exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec')
+      hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "wotsPk" "sigBase" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "authOff" "sigBase" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "treeAdrs" "sigBase" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "merkleNode" "sigBase" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "mIdx" "sigBase" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "merklePtr" "sigBase" _ (by decide) hexec
+  · exact execStmt_forEach_preserves_lookup "h" "sigBase" _ _ _ _ (by decide)
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [merkleClimbBody, mstoreE] at hmem'
+        rcases hmem' with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+        · exact execStmt_letVar_preserves_lookup _ _ "sibling" "sigBase" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "parentIdx" "sigBase" _ (by decide) hexec'
+        · exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "s" "sigBase" _ (by decide) hexec'
+        · exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec'
+        · exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec'
+        · exact execStmt_assignVar_preserves_lookup _ _ "merkleNode" "sigBase" _ (by decide) hexec'
+        · exact execStmt_assignVar_preserves_lookup _ _ "mIdx" "sigBase" _ (by decide) hexec')
+      hexec
+  · exact execStmt_assignVar_preserves_lookup _ _ "currentNode" "sigBase" _ (by decide) hexec
+  · exact execStmt_assignVar_preserves_lookup _ _ "sigOff" "sigBase" _ (by decide) hexec
+
 /-- One accepting layer iteration preserves selector/calldata from the incoming
 guard state through the checksum prefix and layer suffix. -/
 theorem stepLayer_preserves_selector_calldata (ls : RuntimeState) :
@@ -1546,6 +1628,14 @@ theorem stepLayer_idxTree_eq_of_idxTree
   rw [suffix14_preserves_idxTree]
   rw [afterDigit_preserves_lookup_of_ne ls "idxTree" (by decide) (by decide)]
   exact beforeDigitLoop_idxTree_eq_of_idxTree ls idxTree hIdxTree hIdxTreeLt
+
+/-- One accepting layer iteration preserves the `"sigBase"` binding. -/
+theorem stepLayer_sigBase_eq (ls : RuntimeState) :
+    lookupValue (stepLayer ls).bindings "sigBase" =
+      lookupValue ls.bindings "sigBase" := by
+  rw [suffix14_preserves_sigBase]
+  rw [afterDigit_preserves_lookup_of_ne ls "sigBase" (by decide) (by decide)]
+  rw [beforeDigitLoop_preserves_sigBase]
 
 /-- The final two layer assignments do not rebind `"merkleNode"`.  This is the
 cheap tail brick used by structural layer-suffix proofs without replaying the
@@ -1772,6 +1862,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms digitSumStep_digitSum_eq_add_digit
 #print axioms afterDigitFold_preserves_lookup_of_ne
 #print axioms beforeDigitLoop_eq
+#print axioms beforeDigitLoop_preserves_sigBase
 #print axioms beforeDigest_eq
 #print axioms beforeDigest_preserves_memory_zero
 #print axioms beforeDigest_idxLeaf_eq_of_idxTree
@@ -1793,6 +1884,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms wotsOuterBody_preserves_selector_calldata
 #print axioms suffix14_preserves_selector_calldata
 #print axioms suffix14_preserves_idxTree
+#print axioms suffix14_preserves_sigBase
 #print axioms prefix11_eq_afterDigitFold
 #print axioms afterDigit_eq_afterDigitFold
 #print axioms afterDigit_digitSum_eq_afterDigitFold
@@ -1804,6 +1896,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeMerkle_eq
 #print axioms stepLayer_preserves_selector_calldata
 #print axioms stepLayer_idxTree_eq_of_idxTree
+#print axioms stepLayer_sigBase_eq
 #print axioms finalLayerTail_preserves_merkleNode
 #print axioms execLayerBody
 #print axioms execLayerLoop

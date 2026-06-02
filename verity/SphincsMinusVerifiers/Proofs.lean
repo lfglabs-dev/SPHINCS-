@@ -541,6 +541,17 @@ theorem c13FirstLayerGuardState_sigBase
   rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "sigBase" _ (by decide)]
   exact CurrentNodeFrame.afterSeed_sigBase_mkC13State pkSeed pkRoot message sig
 
+/-- The layer-1 guarded-loop binding updates and the first accepted layer do not
+disturb the seed-stage `"sigBase"` binding. -/
+theorem c13SecondLayerGuardState_sigBase
+    (pkSeed pkRoot message sig : Bytes) :
+    lookupValue (c13SecondLayerGuardState pkSeed pkRoot message sig).bindings
+        "sigBase" = sigDataOffset := by
+  unfold c13SecondLayerGuardState ClimbLoopGuarded.loopState
+  rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "sigBase" _ (by decide)]
+  rw [SegmentLayer3.stepLayer_sigBase_eq]
+  exact c13FirstLayerGuardState_sigBase pkSeed pkRoot message sig
+
 /-- The layer-0 guarded-loop `"layer"` binding is zero. -/
 theorem c13FirstLayerGuardState_layer
     (pkSeed pkRoot message sig : Bytes) :
@@ -2307,6 +2318,7 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayerGuardState_idxTree_hyperIndex
 #print axioms c13FirstLayerGuardState_sigOff
 #print axioms c13FirstLayerGuardState_sigBase
+#print axioms c13SecondLayerGuardState_sigBase
 #print axioms c13FirstLayerGuardState_layer
 #print axioms c13SecondLayerGuardState_layer
 #print axioms c13FirstLayerGuardState_selector
