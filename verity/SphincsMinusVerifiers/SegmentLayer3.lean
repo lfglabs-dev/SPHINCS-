@@ -448,6 +448,38 @@ theorem beforeDigitLoop_preserves_sigBase (ls : RuntimeState) :
   · exact execStmt_letVar_preserves_lookup _ _ "d" "sigBase" _ (by decide) hexec
   · exact execStmt_letVar_preserves_lookup _ _ "digitSum" "sigBase" _ (by decide) hexec
 
+/-- The pre-checksum prefix binds `"countOff"` to the incoming `"sigOff" + 688`. -/
+theorem beforeDigitLoop_countOff_eq_of_sigOff
+    (ls : RuntimeState) (sigOff : Nat)
+    (hSigOff : lookupValue ls.bindings "sigOff" = sigOff)
+    (hSigOffLt : sigOff < 2 ^ 256)
+    (hCountOffLt : sigOff + 688 < 2 ^ 256) :
+    lookupValue (beforeDigitLoop ls).bindings "countOff" = sigOff + 688 := by
+  unfold beforeDigitLoop prefixBeforeDigitLoop mstore u addE v
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "idxLeaf" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "idxTree" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "countOff" _ _ (by
+    refine SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      _ (v "sigOff") (u 688) sigOff 688 ?_ rfl
+      hSigOffLt (by decide : 688 < 2 ^ 256) hCountOffLt
+    change some (lookupValue _ "sigOff") = some sigOff
+    rw [MemoryKit.lookupValue_bindValue_ne _ "wotsAdrs" "sigOff" _ (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "idxTree" "sigOff" _ (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "idxLeaf" "sigOff" _ (by decide)]
+    rw [hSigOff]))]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "d" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "digitSum" _ _ rfl)]
+  simp only [execStmtList]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "digitSum" "countOff" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "d" "countOff" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "count" "countOff" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_self]
+
 /-- The straight-line WOTS digest setup always continues to `beforeDigest`. -/
 theorem beforeDigest_eq (ls : RuntimeState) :
     execStmtList [] ls prefixBeforeDigest = .continue (beforeDigest ls) := by
@@ -1451,6 +1483,64 @@ theorem beforeMerkle_eq (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merklePtr" _ _ rfl)]
   rfl
 
+/-- The suffix leading to the Merkle loop does not rebind `"countOff"`. -/
+theorem suffixBeforeMerkle_preserves_countOff (ls : RuntimeState) :
+    lookupValue (beforeMerkle ls).bindings "countOff" =
+      lookupValue (afterDigit ls).bindings "countOff" := by
+  refine execStmtList_preserves_lookup "countOff" suffixBeforeMerkle
+    (afterDigit ls) (beforeMerkle ls) ?_ (beforeMerkle_eq ls)
+  intro s s'' stmt hmem hexec
+  simp [suffixBeforeMerkle, mstore] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact execStmt_letVar_preserves_lookup _ _ "wotsPtr" "countOff" _ (by decide) hexec
+  · exact execStmt_forEach_preserves_lookup "i" "countOff" _ _ _ _ (by decide)
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [wotsOuterBody, mstoreE] at hmem'
+        rcases hmem' with rfl | rfl | rfl | rfl | rfl | rfl
+        · exact execStmt_letVar_preserves_lookup _ _ "digit" "countOff" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "steps" "countOff" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "val" "countOff" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "chainBase" "countOff" _ (by decide) hexec'
+        · exact execStmt_forEach_preserves_lookup "step" "countOff" _ _ _ _ (by decide)
+            (by
+              intro u u'' stmt'' hmem'' hexec''
+              simp [wotsChainBody, mstoreE] at hmem''
+              rcases hmem'' with rfl | rfl | rfl
+              · exact execStmt_mstore_preserves_lookup _ _ "countOff" _ _ hexec''
+              · exact execStmt_mstore_preserves_lookup _ _ "countOff" _ _ hexec''
+              · exact execStmt_assignVar_preserves_lookup _ _ "val" "countOff" _ (by decide) hexec'')
+            hexec'
+        · exact execStmt_mstore_preserves_lookup _ _ "countOff" _ _ hexec')
+      hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "pkAdrs" "countOff" _ (by decide) hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "countOff" _ _ hexec
+  · exact execStmt_forEach_preserves_lookup "i" "countOff" _ _ _ _ (by decide)
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [copyBody, mstoreE] at hmem'
+        subst hmem'
+        exact execStmt_mstore_preserves_lookup _ _ "countOff" _ _ hexec')
+      hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "wotsPk" "countOff" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "authOff" "countOff" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "treeAdrs" "countOff" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "merkleNode" "countOff" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "mIdx" "countOff" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "merklePtr" "countOff" _ (by decide) hexec
+
+/-- The state before the Merkle loop still carries the count offset computed
+from the incoming `"sigOff"`. -/
+theorem beforeMerkle_countOff_eq_of_sigOff
+    (ls : RuntimeState) (sigOff : Nat)
+    (hSigOff : lookupValue ls.bindings "sigOff" = sigOff)
+    (hSigOffLt : sigOff < 2 ^ 256)
+    (hCountOffLt : sigOff + 688 < 2 ^ 256) :
+    lookupValue (beforeMerkle ls).bindings "countOff" = sigOff + 688 := by
+  rw [suffixBeforeMerkle_preserves_countOff]
+  rw [afterDigit_preserves_lookup_of_ne ls "countOff" (by decide) (by decide)]
+  exact beforeDigitLoop_countOff_eq_of_sigOff ls sigOff hSigOff hSigOffLt hCountOffLt
+
 /-- The exact folded XMSS Merkle-climb state inside one accepting layer iteration. -/
 def afterMerkle (ls : RuntimeState) : RuntimeState :=
   foldLoop "h" (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr")
@@ -1863,6 +1953,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms afterDigitFold_preserves_lookup_of_ne
 #print axioms beforeDigitLoop_eq
 #print axioms beforeDigitLoop_preserves_sigBase
+#print axioms beforeDigitLoop_countOff_eq_of_sigOff
 #print axioms beforeDigest_eq
 #print axioms beforeDigest_preserves_memory_zero
 #print axioms beforeDigest_idxLeaf_eq_of_idxTree
@@ -1894,6 +1985,8 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms layerGuard_of_afterDigit_digitSum_eq
 #print axioms layerGuard_of_afterDigit_digitSum_ne
 #print axioms beforeMerkle_eq
+#print axioms suffixBeforeMerkle_preserves_countOff
+#print axioms beforeMerkle_countOff_eq_of_sigOff
 #print axioms stepLayer_preserves_selector_calldata
 #print axioms stepLayer_idxTree_eq_of_idxTree
 #print axioms stepLayer_sigBase_eq
