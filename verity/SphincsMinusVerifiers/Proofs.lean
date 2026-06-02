@@ -745,19 +745,34 @@ theorem c13FoldRevertedBeforeDigitData_of_digest_scratch_data
   refine ⟨?_, ?_⟩
   · intro d
     rcases hScratch.1 d with ⟨hSeed, hAdrs, hNode, hCount⟩
-    rw [SegmentLayer3.beforeDigitLoop_d_eq_keccakWords]
-    rw [hSeed, hAdrs, hNode, hCount]
-    rfl
+    exact SegmentLayer3.beforeDigitLoop_d_eq_wotsDigest_of_scratch
+      (c13FirstLayerGuardState pkSeed pkRoot message sig)
+      (C13Concrete.wordOfHash16 pkSeed) 0
+      (digest.hyperIndex / 2048)
+      (digest.hyperIndex % 2048)
+      d.lsig0.wots.count
+      (C13Concrete.wordOfHash16 forsPk)
+      hSeed hAdrs hNode hCount
   · intro d
     rcases hScratch.2 d with
       ⟨hSeed0, hAdrs0, hNode0, hCount0, hSeed1, hAdrs1, hNode1, hCount1⟩
     constructor
-    · rw [SegmentLayer3.beforeDigitLoop_d_eq_keccakWords]
-      rw [hSeed0, hAdrs0, hNode0, hCount0]
-      rfl
-    · rw [SegmentLayer3.beforeDigitLoop_d_eq_keccakWords]
-      rw [hSeed1, hAdrs1, hNode1, hCount1]
-      rfl
+    · exact SegmentLayer3.beforeDigitLoop_d_eq_wotsDigest_of_scratch
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)
+        (C13Concrete.wordOfHash16 pkSeed) 0
+        (digest.hyperIndex / 2048)
+        (digest.hyperIndex % 2048)
+        d.lsig0.wots.count
+        (C13Concrete.wordOfHash16 forsPk)
+        hSeed0 hAdrs0 hNode0 hCount0
+    · exact SegmentLayer3.beforeDigitLoop_d_eq_wotsDigest_of_scratch
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)
+        (C13Concrete.wordOfHash16 pkSeed) 1
+        ((digest.hyperIndex / 2048) / 2048)
+        ((digest.hyperIndex / 2048) % 2048)
+        d.lsig1.wots.count
+        (C13Concrete.wordOfHash16 d.root0)
+        hSeed1 hAdrs1 hNode1 hCount1
 
 private theorem c13_wotsDigest_lt
     (seed : C13Concrete.Word) (layer idxTree idxLeaf count node : Nat) :
