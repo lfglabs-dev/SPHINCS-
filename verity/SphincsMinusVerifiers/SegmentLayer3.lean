@@ -1932,6 +1932,34 @@ theorem finalLayerTail_sigOff_eq_of_authOff
           rfl hAuthOffLt (by decide : 176 < 2 ^ 256) hSigOffLt))]
   simp only [execStmtList, MemoryKit.lookupValue_bindValue_self]
 
+/-- Running the final layer tail from the folded Merkle state advances
+`"sigOff"` to the next layer's signature offset. -/
+theorem afterMerkleTail_sigOff_eq_of_sigOff
+    (ls : RuntimeState) (sigOff : Nat)
+    (hSigOff : lookupValue ls.bindings "sigOff" = sigOff)
+    (hSigOffLt : sigOff < 2 ^ 256)
+    (hCountOffLt : sigOff + 688 < 2 ^ 256)
+    (hAuthOffLt : sigOff + 692 < 2 ^ 256)
+    (hNextSigOffLt : sigOff + 868 < 2 ^ 256) :
+    lookupValue
+        (match execStmtList [] (afterMerkle ls)
+            [ .assignVar "currentNode" (v "merkleNode")
+            , .assignVar "sigOff" (addE (v "authOff") (u 176)) ] with
+          | .continue s' => s'
+          | _ => afterMerkle ls).bindings
+        "sigOff" = sigOff + 868 := by
+  have hAuth :
+      lookupValue (afterMerkle ls).bindings "authOff" = sigOff + 692 :=
+    afterMerkle_authOff_eq_of_sigOff
+      ls sigOff hSigOff hSigOffLt hCountOffLt hAuthOffLt
+  have hTail := finalLayerTail_sigOff_eq_of_authOff
+    (afterMerkle ls) (sigOff + 692) hAuth hAuthOffLt
+    (by
+      have hSum : sigOff + 692 + 176 = sigOff + 868 := by omega
+      simpa [hSum] using hNextSigOffLt)
+  have hSum : sigOff + 692 + 176 = sigOff + 868 := by omega
+  simpa [hSum] using hTail
+
 set_option maxHeartbeats 4000000 in
 /-- **`stepLayer_currentNode_eq_merkleNode`** — structural identification of the
 *left* operand of the final `currentNode == root` compare.  The last two statements
@@ -2186,6 +2214,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms stepLayer_sigBase_eq
 #print axioms finalLayerTail_preserves_merkleNode
 #print axioms finalLayerTail_sigOff_eq_of_authOff
+#print axioms afterMerkleTail_sigOff_eq_of_sigOff
 #print axioms execLayerBody
 #print axioms execLayerLoop
 #print axioms execLayerLoop_reverts_on_first_guard
