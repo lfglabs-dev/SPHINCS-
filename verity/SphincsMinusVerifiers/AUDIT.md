@@ -84,9 +84,11 @@ Standalone bricks include:
   `nat_land_low19` and `s3Guard_eq_forsIndex6`;
 - Layer-3 pre-digest scratch-cell facts in
   `SphincsMinusVerifiers/SegmentLayer3.lean`:
-  `beforeDigest_preserves_memory_zero` and
+  `beforeDigest_preserves_memory_zero`,
+  `beforeDigest_memory_0x20_eq_of_wotsAdrs`,
   `beforeDigest_memory_0x40_eq_currentNode` /
-  `beforeDigest_memory_0x40_eq_wordOfHash16`;
+  `beforeDigest_memory_0x40_eq_wordOfHash16`, and
+  `beforeDigest_memory_0x60_eq_of_count`;
 - seed and FORS-compression frame adapters in
   `SphincsMinusVerifiers/CurrentNodeFrame.lean`;
 - generic memory-cell frame lemmas in

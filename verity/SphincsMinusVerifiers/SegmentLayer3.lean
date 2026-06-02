@@ -437,6 +437,29 @@ theorem beforeDigest_preserves_memory_zero (ls : RuntimeState) :
       MemoryKit.memUpdate_diff _ _ _ _ (by decide),
       MemoryKit.memUpdate_diff _ _ _ _ (by decide)]
 
+/-- If the named WOTS address binding has been identified, the pre-digest
+scratch cell `0x20` contains that word. -/
+theorem beforeDigest_memory_0x20_eq_of_wotsAdrs
+    (ls : RuntimeState) (wotsAdrs : Nat)
+    (hWotsAdrs : lookupValue (beforeDigest ls).bindings "wotsAdrs" = wotsAdrs) :
+    ((beforeDigest ls).world.memory 0x20).val = wordNormalize wotsAdrs := by
+  rw [← hWotsAdrs]
+  unfold beforeDigest prefixBeforeDigest mstore u
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "idxLeaf" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "idxTree" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "countOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  simp only [execStmtList]
+  rw [MemoryKit.memUpdate_diff _ _ _ _ (by decide)]
+  rw [MemoryKit.memUpdate_diff _ _ _ _ (by decide)]
+  change (MemoryKit.memUpdate _ (wordNormalize 32) _ (wordNormalize 32)).val =
+    wordNormalize (lookupValue _ "wotsAdrs")
+  rw [MemoryKit.memUpdate_val_same]
+
 /-- The pre-digest WOTS prefix writes scratch cell `0x40` from the incoming
 `"currentNode"` binding. -/
 theorem beforeDigest_memory_0x40_eq_currentNode (ls : RuntimeState) :
@@ -471,6 +494,27 @@ theorem beforeDigest_memory_0x40_eq_wordOfHash16
       SphincsMinusVerifierSpec.C13Concrete.wordOfHash16 node := by
   rw [beforeDigest_memory_0x40_eq_currentNode, hCurrent]
   exact SegmentS2.wordNormalize_of_lt (SegmentS2.wordOfHash16_lt node)
+
+/-- If the named WOTS count binding has been identified, the pre-digest scratch
+cell `0x60` contains that word. -/
+theorem beforeDigest_memory_0x60_eq_of_count
+    (ls : RuntimeState) (count : Nat)
+    (hCount : lookupValue (beforeDigest ls).bindings "count" = count) :
+    ((beforeDigest ls).world.memory 0x60).val = wordNormalize count := by
+  rw [← hCount]
+  unfold beforeDigest prefixBeforeDigest mstore u
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "idxLeaf" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "idxTree" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "countOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  simp only [execStmtList]
+  change (MemoryKit.memUpdate _ (wordNormalize 96) _ (wordNormalize 96)).val =
+    wordNormalize (lookupValue _ "count")
+  rw [MemoryKit.memUpdate_val_same]
 
 /-- The pre-checksum prefix binds `"d"` to the Keccak word over the four C13 WOTS
 digest scratch cells.  Cell `0` is prepared by earlier segments; this prefix
@@ -968,8 +1012,10 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeDigitLoop_eq
 #print axioms beforeDigest_eq
 #print axioms beforeDigest_preserves_memory_zero
+#print axioms beforeDigest_memory_0x20_eq_of_wotsAdrs
 #print axioms beforeDigest_memory_0x40_eq_currentNode
 #print axioms beforeDigest_memory_0x40_eq_wordOfHash16
+#print axioms beforeDigest_memory_0x60_eq_of_count
 #print axioms beforeDigitLoop_d_eq_keccakWords
 #print axioms prefix11_eq_afterDigitFold
 #print axioms afterDigit_eq_afterDigitFold
