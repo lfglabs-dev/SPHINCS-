@@ -26,6 +26,7 @@ import SphincsMinusVerifiers.ClimbLoopGuarded
 import SphincsMinusVerifiers.ClimbKeccakStep
 import SphincsMinusVerifiers.Model
 import SphincsMinusVerifiers.SegmentS2
+import SphincsMinusVerifiers.StateFrame
 import SphincsMinusVerifierSpec.C13Concrete
 
 namespace SphincsMinusVerifiers.SegmentLayer3
@@ -1027,6 +1028,54 @@ theorem afterDigit_eq (ls : RuntimeState) :
       (execStmt_forEach_of_step "ii" (.literal 43) digitSumBody _ _ digitSumStep rfl digitSumStepLemma)]
   rfl
 
+/-- The checksum prefix only updates bindings and scratch memory; it preserves
+the ABI selector and calldata image. -/
+theorem afterDigit_preserves_selector_calldata (ls : RuntimeState) :
+    SphincsMinusVerifiers.StateFrame.PreservesSelectorCalldata ls (afterDigit ls) := by
+  refine SphincsMinusVerifiers.StateFrame.execStmtList_preserves_selector_calldata
+    prefix11 ls (afterDigit ls) ?_ (afterDigit_eq ls)
+  intro s s'' stmt hmem hexec
+  simp [prefix11, mstore] at hmem
+  rcases hmem with h | h | h | h | h | h | h | h | h | h | h
+  · subst h
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "idxLeaf" _ hexec
+  · subst h
+    exact SphincsMinusVerifiers.StateFrame.execStmt_assignVar_preserves_selector_calldata
+      s s'' "idxTree" _ hexec
+  · subst h
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "wotsAdrs" _ hexec
+  · subst h
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "countOff" _ hexec
+  · subst h
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "count" _ hexec
+  · subst h
+    exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' _ _ hexec
+  · subst h
+    exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' _ _ hexec
+  · subst h
+    exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' _ _ hexec
+  · subst h
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "d" _ hexec
+  · subst h
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "digitSum" _ hexec
+  · subst h
+    refine SphincsMinusVerifiers.StateFrame.execStmt_forEach_preserves_selector_calldata
+      "ii" (u 43) digitSumBody s s'' ?_ hexec
+    intro t t'' stmt' hmem' hexec'
+    simp [digitSumBody] at hmem'
+    subst hmem'
+    exact SphincsMinusVerifiers.StateFrame.execStmt_assignVar_preserves_selector_calldata
+      t t'' "digitSum" _ hexec'
+
 /-- The full checksum prefix continues to the named pure fold state. -/
 theorem prefix11_eq_afterDigitFold (ls : RuntimeState) :
     execStmtList [] ls prefix11 = .continue (afterDigitFold ls) := by
@@ -1474,6 +1523,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeDigest_memory_0x60_eq_of_count
 #print axioms beforeDigitLoop_d_eq_keccakWords
 #print axioms beforeDigitLoop_d_eq_wotsDigest_of_scratch
+#print axioms afterDigit_preserves_selector_calldata
 #print axioms prefix11_eq_afterDigitFold
 #print axioms afterDigit_eq_afterDigitFold
 #print axioms afterDigit_digitSum_eq_afterDigitFold
