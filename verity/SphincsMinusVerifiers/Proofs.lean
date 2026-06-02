@@ -454,6 +454,48 @@ theorem c13FirstLayerBeforeDigest_seed_slot
   rw [SegmentLayer3.beforeDigest_preserves_memory_zero]
   exact c13FirstLayerGuardState_seed_slot pkSeed pkRoot message sig
 
+/-- The layer-0 guarded-loop binding updates do not disturb the seed-stage
+`"currentNode"` binding. -/
+theorem c13FirstLayerGuardState_currentNode
+    (pkSeed pkRoot message sig : Bytes) :
+    lookupValue (c13FirstLayerGuardState pkSeed pkRoot message sig).bindings
+        "currentNode" =
+      lookupValue
+        (SegmentCompose.afterFinalize (mkC13State pkSeed pkRoot message sig)).bindings
+        "forsPk" := by
+  unfold c13FirstLayerGuardState ClimbLoopGuarded.loopState
+  rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "currentNode" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "currentNode" _ (by decide)]
+  exact CurrentNodeFrame.afterSeed_currentNode
+    (mkC13State pkSeed pkRoot message sig)
+
+/-- The layer-0 guarded-loop binding updates do not disturb the seed-stage
+`"idxTree"` binding. -/
+theorem c13FirstLayerGuardState_idxTree
+    (pkSeed pkRoot message sig : Bytes) :
+    lookupValue (c13FirstLayerGuardState pkSeed pkRoot message sig).bindings
+        "idxTree" =
+      lookupValue
+        (SegmentCompose.afterFinalize (mkC13State pkSeed pkRoot message sig)).bindings
+        "htIdx" := by
+  unfold c13FirstLayerGuardState ClimbLoopGuarded.loopState
+  rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "idxTree" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "idxTree" _ (by decide)]
+  exact CurrentNodeFrame.afterSeed_idxTree
+    (mkC13State pkSeed pkRoot message sig)
+
+/-- The layer-0 guarded-loop binding updates do not disturb the seed-stage
+`"sigOff"` binding. -/
+theorem c13FirstLayerGuardState_sigOff
+    (pkSeed pkRoot message sig : Bytes) :
+    lookupValue (c13FirstLayerGuardState pkSeed pkRoot message sig).bindings
+        "sigOff" = wordNormalize 1952 := by
+  unfold c13FirstLayerGuardState ClimbLoopGuarded.loopState
+  rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "sigOff" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "sigOff" _ (by decide)]
+  exact CurrentNodeFrame.afterSeed_sigOff
+    (mkC13State pkSeed pkRoot message sig)
+
 /-- Remaining concrete data needed for the C13 `.ok` fold branch at the current
 node boundary. -/
 def C13FoldOkCurrentNodeWordcmpData
@@ -1652,6 +1694,9 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13SecondLayerGuardState_eq_c13LayerLoopState1
 #print axioms c13FirstLayerGuardState_seed_slot
 #print axioms c13FirstLayerBeforeDigest_seed_slot
+#print axioms c13FirstLayerGuardState_currentNode
+#print axioms c13FirstLayerGuardState_idxTree
+#print axioms c13FirstLayerGuardState_sigOff
 #print axioms c13FoldOkCurrentNodePkRootSizeData_of_current_node_facts
 #print axioms c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
 #print axioms c13FoldOkCurrentNodeWordcmpData_of_two_step_obligations
