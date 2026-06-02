@@ -405,6 +405,18 @@ theorem hMsgC13_forsIndex_getD_lt
   rw [getElem?_map_range _ hj]
   exact Nat.mod_lt _ (by decide : 0 < 2 ^ 19)
 
+/-- The concrete C13 hypertree index reconstructed from `H_msg` is 22-bit. -/
+theorem hMsgC13_hyperIndex_lt (pk : PublicKey) (R message : Bytes) :
+    (hMsgC13 c13 pk R message).hyperIndex < 2 ^ 22 := by
+  unfold hMsgC13
+  exact Nat.mod_lt _ (by decide : 0 < 2 ^ 22)
+
+/-- The first C13 XMSS tree index derived from `hyperIndex` is 11-bit. -/
+theorem hMsgC13_hyperIndex_div_2048_lt (pk : PublicKey) (R message : Bytes) :
+    (hMsgC13 c13 pk R message).hyperIndex / 2048 < 2048 := by
+  have h := hMsgC13_hyperIndex_lt pk R message
+  omega
+
 /-! ### FORS+C reconstruction
 
 For each of the K=7 FORS trees:
@@ -1876,6 +1888,8 @@ theorem foldHypertree_c13_ok_root_canonical_of_fors
 #print axioms hMsgC13_forsIndex_six
 #print axioms hMsgC13_forsIndex_getD_eq
 #print axioms hMsgC13_forsIndex_getD_lt
+#print axioms hMsgC13_hyperIndex_lt
+#print axioms hMsgC13_hyperIndex_div_2048_lt
 #print axioms adrsForsLeaf_lt_of_normal_idx_lt
 #print axioms adrsForsLeaf_hMsgC13_normal_lt
 
