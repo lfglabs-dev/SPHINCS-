@@ -542,6 +542,26 @@ theorem wotsOuterStep_preserves_i_lookup (st : RuntimeState) :
       lookupValue st.bindings "i" :=
   wotsOuterBody_preserves_i_lookup st (wotsOuterStep st) (wotsOuterStepLemma st)
 
+/-- The 43-step WOTS outer fold preserves seed cell `0x00`. -/
+theorem wotsOuterFold_preserves_memory_zero (st : RuntimeState) :
+    ((foldLoop "i" wotsOuterStep
+        { st with bindings := bindValue st.bindings "i" (wordNormalize 0) }
+        0 (wordNormalize 43)).world.memory 0x00).val =
+      (st.world.memory 0x00).val := by
+  rw [ClimbLoop.foldLoop_preserves_memory_val_range "i" wotsOuterStep 0x00
+    (fun i => i < 43)
+    (fun s i hi => by
+      have hI :
+          lookupValue ({ s with bindings := bindValue s.bindings "i" (wordNormalize i) }).bindings
+              "i" =
+            wordNormalize i := by
+        exact MemoryKit.lookupValue_bindValue_self s.bindings "i" (wordNormalize i)
+      exact wotsOuterStep_preserves_memory_zero_of_i
+        { s with bindings := bindValue s.bindings "i" (wordNormalize i) } i hi hI)
+    { st with bindings := bindValue st.bindings "i" (wordNormalize 0) }
+    0 (wordNormalize 43)
+    (fun i _ hi => by simpa using hi)]
+
 /-- One WOTS public-key copy step preserves seed cell `0x00` for the actual C13
 loop-index range. -/
 theorem copyStep_preserves_memory_zero_of_i
@@ -2598,6 +2618,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms wotsOuterStep_preserves_memory_zero_of_i
 #print axioms wotsOuterBody_preserves_i_lookup
 #print axioms wotsOuterStep_preserves_i_lookup
+#print axioms wotsOuterFold_preserves_memory_zero
 #print axioms copyStep_preserves_memory_zero_of_i
 #print axioms copyFold_preserves_memory_zero
 #print axioms beforeDigest_idxLeaf_eq_of_idxTree
