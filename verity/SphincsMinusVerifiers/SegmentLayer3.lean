@@ -346,6 +346,37 @@ theorem wotsChainFold_preserves_i_lookup (st : RuntimeState) (n : Nat) :
     0 n]
   exact MemoryKit.lookupValue_bindValue_ne st.bindings "step" "i" (wordNormalize 0) (by decide)
 
+/-- Executing one WOTS outer-loop body preserves the outer-loop index binding
+`"i"`. -/
+theorem wotsOuterBody_preserves_i_lookup (st s' : RuntimeState)
+    (hExec : execStmtList [] st wotsOuterBody = .continue s') :
+    lookupValue s'.bindings "i" = lookupValue st.bindings "i" := by
+  refine SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    "i" wotsOuterBody st s' ?_ hExec
+  intro s s'' stmt hmem hexec
+  simp [wotsOuterBody] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl
+  · exact execStmt_letVar_preserves_lookup s s'' "digit" "i" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup s s'' "steps" "i" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup s s'' "val" "i" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup s s'' "chainBase" "i" _ (by decide) hexec
+  · exact execStmt_forEach_preserves_lookup "step" "i" _ _ s s'' (by decide)
+      (by
+        intro s' s''' stmt hmem' hexec'
+        simp [wotsChainBody] at hmem'
+        rcases hmem' with rfl | rfl | rfl
+        · exact execStmt_mstore_preserves_lookup s' s''' "i" _ _ hexec'
+        · exact execStmt_mstore_preserves_lookup s' s''' "i" _ _ hexec'
+        · exact execStmt_assignVar_preserves_lookup s' s''' "val" "i" _ (by decide) hexec')
+      hexec
+  · exact execStmt_mstore_preserves_lookup s s'' "i" _ _ hexec
+
+/-- One WOTS outer-loop step preserves the outer-loop index binding `"i"`. -/
+theorem wotsOuterStep_preserves_i_lookup (st : RuntimeState) :
+    lookupValue (wotsOuterStep st).bindings "i" =
+      lookupValue st.bindings "i" :=
+  wotsOuterBody_preserves_i_lookup st (wotsOuterStep st) (wotsOuterStepLemma st)
+
 /-- One WOTS public-key copy step preserves seed cell `0x00` for the actual C13
 loop-index range. -/
 theorem copyStep_preserves_memory_zero_of_i
@@ -2396,6 +2427,8 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms stepWots_preserves_memory_zero
 #print axioms wotsChainFold_preserves_memory_zero
 #print axioms wotsChainFold_preserves_i_lookup
+#print axioms wotsOuterBody_preserves_i_lookup
+#print axioms wotsOuterStep_preserves_i_lookup
 #print axioms copyStep_preserves_memory_zero_of_i
 #print axioms copyFold_preserves_memory_zero
 #print axioms beforeDigest_idxLeaf_eq_of_idxTree
