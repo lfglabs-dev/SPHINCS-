@@ -1732,6 +1732,34 @@ theorem suffix14_continues (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "sigOff" _ _ rfl)]
   rfl
 
+/-- Once the Merkle loop state has been named, the final two layer assignments
+continue to `stepLayer`. -/
+theorem finalLayerTail_continues_from_afterMerkle (ls : RuntimeState) :
+    execStmtList [] (afterMerkle ls)
+        [ .assignVar "currentNode" (v "merkleNode")
+        , .assignVar "sigOff" (addE (v "authOff") (u 176)) ] =
+      .continue (stepLayer ls) := by
+  let suffixMerkleAndTail : List Stmt :=
+    [ .forEach "h" (u 11) (merkleClimbBody "merkleNode" "mIdx" "treeAdrs" "merklePtr")
+    , .assignVar "currentNode" (v "merkleNode")
+    , .assignVar "sigOff" (addE (v "authOff") (u 176)) ]
+  have h := suffix14_continues ls
+  have hSplit : suffix14 = suffixBeforeMerkle ++ suffixMerkleAndTail := by
+    rfl
+  rw [hSplit] at h
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeMerkle_eq ls)] at h
+  unfold suffixMerkleAndTail at h
+  have hMerkle :
+      execStmt [] (beforeMerkle ls)
+          (.forEach "h" (u 11)
+            (merkleClimbBody "merkleNode" "mIdx" "treeAdrs" "merklePtr")) =
+        .continue (afterMerkle ls) := by
+    simpa [afterMerkle, u] using
+      (execStmt_forEach_merkleClimb
+        "h" "merkleNode" "mIdx" "treeAdrs" "merklePtr" 11 (beforeMerkle ls))
+  rw [execStmtList_cons_continue _ _ _ _ hMerkle] at h
+  simpa [afterMerkle] using h
+
 /-- The accepting layer suffix does not rebind `"idxTree"`. -/
 theorem suffix14_preserves_idxTree (ls : RuntimeState) :
     lookupValue (stepLayer ls).bindings "idxTree" =
@@ -1959,6 +1987,21 @@ theorem afterMerkleTail_sigOff_eq_of_sigOff
       simpa [hSum] using hNextSigOffLt)
   have hSum : sigOff + 692 + 176 = sigOff + 868 := by omega
   simpa [hSum] using hTail
+
+/-- One accepting layer iteration advances `"sigOff"` past the WOTS count word
+and XMSS auth path for that layer. -/
+theorem stepLayer_sigOff_eq_of_sigOff
+    (ls : RuntimeState) (sigOff : Nat)
+    (hSigOff : lookupValue ls.bindings "sigOff" = sigOff)
+    (hSigOffLt : sigOff < 2 ^ 256)
+    (hCountOffLt : sigOff + 688 < 2 ^ 256)
+    (hAuthOffLt : sigOff + 692 < 2 ^ 256)
+    (hNextSigOffLt : sigOff + 868 < 2 ^ 256) :
+    lookupValue (stepLayer ls).bindings "sigOff" = sigOff + 868 := by
+  have hTail := afterMerkleTail_sigOff_eq_of_sigOff
+    ls sigOff hSigOff hSigOffLt hCountOffLt hAuthOffLt hNextSigOffLt
+  rw [finalLayerTail_continues_from_afterMerkle ls] at hTail
+  exact hTail
 
 set_option maxHeartbeats 4000000 in
 /-- **`stepLayer_currentNode_eq_merkleNode`** — structural identification of the
@@ -2209,6 +2252,8 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeMerkle_authOff_eq_of_sigOff
 #print axioms merkleStep_preserves_authOff
 #print axioms afterMerkle_authOff_eq_of_sigOff
+#print axioms finalLayerTail_continues_from_afterMerkle
+#print axioms stepLayer_sigOff_eq_of_sigOff
 #print axioms stepLayer_preserves_selector_calldata
 #print axioms stepLayer_idxTree_eq_of_idxTree
 #print axioms stepLayer_sigBase_eq
