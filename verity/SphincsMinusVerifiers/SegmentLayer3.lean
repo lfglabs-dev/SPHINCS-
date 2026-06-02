@@ -1972,6 +1972,18 @@ theorem finalLayerTail_preserves_merkleNode (st : RuntimeState) :
   simp only [execStmtList, MemoryKit.lookupValue_bindValue_ne,
     ne_eq, String.reduceEq, not_false_eq_true]
 
+/-- The final two layer assignments preserve scratch cell `0x00`. -/
+theorem finalLayerTail_preserves_memory_zero (st : RuntimeState) :
+    ((match execStmtList [] st
+            [ .assignVar "currentNode" (v "merkleNode")
+            , .assignVar "sigOff" (addE (v "authOff") (u 176)) ] with
+          | .continue s' => s'
+          | _ => st).world.memory 0x00).val =
+      (st.world.memory 0x00).val := by
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "currentNode" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "sigOff" _ _ rfl)]
+  rfl
+
 /-- The final two layer assignments bind `"sigOff"` to `"authOff" + 176`. -/
 theorem finalLayerTail_sigOff_eq_of_authOff
     (st : RuntimeState) (authOff : Nat)
@@ -2300,6 +2312,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms stepLayer_idxTree_eq_of_idxTree
 #print axioms stepLayer_sigBase_eq
 #print axioms finalLayerTail_preserves_merkleNode
+#print axioms finalLayerTail_preserves_memory_zero
 #print axioms finalLayerTail_sigOff_eq_of_authOff
 #print axioms afterMerkleTail_sigOff_eq_of_sigOff
 #print axioms execLayerBody
