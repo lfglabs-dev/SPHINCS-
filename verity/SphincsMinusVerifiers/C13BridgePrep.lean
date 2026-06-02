@@ -1,5 +1,5 @@
 /-
-  C13BridgePrep — observation lemmas for the concrete `execC13`.
+  C13BridgePrep — observation lemmas for the concrete `execC13Concrete`.
 
   The executable runner now lives in `ProofCore.lean`; this file packages the
   current accept and reject subdomain theorems into observed byte-spec equality
@@ -30,11 +30,11 @@ def observeStmtResult (r : StmtResult) : Option Bool :=
   | .stop _ => none
 
 /-- The concrete body runner, exposed under the bridge-prep name used by the
-accept/reject slice lemmas.  It is definitionally the concrete `execC13` from
-`Proofs.lean`. -/
+accept/reject slice lemmas.  It is definitionally the concrete `execC13Concrete` from
+`ProofCore.lean`. -/
 def runC13BodyObserved
     (pkSeed pkRoot message sig : ByteArray) : Option Bool :=
-  execC13 pkSeed pkRoot message sig
+  execC13Concrete pkSeed pkRoot message sig
 
 /-- On the C13 length-ok branch, byte-level verification always reaches the
 parsed verifier.  The concrete parser cannot fail for any other reason. -/
@@ -89,7 +89,7 @@ theorem runC13BodyObserved_accept_from_concrete_layer_current_node_two_step_obli
     SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_concrete_layer_current_node_two_step_obligations_of_bytes
       pkSeed pkRoot message sig sigParsed forsPk specRoot
       hParse hZero hFors hFold hObs with ⟨finalState, hSpec, hExec⟩
-  unfold runC13BodyObserved execC13
+  unfold runC13BodyObserved execC13Concrete
   rw [hExec, SphincsMinusVerifiers.observeStmtResultBool_return_boolWord]
   have hLen : sig.size = c13.sigBytes :=
     C13Concrete.parseSignatureC13_size hParse
@@ -305,7 +305,7 @@ theorem runC13BodyObserved_accept_from_fold_ok_current_nodes_wordcmp
       (by simpa [st] using hCurrent)
       hWordCmp with
     ⟨finalState, hSpec, hExec⟩
-  unfold runC13BodyObserved execC13
+  unfold runC13BodyObserved execC13Concrete
   rw [hExec, SphincsMinusVerifiers.observeStmtResultBool_return_boolWord]
   have hLen : sig.size = c13.sigBytes :=
     C13Concrete.parseSignatureC13_size hParse
@@ -322,7 +322,7 @@ theorem runC13BodyObserved_revert_on_bad_length
       ByteLevel.verifyBytes c13Primitives c13 pkSeed pkRoot message sig := by
   rcases SegmentRejectSpec.c13_revert_on_bad_length pkSeed pkRoot message sig hlen with
     ⟨hExec, hSpec⟩
-  unfold runC13BodyObserved execC13
+  unfold runC13BodyObserved execC13Concrete
   rw [hExec, SphincsMinusVerifiers.observeStmtResultBool_revert, hSpec]
 
 /-- Spec side for the C13 WOTS+C hard-revert branch: once bytes parse, the
@@ -438,7 +438,7 @@ theorem runC13BodyObserved_revert_on_layer_first_guard_of_fold_reverted
   have hSpec :=
     c13_verifyBytes_none_of_fold_reverted
       pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors hFold
-  unfold runC13BodyObserved execC13
+  unfold runC13BodyObserved execC13Concrete
   rw [hExec, SphincsMinusVerifiers.observeStmtResultBool_revert, hSpec]
 
 /-- Observed bridge for a second-layer WOTS+C checksum failure, paired with the
@@ -502,7 +502,7 @@ theorem runC13BodyObserved_revert_on_layer_second_guard_of_fold_reverted
   have hSpec :=
     c13_verifyBytes_none_of_fold_reverted
       pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors hFold
-  unfold runC13BodyObserved execC13
+  unfold runC13BodyObserved execC13Concrete
   rw [hExec, SphincsMinusVerifiers.observeStmtResultBool_revert, hSpec]
 
 /-- Forced-zero observed-result bridge on the parse-shaped reject subdomain. -/
@@ -517,7 +517,7 @@ theorem runC13BodyObserved_revert_on_forced_zero_of_parse
   rcases
     SegmentRejectSpec.c13_revert_on_forced_zero_of_parse
       pkSeed pkRoot message sig sigParsed hParse hg3 with ⟨hExec, hSpec⟩
-  unfold runC13BodyObserved execC13
+  unfold runC13BodyObserved execC13Concrete
   rw [hExec, SphincsMinusVerifiers.observeStmtResultBool_revert, hSpec]
 
 /-- Forced-zero observed-result bridge from the spec-side failed forced-zero
@@ -534,7 +534,7 @@ theorem runC13BodyObserved_revert_on_forced_zero_false_of_parse
   rcases
     SegmentRejectSpec.c13_revert_on_forced_zero_false_of_parse
       pkSeed pkRoot message sig sigParsed hParse hZero with ⟨hExec, hSpec⟩
-  unfold runC13BodyObserved execC13
+  unfold runC13BodyObserved execC13Concrete
   rw [hExec, SphincsMinusVerifiers.observeStmtResultBool_revert, hSpec]
 
 /-! ## Axiom audit. -/

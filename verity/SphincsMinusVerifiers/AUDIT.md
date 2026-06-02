@@ -13,14 +13,12 @@ completion of the bridge.
   Evidence: `SphincsMinusVerifiers/Proofs.lean` defines
   `c13Primitives : Primitives := C13Concrete.c13PrimitivesConcrete`.
 
-- Safe `execC13` integration shape: not satisfied in the current branch.
-  Evidence: `SphincsMinusVerifiers/ProofCore.lean` now defines concrete
-  `execC13`, while `SphincsMinusVerifiers/Proofs.lean` still has
-  `axiom c13_refines_byte_spec`.  This is a temporary integration-shape
-  regression that must be repaired before final C13 closure: either restore an
-  opaque exported `execC13` while the bridge remains axiomatized, or replace the
-  bridge axiom with the theorem in the same change that exposes concrete
-  `execC13`.
+- Safe `execC13` integration shape: satisfied for the current partial branch.
+  Evidence: `SphincsMinusVerifiers/ProofCore.lean` keeps exported `execC13`
+  opaque while the concrete source-semantics runner is named
+  `execC13Concrete`.  The reducer lemmas target `execC13Concrete`; final C13
+  closure must replace `c13_refines_byte_spec` atomically with exposing the
+  concrete runner at the exported boundary.
 
 - `c13_refines_byte_spec` is a theorem, not an axiom: not satisfied.
   Evidence: `SphincsMinusVerifiers/Proofs.lean` still has
@@ -32,9 +30,8 @@ completion of the bridge.
 
 - `lake build SphincsMinusVerifiers.Proofs` is green: satisfied for the current partial
   proof state.
-  Last checked in this worktree on 2026-06-02 after the C13 bridge checkpoint
-  commit, with the current concrete-`execC13`/axiomatized-bridge mismatch still
-  present.
+  Last checked in this worktree on 2026-06-02 after restoring the opaque
+  exported-`execC13`/internal-`execC13Concrete` split.
 
 - `AUDIT.md`, `TRUST_ASSUMPTIONS.md`, `AXIOMS.md`, and `README.md` are synced:
   satisfied for the current partial state by these files and the README entries
@@ -54,10 +51,10 @@ completion of the bridge.
 ## Current C13 Proof Surface
 
 The current C13 work is still pre-integration.  Most bridge bricks are
-standalone and do not use the bridge axiom.  The exported runner surface,
-however, is not in the intended safe shape on this branch because
-`ProofCore.lean` defines concrete `execC13` before `c13_refines_byte_spec` has
-been replaced by a theorem.
+standalone and do not use the bridge axiom.  The exported runner surface is in
+the intended safe shape: `ProofCore.lean` keeps exported `execC13` opaque while
+`execC13Concrete` carries the concrete source-semantics runner used by the
+bridge-prep reducers.
 
 Standalone bricks include:
 

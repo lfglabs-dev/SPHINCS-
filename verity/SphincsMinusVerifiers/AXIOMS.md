@@ -11,9 +11,9 @@ MODEL-EXEC-BRIDGE work.  The target state is defined by
 - `c13_refines_byte_spec`: still an axiom.
   This is the active C13 MODEL-EXEC-BRIDGE gap.  The intended safe integration
   rule is that this remains an axiom only while exported `execC13` is opaque, and
-  the theorem replacement lands atomically with a concrete exported runner.  The
-  current branch is out of that shape: `ProofCore.lean` defines concrete
-  `execC13` while this bridge is still axiomatized.
+  the theorem replacement lands atomically with any concrete exported runner.
+  The current branch is in that shape: exported `execC13` is opaque, and the
+  standalone concrete bridge reducers target internal `execC13Concrete`.
 
 - `c12_refines_byte_spec`: still out of scope until C13 lands.  The early C12
   model-shape word-alignment check has been performed and did not find the

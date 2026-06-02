@@ -44,11 +44,15 @@ def observeStmtResultBool (r : StmtResult) : Option Bool :=
 /-- Observable semantics of the compiled C13 Verity model: `none` means revert,
 `some b` means normal boolean return. This runs the real source-semantics body
 over the frozen byte-facing C13 entry state. -/
-def execC13 :
+def execC13Concrete :
     Bytes → Bytes → Bytes → Bytes → Option Bool :=
   fun pkSeed pkRoot message sig =>
     observeStmtResultBool
       (execStmtList [] (MkC13State.mkC13State pkSeed pkRoot message sig) c13VerifyBody)
+
+/-- Opaque exported C13 runner.  This stays abstract until the concrete
+`execC13Concrete` bridge theorem lands in the same change that exposes it. -/
+opaque execC13 : Bytes → Bytes → Bytes → Bytes → Option Bool
 
 theorem observeStmtResultBool_return_boolWord
     (b : Bool) (st : RuntimeState) :

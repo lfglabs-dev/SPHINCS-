@@ -119,10 +119,10 @@ These are the assumed left link of the refinement chain; see the file header and
 (distinct primitive packages) and are the only model-specific assumptions the
 theorems below rest on. -/
 
-/-- Assumed: the concrete C13 source-semantics runner `execC13` refines the
-byte-level spec under `c13Primitives`. The runner itself is no longer opaque; the
-remaining MODEL-EXEC-BRIDGE gap is the universal all-input equality with
-`ByteLevel.verifyBytes`. -/
+/-- Assumed: the exported opaque C13 runner `execC13` refines the byte-level
+spec under `c13Primitives`.  The concrete bridge work below targets
+`execC13Concrete` and must be completed before this exported runner is exposed
+definitionally. -/
 axiom c13_refines_byte_spec :
   ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13
 
@@ -237,14 +237,14 @@ theorem c12_interp_agrees_verifyBytes_bad_length
     intro h
     exact hne (congrArg wordNormalize h)
 
-/-- C13: the concrete observable runner and byte spec agree on every malformed
+/-- C13: the internal concrete observable runner and byte spec agree on every malformed
 signature length. This is the same bad-length bridge as
-`c13_interp_agrees_verifyBytes_bad_length`, lifted all the way to `execC13`
+`c13_interp_agrees_verifyBytes_bad_length`, lifted all the way to `execC13Concrete`
 over the frozen byte-facing entry state. -/
-theorem execC13_agrees_verifyBytes_bad_length
+theorem execC13Concrete_agrees_verifyBytes_bad_length
     (pkSeed pkRoot message sig : Bytes)
     (hne : sig.size ≠ 3688) :
-    execC13 pkSeed pkRoot message sig =
+    execC13Concrete pkSeed pkRoot message sig =
       ByteLevel.verifyBytes c13Primitives c13 pkSeed pkRoot message sig :=
   C13BridgePrep.runC13BodyObserved_revert_on_bad_length
     pkSeed pkRoot message sig hne
@@ -267,13 +267,13 @@ theorem c13_refines_byte_spec_of_good_length_cover
     (hGood :
       ∀ pkSeed pkRoot message sig,
         sig.size = 3688 →
-        execC13 pkSeed pkRoot message sig =
+        execC13Concrete pkSeed pkRoot message sig =
           ByteLevel.verifyBytes c13Primitives c13 pkSeed pkRoot message sig) :
-    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13 := by
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
   intro pkSeed pkRoot message sig
   by_cases hLen : sig.size = 3688
   · exact hGood pkSeed pkRoot message sig hLen
-  · exact execC13_agrees_verifyBytes_bad_length pkSeed pkRoot message sig hLen
+  · exact execC13Concrete_agrees_verifyBytes_bad_length pkSeed pkRoot message sig hLen
 
 /-- C13 bridge reducer after discharging the forced-zero reject branch.  Once
 the forced-zero-true branch is covered for every parsed good-length input, the
@@ -286,9 +286,9 @@ theorem c13_refines_byte_spec_of_forced_zero_true_cover
         forcedZeroOk c13
           (C13Concrete.c13PrimitivesConcrete.hMsg c13
             { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
-        execC13 pkSeed pkRoot message sig =
+        execC13Concrete pkSeed pkRoot message sig =
           ByteLevel.verifyBytes c13Primitives c13 pkSeed pkRoot message sig) :
-    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13 := by
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
   apply c13_refines_byte_spec_of_good_length_cover
   intro pkSeed pkRoot message sig hLen
   have hLenC13 : sig.size = c13.sigBytes := by
@@ -320,9 +320,9 @@ theorem c13_refines_byte_spec_of_fors_some_cover
           (C13Concrete.c13PrimitivesConcrete.hMsg c13
             { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
           sigParsed.fors = some forsPk →
-        execC13 pkSeed pkRoot message sig =
+        execC13Concrete pkSeed pkRoot message sig =
           ByteLevel.verifyBytes c13Primitives c13 pkSeed pkRoot message sig) :
-    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13 := by
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
   apply c13_refines_byte_spec_of_forced_zero_true_cover
   intro pkSeed pkRoot message sig sigParsed hParse hZero
   let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
@@ -356,7 +356,7 @@ theorem c13_refines_byte_spec_of_fold_result_cover
           (C13Concrete.c13PrimitivesConcrete.hMsg c13
             { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
           forsPk sigParsed.layers = .ok specRoot →
-        execC13 pkSeed pkRoot message sig =
+        execC13Concrete pkSeed pkRoot message sig =
           ByteLevel.verifyBytes c13Primitives c13 pkSeed pkRoot message sig)
     (hReverted :
       ∀ pkSeed pkRoot message sig sigParsed forsPk,
@@ -374,9 +374,9 @@ theorem c13_refines_byte_spec_of_fold_result_cover
           (C13Concrete.c13PrimitivesConcrete.hMsg c13
             { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
           forsPk sigParsed.layers = .reverted →
-        execC13 pkSeed pkRoot message sig =
+        execC13Concrete pkSeed pkRoot message sig =
           ByteLevel.verifyBytes c13Primitives c13 pkSeed pkRoot message sig) :
-    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13 := by
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
   apply c13_refines_byte_spec_of_fors_some_cover
   intro pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors
   let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
@@ -953,7 +953,7 @@ theorem c13_refines_byte_spec_of_current_node_and_reverted_guard_cover
             { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
           forsPk sigParsed.layers = .reverted →
         C13FoldRevertedGuardData pkSeed pkRoot message sig) :
-    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13 := by
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
   apply c13_refines_byte_spec_of_fold_result_cover
   · intro pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold
     rcases hOkData pkSeed pkRoot message sig sigParsed forsPk specRoot
@@ -1030,7 +1030,7 @@ theorem c13_refines_byte_spec_of_current_node_wordcmp_and_reverted_digit_sum_cov
             { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
           forsPk sigParsed.layers = .reverted →
         C13FoldRevertedDigitSumData pkSeed pkRoot message sig sigParsed forsPk) :
-    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13 := by
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
   refine
     c13_refines_byte_spec_of_current_node_and_reverted_guard_cover
       hOkData ?_
@@ -1081,7 +1081,7 @@ theorem c13_refines_byte_spec_of_current_node_pkroot_size_and_reverted_guard_cov
             { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
           forsPk sigParsed.layers = .reverted →
         C13FoldRevertedGuardData pkSeed pkRoot message sig) :
-    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13 := by
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
   refine
     c13_refines_byte_spec_of_current_node_and_reverted_guard_cover ?_ hRevertedData
   intro pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold
@@ -1131,7 +1131,7 @@ theorem c13_refines_byte_spec_of_current_node_pkroot_size_and_reverted_digit_sum
             { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
           forsPk sigParsed.layers = .reverted →
         C13FoldRevertedDigitSumData pkSeed pkRoot message sig sigParsed forsPk) :
-    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13 := by
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
   refine
     c13_refines_byte_spec_of_current_node_pkroot_size_and_reverted_guard_cover
       hOkData ?_
@@ -1181,7 +1181,7 @@ theorem c13_refines_byte_spec_of_current_node_pkroot_size_and_reverted_before_di
             { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
           forsPk sigParsed.layers = .reverted →
         C13FoldRevertedBeforeDigitData pkSeed pkRoot message sig sigParsed forsPk) :
-    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13 := by
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
   refine
     c13_refines_byte_spec_of_current_node_pkroot_size_and_reverted_digit_sum_cover
       hOkData ?_
@@ -1231,7 +1231,7 @@ theorem c13_refines_byte_spec_of_current_node_wordcmp_and_reverted_before_digit_
             { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
           forsPk sigParsed.layers = .reverted →
         C13FoldRevertedBeforeDigitData pkSeed pkRoot message sig sigParsed forsPk) :
-    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13 := by
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
   refine
     c13_refines_byte_spec_of_current_node_wordcmp_and_reverted_digit_sum_cover
       hOkData ?_
@@ -1281,7 +1281,7 @@ theorem c13_refines_byte_spec_of_current_node_pkroot_size_and_reverted_digest_sc
             { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
           forsPk sigParsed.layers = .reverted →
         C13FoldRevertedDigestScratchData pkSeed pkRoot message sig sigParsed forsPk) :
-    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13 := by
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
   refine
     c13_refines_byte_spec_of_current_node_pkroot_size_and_reverted_before_digit_cover
       hOkData ?_
@@ -1331,7 +1331,7 @@ theorem c13_refines_byte_spec_of_current_node_wordcmp_and_reverted_digest_scratc
             { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
           forsPk sigParsed.layers = .reverted →
         C13FoldRevertedDigestScratchData pkSeed pkRoot message sig sigParsed forsPk) :
-    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13 := by
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
   refine
     c13_refines_byte_spec_of_current_node_wordcmp_and_reverted_before_digit_cover
       hOkData ?_
