@@ -550,6 +550,15 @@ theorem c13FirstLayerGuardState_layer
   rw [MemoryKit.lookupValue_bindValue_self]
   exact SegmentS2.wordNormalize_of_lt (by decide : 0 < 2 ^ 256)
 
+/-- The layer-1 guarded-loop `"layer"` binding is one. -/
+theorem c13SecondLayerGuardState_layer
+    (pkSeed pkRoot message sig : Bytes) :
+    lookupValue (c13SecondLayerGuardState pkSeed pkRoot message sig).bindings
+        "layer" = 1 := by
+  unfold c13SecondLayerGuardState ClimbLoopGuarded.loopState
+  rw [MemoryKit.lookupValue_bindValue_self]
+  exact SegmentS2.wordNormalize_of_lt (by decide : 1 < 2 ^ 256)
+
 /-- The layer-0 guarded-loop state carries the frozen ABI selector. -/
 theorem c13FirstLayerGuardState_selector
     (pkSeed pkRoot message sig : Bytes) :
@@ -673,6 +682,56 @@ theorem c13FirstLayer_wotsAdrs_hyperIndex_norm
         ((digest.hyperIndex / 2048) <<< 128 |||
           ((digest.hyperIndex % 2048) <<< 64))) < 2 ^ 256 :=
     Nat.bitwise_lt_two_pow h0 hinner
+  simpa [C13Concrete.adrsWotsHashBase, Nat.lor_assoc] using
+    SegmentS2.wordNormalize_of_lt haddr
+
+/-- The layer-1 C13 WOTS hash-base address is already an EVM word. -/
+theorem c13SecondLayer_wotsAdrs_hyperIndex_norm
+    (pkSeed pkRoot message : Bytes) (sigParsed : Signature) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    wordNormalize
+        (C13Concrete.adrsWotsHashBase
+          1 ((digest.hyperIndex / 2048) / 2048)
+            ((digest.hyperIndex / 2048) % 2048))
+      =
+        C13Concrete.adrsWotsHashBase
+          1 ((digest.hyperIndex / 2048) / 2048)
+            ((digest.hyperIndex / 2048) % 2048) := by
+  intro pk digest
+  have h128 :
+      (((digest.hyperIndex / 2048) / 2048) <<< 128) < 2 ^ 256 := by
+    have hnext : (digest.hyperIndex / 2048) / 2048 < 2 ^ 22 :=
+      lt_of_le_of_lt
+        (Nat.div_le_self _ _)
+        (lt_of_le_of_lt
+          (Nat.div_le_self _ _)
+          (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message))
+    rw [Nat.shiftLeft_eq]
+    calc
+      ((digest.hyperIndex / 2048) / 2048) * 2 ^ 128 < 2 ^ 22 * 2 ^ 128 :=
+        Nat.mul_lt_mul_of_pos_right hnext (by decide)
+      _ < 2 ^ 256 := by decide
+  have h64 :
+      (((digest.hyperIndex / 2048) % 2048) <<< 64) < 2 ^ 256 := by
+    have hleaf : (digest.hyperIndex / 2048) % 2048 < 2048 :=
+      Nat.mod_lt _ (by decide : 0 < 2048)
+    rw [Nat.shiftLeft_eq]
+    calc
+      ((digest.hyperIndex / 2048) % 2048) * 2 ^ 64 < 2048 * 2 ^ 64 :=
+        Nat.mul_lt_mul_of_pos_right hleaf (by decide)
+      _ < 2 ^ 256 := by decide
+  have hLayer : (1 : Nat) <<< 224 < 2 ^ 256 := by
+    norm_num [Nat.shiftLeft_eq]
+  have hinner :
+      (((digest.hyperIndex / 2048) / 2048) <<< 128 |||
+          (((digest.hyperIndex / 2048) % 2048) <<< 64)) < 2 ^ 256 :=
+    Nat.bitwise_lt_two_pow h128 h64
+  have haddr :
+      ((1 : Nat) <<< 224 |||
+        ((((digest.hyperIndex / 2048) / 2048) <<< 128) |||
+          (((digest.hyperIndex / 2048) % 2048) <<< 64))) < 2 ^ 256 :=
+    Nat.bitwise_lt_two_pow hLayer hinner
   simpa [C13Concrete.adrsWotsHashBase, Nat.lor_assoc] using
     SegmentS2.wordNormalize_of_lt haddr
 
@@ -2021,12 +2080,14 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayerGuardState_sigOff
 #print axioms c13FirstLayerGuardState_sigBase
 #print axioms c13FirstLayerGuardState_layer
+#print axioms c13SecondLayerGuardState_layer
 #print axioms c13FirstLayerGuardState_selector
 #print axioms c13FirstLayerGuardState_calldata
 #print axioms c13FirstLayerBeforeDigest_idxLeaf_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_idxTree_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_wotsAdrs_hyperIndex
 #print axioms c13FirstLayer_wotsAdrs_hyperIndex_norm
+#print axioms c13SecondLayer_wotsAdrs_hyperIndex_norm
 #print axioms c13FirstLayerBeforeDigest_wotsAdrs_slot
 #print axioms c13FirstLayerBeforeDigest_wotsAdrs_slot_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_currentNode_slot
