@@ -587,6 +587,74 @@ theorem c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
     SegmentAcceptSpec.wordCmp_of_wordOfHash16_rootMatchesPk_c13 specRoot pkRoot
       (SegmentAcceptSpec.specRoot_roundtrip_of_c13_fors_fold hFors hFold)⟩
 
+/-- Convert the bounded accept-side two-step current-node observation package
+into the exact successful C13 fold data consumed by the word-comparison bridge
+boundary.  The package's legacy `pkRoot.size = 16` field is intentionally unused:
+the final comparison is discharged from the C13 `specRoot` roundtrip instead. -/
+theorem c13FoldOkCurrentNodeWordcmpData_of_two_step_obligations
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        sigParsed.fors = some forsPk)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hObs : SegmentAcceptSpec.C13SeedNamedAcceptConcreteLayerCurrentNodeTwoStepObligations
+        pkSeed pkRoot message sig sigParsed forsPk) :
+    C13FoldOkCurrentNodeWordcmpData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  let specStep := SegmentAcceptSpec.c13HypertreeSpecStepAtLayer pk digest sigParsed.layers
+  rcases hObs.hSuccessCurrent0 with
+    ⟨lsig0, wotsPk0, root0, hLayer0, hGrinding0, hWots0, hXmss0, hCurrent0⟩
+  rcases hObs.hSuccessCurrent1 with
+    ⟨lsig1, wotsPk1, root1, hLayer1, hGrinding1, hWots1, hXmss1, hCurrent1⟩
+  have hStep0Eq : specStep 0 forsPk = root0 := by
+    exact SegmentAcceptSpec.c13HypertreeSpecStepAtLayer_eq_root_of_success
+      pk digest sigParsed.layers 0 forsPk wotsPk0 root0 lsig0 hLayer0
+      (by simpa [pk, digest, specStep] using hGrinding0)
+      (by simpa [pk, digest, specStep] using hWots0)
+      (by simpa [pk, digest, specStep] using hXmss0)
+  have hStep1Eq : specStep 1 (specStep 0 forsPk) = root1 := by
+    exact SegmentAcceptSpec.c13HypertreeSpecStepAtLayer_eq_root_of_success
+      pk digest sigParsed.layers 1 (specStep 0 forsPk) wotsPk1 root1 lsig1 hLayer1
+      (by simpa [pk, digest, specStep] using hGrinding1)
+      (by simpa [pk, digest, specStep] using hWots1)
+      (by simpa [pk, digest, specStep] using hXmss1)
+  have hTwo : wordNormalize 2 = 2 :=
+    SegmentS2.wordNormalize_of_lt (by decide : 2 < 2 ^ 256)
+  have hSpecFold :
+      ClimbLoop.specFold specStep forsPk 0 (wordNormalize 2) = specRoot := by
+    simpa [pk, digest, specStep] using
+      SegmentAcceptSpec.specFold_c13HypertreeSpecStepAtLayer_eq_of_foldHypertree_ok
+        pk digest forsPk specRoot sigParsed.layers hFold
+  have hStep1Root0 : specStep 1 root0 = root1 := by
+    simpa [hStep0Eq] using hStep1Eq
+  have hRoot1 : root1 = specRoot := by
+    simpa [ClimbLoop.specFold, hTwo, hStep0Eq, hStep1Root0] using hSpecFold
+  refine
+    c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hFors hFold
+      hObs.hGuard0 ?_ hObs.hGuard1 ?_
+  · change
+      lookupValue
+          (SegmentLayer3.stepLayer
+            (CurrentNodeFrame.c13LayerLoopState0
+              (mkC13State pkSeed pkRoot message sig))).bindings
+          "currentNode" = C13Concrete.wordOfHash16 (specStep 0 forsPk)
+    rw [hStep0Eq]
+    simpa [pk, digest, specStep, CurrentNodeFrame.c13LayerLoopState0,
+      CurrentNodeFrame.c13LayerStartState] using hCurrent0
+  · rw [← hRoot1]
+    simpa [pk, digest, specStep, CurrentNodeFrame.c13LayerLoopState1,
+      CurrentNodeFrame.c13LayerAfterStep0, hStep0Eq] using hCurrent1
+
 /-- Remaining concrete guard data needed for the C13 `.reverted` fold branch. -/
 def C13FoldRevertedGuardData
     (pkSeed pkRoot message sig : Bytes) : Prop :=
@@ -1512,6 +1580,7 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13SecondLayerGuardState_eq_c13LayerLoopState1
 #print axioms c13FoldOkCurrentNodePkRootSizeData_of_current_node_facts
 #print axioms c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
+#print axioms c13FoldOkCurrentNodeWordcmpData_of_two_step_obligations
 #print axioms c13_refines_byte_spec_of_current_node_and_reverted_guard_cover
 #print axioms c13_refines_byte_spec_of_current_node_wordcmp_and_reverted_digit_sum_cover
 #print axioms c13_refines_byte_spec_of_current_node_pkroot_size_and_reverted_guard_cover
