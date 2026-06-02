@@ -473,7 +473,7 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     word is already canonical because it is a bounded Keccak word masked by
     `N_MASK`.  `C13SeedNamedAcceptGuardedPkRootObligations` and
     `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_obligations_of_bytes`
-    derive both C13-produced roundtrips internally, leaving only the
+    derive both C13-produced roundtrips internally.  Earlier handoffs also kept a
     public-key-root byte roundtrip as the final comparison boundary premise.
     `base256_digit_decomp`, `base256_uint8_fold_init`,
     `base256_uint8_fold_lt`, `base256_fold_digit_of_list`,
@@ -482,9 +482,11 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     any 16-byte root roundtrips through `wordOfHash16`/`hash16OfWord`.
     `C13SeedNamedAcceptGuardedPkRootSizeObligations` and
     `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_obligations_of_bytes`
-    derive the public-key-root
-    roundtrip from `pkRoot.size = 16`, so the final comparison boundary is now an
-    ordinary public-key-root size premise rather than a raw roundtrip equality.
+    derive the public-key-root roundtrip from `pkRoot.size = 16`.
+    The current public-key-root-free comparison handoff instead uses
+    `rootMatchesPk c13`, i.e. the low-16-byte projection of the contract's
+    full-word public-key root, and discharges the final word comparison from the
+    C13-produced `specRoot` roundtrip alone.
     `C13SeedNamedAcceptGuardedPkRootSizeLeafObligations` and
     `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_leaf_obligations_of_bytes`
     are the current narrowest byte-shaped handoff: they also derive the
@@ -561,10 +563,11 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     numeric base-256 roundtrip
     `hash16OfWord (wordOfHash16 (hash16OfWord w)) = hash16OfWord w`, and
     `specRoot_roundtrip_of_c13_fors_fold` applies it to successful C13
-    FORS+hypertree outputs.  `hash16OfWord_wordOfHash16_of_size` separately
-    closes the public-key-root byte roundtrip from `pkRoot.size = 16`; the size
-    itself remains a boundary premise because the C13 public-key parser does not
-    check low-byte canonicality.  The latest accept adapter separately reduces
+    FORS+hypertree outputs.  `wordCmp_of_wordOfHash16_rootMatchesPk_c13`
+    now closes the public-key-root side by comparing against
+    `rootMatchesPk c13`, the byte-spec low-16-byte projection of the full-word
+    public-key root; no `pkRoot.size = 16` premise is needed for that handoff.
+    The latest accept adapter separately reduces
     the S4 seed-cell boundary to a range-gated `forsLeafStep` preservation fact;
     the six normal FORS root cells and forced-root cell remain the S4 root
     correspondence boundary.

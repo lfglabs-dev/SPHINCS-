@@ -25,8 +25,10 @@
 
 import SphincsMinusVerifiers.ClimbLoop
 import SphincsMinusVerifiers.ClimbKeccakStep
+import SphincsMinusVerifiers.InitialNodeKeccak
 import SphincsMinusVerifiers.MemoryFrame
 import SphincsMinusVerifiers.BindingFrame
+import SphincsMinusVerifiers.StateFrame
 import SphincsMinusVerifiers.Model
 
 namespace SphincsMinusVerifiers.SegmentS4Fors
@@ -35,6 +37,7 @@ open Compiler.Proofs.IRGeneration.SourceSemantics
 open Compiler.CompilationModel (Expr Stmt)
 open SphincsMinusVerifiers.ClimbKit (N_MASK merkleClimbBody stepMerkle)
 open SphincsMinusVerifiers.ClimbLoop (foldLoop)
+open SphincsMinusVerifierSpec.C13Concrete (adrsForsLeaf maskN keccakWords wordOfHash16)
 
 /-! ## 0. EDSL constructors (matching `Model.lean`'s private helpers). -/
 
@@ -227,10 +230,568 @@ theorem forsLeafSetupStep_preserves_seed_slot (st : RuntimeState) :
     ((forsLeafSetupStep st).world.memory 0).val = (st.world.memory 0).val :=
   forsLeafSetup_preserves_seed_slot st (forsLeafSetupStep st) (execForsLeafSetup st)
 
+/-- The straight-line FORS leaf setup preserves every ordinary root-array slot:
+it writes only scratch cells `0x20` and `0x40`, while ordinary roots live at
+`0x80 + 32*j`. -/
+theorem forsLeafSetup_preserves_root_cell_range
+    (st s' : RuntimeState) (j : Nat)
+    (h : execStmtList [] st forsLeafSetupBody = .continue s') :
+    (s'.world.memory (0x80 + 32 * j)).val =
+      (st.world.memory (0x80 + 32 * j)).val := by
+  refine SphincsMinusVerifiers.MemoryFrame.execStmtList_preserves_memory_val
+    (0x80 + 32 * j) forsLeafSetupBody st s' ?_ h
+  intro s s'' stmt hmem hexec
+  simp [forsLeafSetupBody, mstore] at hmem
+  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
+  · subst stmt
+    exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' (0x80 + 32 * j) "treeIdx" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' (0x80 + 32 * j) "secretVal" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' (0x80 + 32 * j) "leafAdrs" _ hexec
+  · subst stmt
+    refine SphincsMinusVerifiers.MemoryFrame.execStmt_mstore_preserves_memory_val
+      s s'' (0x80 + 32 * j) (u 0x20) (v "leafAdrs") ?_ hexec
+    intro ro rv hoff _
+    change some (wordNormalize 0x20) = some ro at hoff
+    injection hoff with hro
+    rw [show wordNormalize 0x20 = 0x20 by rfl] at hro
+    subst ro
+    omega
+  · subst stmt
+    refine SphincsMinusVerifiers.MemoryFrame.execStmt_mstore_preserves_memory_val
+      s s'' (0x80 + 32 * j) (u 0x40) (v "secretVal") ?_ hexec
+    intro ro rv hoff _
+    change some (wordNormalize 0x40) = some ro at hoff
+    injection hoff with hro
+    rw [show wordNormalize 0x40 = 0x40 by rfl] at hro
+    subst ro
+    omega
+  · subst stmt
+    exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' (0x80 + 32 * j) "node" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' (0x80 + 32 * j) "treeAdrsBase" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' (0x80 + 32 * j) "pathIdx" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' (0x80 + 32 * j) "authPtr" _ hexec
+
+/-- Step-form setup frame for ordinary FORS root-array cells. -/
+theorem forsLeafSetupStep_preserves_root_cell_range
+    (st : RuntimeState) (j : Nat) :
+    ((forsLeafSetupStep st).world.memory (0x80 + 32 * j)).val =
+      (st.world.memory (0x80 + 32 * j)).val :=
+  forsLeafSetup_preserves_root_cell_range
+    st (forsLeafSetupStep st) j (execForsLeafSetup st)
+
 /-- Step-form outer-index binding frame for the setup prefix. -/
 theorem forsLeafSetupStep_preserves_i (st : RuntimeState) :
     lookupValue (forsLeafSetupStep st).bindings "i" = lookupValue st.bindings "i" :=
   forsLeafSetup_preserves_i st (forsLeafSetupStep st) (execForsLeafSetup st)
+
+/-- The straight-line FORS leaf setup never rebinds `"sigBase"`. -/
+theorem forsLeafSetup_preserves_sigBase
+    (st s' : RuntimeState)
+    (h : execStmtList [] st forsLeafSetupBody = .continue s') :
+    lookupValue s'.bindings "sigBase" = lookupValue st.bindings "sigBase" := by
+  refine SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    "sigBase" forsLeafSetupBody st s' ?_ h
+  intro s s'' stmt hmem hexec
+  simp [forsLeafSetupBody, mstore] at hmem
+  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "treeIdx" "sigBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "secretVal" "sigBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "leafAdrs" "sigBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "sigBase" (u 0x20) (v "leafAdrs") hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "sigBase" (u 0x40) (v "secretVal") hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "node" "sigBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "treeAdrsBase" "sigBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "pathIdx" "sigBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "authPtr" "sigBase" _ (by decide) hexec
+
+/-- Step-form signature-base binding frame for the setup prefix. -/
+theorem forsLeafSetupStep_preserves_sigBase (st : RuntimeState) :
+    lookupValue (forsLeafSetupStep st).bindings "sigBase"
+      = lookupValue st.bindings "sigBase" :=
+  forsLeafSetup_preserves_sigBase st (forsLeafSetupStep st) (execForsLeafSetup st)
+
+/-- The straight-line FORS leaf setup never rebinds the digest word `"dVal"`. -/
+theorem forsLeafSetup_preserves_dVal
+    (st s' : RuntimeState)
+    (h : execStmtList [] st forsLeafSetupBody = .continue s') :
+    lookupValue s'.bindings "dVal" = lookupValue st.bindings "dVal" := by
+  refine SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    "dVal" forsLeafSetupBody st s' ?_ h
+  intro s s'' stmt hmem hexec
+  simp [forsLeafSetupBody, mstore] at hmem
+  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "treeIdx" "dVal" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "secretVal" "dVal" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "leafAdrs" "dVal" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "dVal" (u 0x20) (v "leafAdrs") hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "dVal" (u 0x40) (v "secretVal") hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "node" "dVal" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "treeAdrsBase" "dVal" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "pathIdx" "dVal" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "authPtr" "dVal" _ (by decide) hexec
+
+/-- Step-form digest-word binding frame for the setup prefix. -/
+theorem forsLeafSetupStep_preserves_dVal (st : RuntimeState) :
+    lookupValue (forsLeafSetupStep st).bindings "dVal" = lookupValue st.bindings "dVal" :=
+  forsLeafSetup_preserves_dVal st (forsLeafSetupStep st) (execForsLeafSetup st)
+
+/-- Step-form selector/calldata frame for the setup prefix. -/
+theorem forsLeafSetupStep_preserves_selector_calldata (st : RuntimeState) :
+    (forsLeafSetupStep st).selector = st.selector ∧
+      (forsLeafSetupStep st).world.calldata = st.world.calldata := by
+  refine SphincsMinusVerifiers.StateFrame.execStmtList_preserves_selector_calldata
+    forsLeafSetupBody st (forsLeafSetupStep st) ?_ (execForsLeafSetup st)
+  intro s s'' stmt hmem hexec
+  simp [forsLeafSetupBody, mstore] at hmem
+  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "treeIdx" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "secretVal" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "leafAdrs" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' (u 0x20) (v "leafAdrs") hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' (u 0x40) (v "secretVal") hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "node" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "treeAdrsBase" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "pathIdx" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "authPtr" _ hexec
+
+private theorem authPtr_offset_lt_six (idx : Nat) (hidx : idx < 6) :
+    164 + (128 + 304 * idx) < 2 ^ 256 := by
+  calc
+    164 + (128 + 304 * idx) ≤ 164 + (128 + 304 * 5) := by
+      omega
+    _ < 2 ^ 256 := by decide
+
+private theorem uint256_mul_304_lt_six (idx : Nat) (hidx : idx < 6) :
+    (Verity.Core.Uint256.ofNat idx * Verity.Core.Uint256.ofNat 304).val = 304 * idx := by
+  show (((Verity.Core.Uint256.ofNat idx).val *
+        (Verity.Core.Uint256.ofNat 304).val) % Verity.Core.Uint256.modulus) = 304 * idx
+  have hidxv : (Verity.Core.Uint256.ofNat idx).val = idx :=
+    Nat.mod_eq_of_lt (lt_trans hidx (by decide))
+  have h304v : (Verity.Core.Uint256.ofNat 304).val = 304 :=
+    Nat.mod_eq_of_lt (by decide)
+  have hmod : Verity.Core.Uint256.modulus = 2 ^ 256 := rfl
+  rw [hidxv, h304v, hmod, Nat.mul_comm idx 304]
+  rw [Nat.mod_eq_of_lt]
+  calc
+    304 * idx ≤ 304 * 5 := by omega
+    _ < 2 ^ 256 := by decide
+
+private theorem uint256_add_128_mul304_lt_six (idx : Nat) (hidx : idx < 6) :
+    (Verity.Core.Uint256.ofNat 128 +
+        Verity.Core.Uint256.ofNat
+          (Verity.Core.Uint256.ofNat idx * Verity.Core.Uint256.ofNat 304).val).val
+      = 128 + 304 * idx := by
+  rw [uint256_mul_304_lt_six idx hidx]
+  show (((Verity.Core.Uint256.ofNat 128).val +
+        (Verity.Core.Uint256.ofNat (304 * idx)).val) % Verity.Core.Uint256.modulus)
+      = 128 + 304 * idx
+  have h128v : (Verity.Core.Uint256.ofNat 128).val = 128 :=
+    Nat.mod_eq_of_lt (by decide)
+  have hprodv : (Verity.Core.Uint256.ofNat (304 * idx)).val = 304 * idx := by
+    refine Nat.mod_eq_of_lt ?_
+    calc
+      304 * idx ≤ 304 * 5 := by omega
+      _ < 2 ^ 256 := by decide
+  have hmod : Verity.Core.Uint256.modulus = 2 ^ 256 := rfl
+  rw [h128v, hprodv, hmod, Nat.mod_eq_of_lt]
+  calc
+    128 + 304 * idx ≤ 128 + 304 * 5 := by omega
+    _ < 2 ^ 256 := by decide
+
+private theorem uint256_authPtr_expr_eq_sigDataOffset (idx : Nat) (hidx : idx < 6) :
+    (Verity.Core.Uint256.ofNat 164 +
+        Verity.Core.Uint256.ofNat
+          (Verity.Core.Uint256.ofNat 128 +
+              Verity.Core.Uint256.ofNat
+                (Verity.Core.Uint256.ofNat idx * Verity.Core.Uint256.ofNat 304).val).val).val
+      = 164 + (128 + 304 * idx) := by
+  rw [uint256_add_128_mul304_lt_six idx hidx]
+  show (((Verity.Core.Uint256.ofNat 164).val +
+        (Verity.Core.Uint256.ofNat (128 + 304 * idx)).val) %
+        Verity.Core.Uint256.modulus) = 164 + (128 + 304 * idx)
+  have h164v : (Verity.Core.Uint256.ofNat 164).val = 164 :=
+    Nat.mod_eq_of_lt (by decide)
+  have hoffv : (Verity.Core.Uint256.ofNat (128 + 304 * idx)).val =
+      128 + 304 * idx := by
+    refine Nat.mod_eq_of_lt ?_
+    calc
+      128 + 304 * idx ≤ 128 + 304 * 5 := by omega
+      _ < 2 ^ 256 := by decide
+  have hmod : Verity.Core.Uint256.modulus = 2 ^ 256 := rfl
+  rw [h164v, hoffv, hmod, Nat.mod_eq_of_lt (authPtr_offset_lt_six idx hidx)]
+
+private theorem uint256_and_val_lt (a b : Verity.Core.Uint256) :
+    (a.and b).val < 2 ^ 256 := by
+  simpa [Verity.Core.UINT256_MODULUS] using (a.and b).isLt
+
+private theorem uint256_or_val_lt (a b : Verity.Core.Uint256) :
+    (a.or b).val < 2 ^ 256 := by
+  simpa [Verity.Core.UINT256_MODULUS] using (a.or b).isLt
+
+/-- C13-shaped setup fact for the FORS auth-path pointer: the straight-line
+setup prefix binds `"authPtr"` to the signature-data base plus the per-FORS-tree
+authentication-path offset. -/
+theorem forsLeafSetupStep_authPtr_eq_sigDataOffset
+    (st : RuntimeState) (idx : Nat)
+    (hi : lookupValue st.bindings "i" = idx)
+    (hsigBase : lookupValue st.bindings "sigBase" = 164)
+    (hidx : idx < 6) :
+    lookupValue (forsLeafSetupStep st).bindings "authPtr"
+      = 164 + (128 + 304 * idx) := by
+  unfold forsLeafSetupStep forsLeafSetupBody mstore u
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue st "treeIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "secretVal" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "leafAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "node" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "treeAdrsBase" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "pathIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "authPtr" _ _ rfl)]
+  simpa [execStmtList,
+    SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self,
+    SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne, hi, hsigBase]
+    using uint256_authPtr_expr_eq_sigDataOffset idx hidx
+
+/-- C13-shaped setup fact for the FORS path index: the straight-line setup
+prefix binds `"pathIdx"` to the masked 19-bit tree index, hence the value is a
+bounded EVM word. -/
+theorem forsLeafSetupStep_pathIdx_lt
+    (st : RuntimeState) (idx : Nat)
+    (hi : lookupValue st.bindings "i" = idx) :
+    lookupValue (forsLeafSetupStep st).bindings "pathIdx" < 2 ^ 256 := by
+  unfold forsLeafSetupStep forsLeafSetupBody mstore u
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue st "treeIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "secretVal" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "leafAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "node" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "treeAdrsBase" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "pathIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "authPtr" _ _ rfl)]
+  simpa [execStmtList,
+    SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self,
+    SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne, hi,
+    Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS]
+    using (uint256_and_val_lt
+      (Verity.Core.Uint256.ofNat
+        ((Verity.Core.Uint256.ofNat
+            (Verity.Core.Uint256.ofNat idx *
+              Verity.Core.Uint256.ofNat (19 % Compiler.Constants.evmModulus)).val).shr
+          (Verity.Core.Uint256.ofNat (lookupValue st.bindings "dVal"))).val)
+      (Verity.Core.Uint256.ofNat (524287 % Compiler.Constants.evmModulus)))
+
+/-- If the setup prefix decodes `treeIdx`, the post-setup `"pathIdx"` binding is
+exactly that tree index. -/
+theorem forsLeafSetupStep_pathIdx_eq_of_eval
+    (st : RuntimeState) (treeIdx : Nat)
+    (hTree : evalExpr [] st
+        (andE (shrE (mulE (v "i") (u 19)) (v "dVal")) (u 0x7FFFF)) = some treeIdx) :
+    lookupValue (forsLeafSetupStep st).bindings "pathIdx" = treeIdx := by
+  unfold forsLeafSetupStep forsLeafSetupBody mstore
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue st "treeIdx" _ _ hTree)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "secretVal" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "leafAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "node" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "treeAdrsBase" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "pathIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "authPtr" _ _ rfl)]
+  simp only [execStmtList]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne _ "authPtr" "pathIdx" _ (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne _ "treeAdrsBase" "treeIdx" _ (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne _ "node" "treeIdx" _ (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne _ "leafAdrs" "treeIdx" _ (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne _ "secretVal" "treeIdx" _ (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+
+/-- The concrete FORS tree-address base expression evaluates to the spec ADRS
+base word once the outer-loop index binding is an in-range FORS index. -/
+theorem forsTreeAdrsBase_eval_eq
+    (st : RuntimeState) {idx : Nat}
+    (hi : lookupValue st.bindings "i" = idx)
+    (hidx : idx < 6) :
+    evalExpr [] st
+        (orE (shlE (u 96) (u 3)) (shlE (u 64) (v "i")))
+      = some ((3 <<< 96) ||| (idx <<< 64)) := by
+  have h96 :
+      evalExpr [] st (shlE (u 96) (u 3)) = some (3 <<< 96) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st (u 96) (u 3) 96 3 rfl rfl
+      (by decide) (by decide) (by decide)
+  have hiEval : evalExpr [] st (v "i") = some idx := by
+    show some (lookupValue st.bindings "i") = some idx
+    rw [hi]
+  have h64 :
+      evalExpr [] st (shlE (u 64) (v "i")) = some (idx <<< 64) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st (u 64) (v "i") 64 idx rfl hiEval
+      (by decide)
+      (lt_trans hidx (by decide : 6 < 2 ^ 256))
+      (by
+        rw [Nat.shiftLeft_eq]
+        calc
+          idx * 2 ^ 64 ≤ 5 * 2 ^ 64 :=
+            Nat.mul_le_mul_right _ (Nat.le_of_lt_succ hidx)
+          _ < 2 ^ 256 := by decide)
+  have h96lt : 3 <<< 96 < 2 ^ 256 := by decide
+  have h64lt : idx <<< 64 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      idx * 2 ^ 64 ≤ 5 * 2 ^ 64 :=
+        Nat.mul_le_mul_right _ (Nat.le_of_lt_succ hidx)
+      _ < 2 ^ 256 := by decide
+  exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+    st (shlE (u 96) (u 3)) (shlE (u 64) (v "i"))
+    (3 <<< 96) (idx <<< 64) h96 h64 h96lt h64lt
+
+/-- C13-shaped setup fact for the FORS tree-address base: after the straight-line
+setup prefix there is a bounded EVM word bound to `"treeAdrsBase"`. -/
+theorem forsLeafSetupStep_treeAdrsBase_exists_lt
+    (st : RuntimeState) (idx : Nat)
+    (hi : lookupValue st.bindings "i" = idx) :
+    ∃ base,
+      lookupValue (forsLeafSetupStep st).bindings "treeAdrsBase" = base ∧
+        base < 2 ^ 256 := by
+  refine ⟨lookupValue (forsLeafSetupStep st).bindings "treeAdrsBase", rfl, ?_⟩
+  unfold forsLeafSetupStep forsLeafSetupBody mstore u
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue st "treeIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "secretVal" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "leafAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "node" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "treeAdrsBase" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "pathIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "authPtr" _ _ rfl)]
+  simpa [execStmtList,
+    SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self,
+    SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne, hi,
+    Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS]
+    using (uint256_or_val_lt
+      (Verity.Core.Uint256.ofNat
+        ((Verity.Core.Uint256.ofNat (96 % Compiler.Constants.evmModulus)).shl
+          (Verity.Core.Uint256.ofNat (3 % Compiler.Constants.evmModulus))).val)
+      (Verity.Core.Uint256.ofNat
+        ((Verity.Core.Uint256.ofNat (64 % Compiler.Constants.evmModulus)).shl
+          (Verity.Core.Uint256.ofNat idx)).val))
+
+/-- Exact C13-shaped setup fact for the FORS tree-address base.  The
+straight-line setup binds `"treeAdrsBase"` to the spec ADRS base
+`3 << 96 || i << 64` for the six real FORS outer-loop iterations. -/
+theorem forsLeafSetupStep_treeAdrsBase_eq_of_i
+    (st : RuntimeState) (idx : Nat)
+    (hi : lookupValue st.bindings "i" = idx)
+    (hidx : idx < 6) :
+    lookupValue (forsLeafSetupStep st).bindings "treeAdrsBase"
+      = (3 <<< 96) ||| (idx <<< 64) := by
+  unfold forsLeafSetupStep forsLeafSetupBody mstore u
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue st "treeIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "secretVal" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "leafAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "node" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "treeAdrsBase" _
+    ((3 <<< 96) ||| (idx <<< 64)) ?_)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "pathIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "authPtr" _ _ rfl)]
+  · simp [execStmtList,
+      SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne]
+  · apply forsTreeAdrsBase_eval_eq
+    · simp [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne, hi]
+    · exact hidx
+
+/-- If the setup prefix's decoded FORS leaf address and secret-key word are
+already identified with their spec values, the setup `"node"` binding is exactly
+the spec FORS leaf hash.  This is the initial-relation seed for the later
+inner-climb `forsClimb` correspondence. -/
+theorem forsLeafSetupStep_node_eq_spec_of_eval
+    (st : RuntimeState) (seed i treeIdx : Nat) (sk : SphincsMinusVerifierSpec.Bytes)
+    (hm0 : (st.world.memory 0).val = seed)
+    (hAdrLt : adrsForsLeaf i treeIdx < 2 ^ 256)
+    (hSkLt : wordOfHash16 sk < 2 ^ 256)
+    (hTree : evalExpr [] st
+        (andE (shrE (mulE (v "i") (u 19)) (v "dVal")) (u 0x7FFFF)) = some treeIdx)
+    (hSecret : evalExpr []
+        { st with bindings := bindValue st.bindings "treeIdx" treeIdx }
+        (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (v "i"))))) (u N_MASK))
+          = some (wordOfHash16 sk))
+    (hLeaf : evalExpr []
+        { st with bindings :=
+            bindValue (bindValue st.bindings "treeIdx" treeIdx) "secretVal" (wordOfHash16 sk) }
+        (orE (shlE (u 96) (u 3)) (orE (shlE (u 64) (v "i")) (v "treeIdx")))
+          = some (adrsForsLeaf i treeIdx)) :
+    lookupValue (forsLeafSetupStep st).bindings "node"
+      = maskN (keccakWords [seed, adrsForsLeaf i treeIdx, wordOfHash16 sk]) := by
+  let st1 : RuntimeState := { st with bindings := bindValue st.bindings "treeIdx" treeIdx }
+  let st2 : RuntimeState :=
+    { st1 with bindings := bindValue st1.bindings "secretVal" (wordOfHash16 sk) }
+  let st3 : RuntimeState :=
+    { st2 with bindings := bindValue st2.bindings "leafAdrs" (adrsForsLeaf i treeIdx) }
+  let st4 : RuntimeState :=
+    { st3 with
+      world := { st3.world with
+        memory := SphincsMinusVerifiers.MemoryKit.memUpdate st3.world.memory 0x20
+          (adrsForsLeaf i treeIdx) } }
+  let st5 : RuntimeState :=
+    { st4 with
+      world := { st4.world with
+        memory := SphincsMinusVerifiers.MemoryKit.memUpdate st4.world.memory 0x40
+          (wordOfHash16 sk) } }
+  have hm0' : (st5.world.memory 0).val = seed := by
+    simpa [st5, st4, st3, st2, st1] using hm0
+  have hm1' : (st5.world.memory 0x20).val = adrsForsLeaf i treeIdx := by
+    simpa [st5, st4, st3, st2, st1, Verity.Core.Uint256.modulus,
+      Verity.Core.UINT256_MODULUS] using Nat.mod_eq_of_lt hAdrLt
+  have hm2' : (st5.world.memory 0x40).val = wordOfHash16 sk := by
+    simpa [st5, Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS]
+      using Nat.mod_eq_of_lt hSkLt
+  have hNode : evalExpr [] st5
+        (andE (keccak 0x00 0x60) (u N_MASK))
+      = some (maskN (keccakWords [seed, adrsForsLeaf i treeIdx, wordOfHash16 sk])) := by
+    simpa [andE, keccak, u, SphincsMinusVerifiers.ClimbKit.N_MASK,
+      SphincsMinusVerifierSpec.C13Concrete.nMask]
+      using SphincsMinusVerifiers.InitialNodeKeccak.fors_leaf_node_eq_spec
+        st5 seed i treeIdx sk hm0' hm1' hm2'
+  unfold forsLeafSetupStep forsLeafSetupBody mstore
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue st "treeIdx" _ _ hTree)]
+  change lookupValue
+      (match execStmtList [] st1
+        [ .letVar "secretVal"
+            (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (v "i"))))) (u N_MASK)),
+          .letVar "leafAdrs"
+            (orE (shlE (u 96) (u 3)) (orE (shlE (u 64) (v "i")) (v "treeIdx"))),
+          mstore 0x20 (v "leafAdrs"), mstore 0x40 (v "secretVal"),
+          .letVar "node" (andE (keccak 0x00 0x60) (u N_MASK)),
+          .letVar "treeAdrsBase" (orE (shlE (u 96) (u 3)) (shlE (u 64) (v "i"))),
+          .letVar "pathIdx" (v "treeIdx"),
+          .letVar "authPtr" (addE (v "sigBase") (addE (u 128) (mulE (v "i") (u 304)))) ] with
+       | .continue s' => s'
+       | _ => st).bindings "node" = _
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue st1 "secretVal" _ _ hSecret)]
+  change lookupValue
+      (match execStmtList [] st2
+        [ .letVar "leafAdrs"
+            (orE (shlE (u 96) (u 3)) (orE (shlE (u 64) (v "i")) (v "treeIdx"))),
+          mstore 0x20 (v "leafAdrs"), mstore 0x40 (v "secretVal"),
+          .letVar "node" (andE (keccak 0x00 0x60) (u N_MASK)),
+          .letVar "treeAdrsBase" (orE (shlE (u 96) (u 3)) (shlE (u 64) (v "i"))),
+          .letVar "pathIdx" (v "treeIdx"),
+          .letVar "authPtr" (addE (v "sigBase") (addE (u 128) (mulE (v "i") (u 304)))) ] with
+       | .continue s' => s'
+       | _ => st).bindings "node" = _
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue st2 "leafAdrs" _ _ hLeaf)]
+  change lookupValue
+      (match execStmtList [] st3
+        [ .mstore (u 0x20) (v "leafAdrs"), .mstore (u 0x40) (v "secretVal"),
+          .letVar "node" (andE (keccak 0x00 0x60) (u N_MASK)),
+          .letVar "treeAdrsBase" (orE (shlE (u 96) (u 3)) (shlE (u 64) (v "i"))),
+          .letVar "pathIdx" (v "treeIdx"),
+          .letVar "authPtr" (addE (v "sigBase") (addE (u 128) (mulE (v "i") (u 304)))) ] with
+       | .continue s' => s'
+       | _ => st).bindings "node" = _
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_mstore_continue st3 (u 0x20) (v "leafAdrs") 0x20
+      (adrsForsLeaf i treeIdx) rfl rfl)]
+  change lookupValue
+      (match execStmtList [] st4
+        [ .mstore (u 0x40) (v "secretVal"),
+          .letVar "node" (andE (keccak 0x00 0x60) (u N_MASK)),
+          .letVar "treeAdrsBase" (orE (shlE (u 96) (u 3)) (shlE (u 64) (v "i"))),
+          .letVar "pathIdx" (v "treeIdx"),
+          .letVar "authPtr" (addE (v "sigBase") (addE (u 128) (mulE (v "i") (u 304)))) ] with
+       | .continue s' => s'
+       | _ => st).bindings "node" = _
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_mstore_continue st4 (u 0x40) (v "secretVal") 0x40
+      (wordOfHash16 sk) rfl rfl)]
+  change lookupValue
+      (match execStmtList [] st5
+        [ .letVar "node" (andE (keccak 0x00 0x60) (u N_MASK)),
+          .letVar "treeAdrsBase" (orE (shlE (u 96) (u 3)) (shlE (u 64) (v "i"))),
+          .letVar "pathIdx" (v "treeIdx"),
+          .letVar "authPtr" (addE (v "sigBase") (addE (u 128) (mulE (v "i") (u 304)))) ] with
+       | .continue s' => s'
+       | _ => st).bindings "node" = _
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue st5 "node" _ _ hNode)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "treeAdrsBase" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "pathIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "authPtr" _ _ rfl)]
+  simp only [execStmtList]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne _ "authPtr" "node" _ (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne _ "pathIdx" "node" _ (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne _ "treeAdrsBase" "node" _ (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
 
 /-- Pure transformer for the inner Merkle climb statement. -/
 def forsLeafInnerStep (st : RuntimeState) : RuntimeState :=
@@ -365,6 +926,152 @@ theorem forsLeafBody_preserves_i
   · subst stmt
     exact forsLeafStore_preserves_i s s'' hexec
 
+/-- The whole FORS leaf body preserves the carried signature base binding
+`"sigBase"`.  The body reads it to form secret/auth-path calldata pointers, but
+never writes it. -/
+theorem forsLeafBody_preserves_sigBase
+    (st s' : RuntimeState)
+    (h : execStmtList [] st forsLeafBody = .continue s') :
+    lookupValue s'.bindings "sigBase" = lookupValue st.bindings "sigBase" := by
+  refine SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    "sigBase" forsLeafBody st s' ?_ h
+  intro s s'' stmt hmem hexec
+  simp [forsLeafBody, mstore, mstoreE] at hmem
+  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt |
+    hstmt | hstmt | hstmt | hstmt
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "treeIdx" "sigBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "secretVal" "sigBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "leafAdrs" "sigBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "sigBase" (u 0x20) (v "leafAdrs") hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "sigBase" (u 0x40) (v "secretVal") hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "node" "sigBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "treeAdrsBase" "sigBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "pathIdx" "sigBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "authPtr" "sigBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_forEach_preserves_lookup
+      "h" "sigBase" _ _ s s'' (by decide)
+      (fun s s'' stmt hmem hexec => by
+        simp [merkleClimbBody] at hmem
+        rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
+        · subst stmt
+          exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+            s s'' "sibling" "sigBase" _ (by decide) hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+            s s'' "parentIdx" "sigBase" _ (by decide) hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+            s s'' "sigBase" (u 0x20) _ hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+            s s'' "s" "sigBase" _ (by decide) hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+            s s'' "sigBase" _ _ hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+            s s'' "sigBase" _ _ hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+            s s'' "node" "sigBase" _ (by decide) hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+            s s'' "pathIdx" "sigBase" _ (by decide) hexec) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "sigBase" (addE (u 0x80) (shlE (u 5) (v "i"))) (v "node") hexec
+
+/-- The whole FORS leaf body preserves the EVM selector and calldata image. -/
+theorem forsLeafBody_preserves_selector_calldata
+    (st s' : RuntimeState)
+    (h : execStmtList [] st forsLeafBody = .continue s') :
+    SphincsMinusVerifiers.StateFrame.PreservesSelectorCalldata st s' := by
+  refine SphincsMinusVerifiers.StateFrame.execStmtList_preserves_selector_calldata
+    forsLeafBody st s' ?_ h
+  intro s s'' stmt hmem hexec
+  simp [forsLeafBody, mstore, mstoreE] at hmem
+  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt |
+    hstmt | hstmt | hstmt | hstmt
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "treeIdx" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "secretVal" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "leafAdrs" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' (u 0x20) (v "leafAdrs") hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' (u 0x40) (v "secretVal") hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "node" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "treeAdrsBase" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "pathIdx" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "authPtr" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_forEach_preserves_selector_calldata
+      "h" _ _ s s''
+      (fun s s'' stmt hmem hexec => by
+        simp [merkleClimbBody] at hmem
+        rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
+        · subst stmt
+          exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+            s s'' "sibling" _ hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+            s s'' "parentIdx" _ hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+            s s'' (u 0x20) _ hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+            s s'' "s" _ hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+            s s'' _ _ hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+            s s'' _ _ hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.StateFrame.execStmt_assignVar_preserves_selector_calldata
+            s s'' "node" _ hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.StateFrame.execStmt_assignVar_preserves_selector_calldata
+            s s'' "pathIdx" _ hexec) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' (addE (u 0x80) (shlE (u 5) (v "i"))) (v "node") hexec
+
 private theorem idxShl5_lt_six (idx : Nat) (hidx : idx < 6) :
     idx <<< 5 < 2 ^ 256 := by
   rw [Nat.shiftLeft_eq]
@@ -431,6 +1138,59 @@ theorem forsLeafStore_preserves_seed_slot_range
   exact forsLeafStore_preserves_seed_slot_of_offset st s'
     (fun ro hoff => forsLeafStore_offset_ne_zero st idx ro hidx hi hoff) h
 
+/-- The final FORS root-array store writes the current `"node"` binding to the
+slot selected by the carried outer-loop index. -/
+theorem forsLeafStore_root_cell_range
+    (st s' : RuntimeState) (idx : Nat) (hidx : idx < 6)
+    (hi : lookupValue st.bindings "i" = idx)
+    (h : execStmt [] st forsLeafStoreStmt = .continue s') :
+    (s'.world.memory (0x80 + 32 * idx)).val =
+      wordNormalize (lookupValue st.bindings "node") := by
+  have hoff :
+      evalExpr [] st (addE (u 0x80) (shlE (u 5) (v "i")))
+        = some (0x80 + 32 * idx) :=
+    eval_forsLeafStore_offset st idx hidx hi
+  have hval : evalExpr [] st (v "node") = some (lookupValue st.bindings "node") := rfl
+  unfold forsLeafStoreStmt mstoreE at h
+  change execStmt [] st
+      (.mstore (addE (u 0x80) (shlE (u 5) (v "i"))) (v "node")) =
+        .continue s' at h
+  rw [show execStmt [] st
+        (.mstore (addE (u 0x80) (shlE (u 5) (v "i"))) (v "node"))
+        = (match evalExpr [] st (addE (u 0x80) (shlE (u 5) (v "i"))),
+                 evalExpr [] st (v "node") with
+           | some ro, some rv =>
+               .continue { st with world := { st.world with
+                   memory := fun o => if o = ro then rv else st.world.memory o } }
+           | _, _ => .revert) from rfl] at h
+  rw [hoff, hval] at h
+  injection h with hs
+  subst hs
+  simp [wordNormalize]
+
+/-- Distinct in-range FORS root-array indices select distinct scratch cells. -/
+theorem fors_root_cell_ne_of_ne
+    (j idx : Nat) (hne : j ≠ idx) :
+    0x80 + 32 * j ≠ 0x80 + 32 * idx := by
+  intro h
+  exact hne (by omega)
+
+/-- The final FORS root-array store preserves every other in-range root cell. -/
+theorem forsLeafStore_preserves_root_cell_range_ne
+    (st s' : RuntimeState) (j idx : Nat) (hidx : idx < 6)
+    (hi : lookupValue st.bindings "i" = idx) (hne : j ≠ idx)
+    (h : execStmt [] st forsLeafStoreStmt = .continue s') :
+    (s'.world.memory (0x80 + 32 * j)).val =
+      (st.world.memory (0x80 + 32 * j)).val := by
+  refine SphincsMinusVerifiers.MemoryFrame.execStmt_mstore_preserves_memory_val
+    st s' (0x80 + 32 * j) (addE (u 0x80) (shlE (u 5) (v "i"))) (v "node") ?_
+    (by simpa [forsLeafStoreStmt, mstoreE] using h)
+  intro ro rv hoff _
+  rw [eval_forsLeafStore_offset st idx hidx hi] at hoff
+  injection hoff with hro
+  rw [← hro]
+  exact fors_root_cell_ne_of_ne j idx hne
+
 /-- The full statement 14: the FORS outer `forEach "i" (u 6)`. -/
 def forsOuterStmt : Stmt := .forEach "i" (u 6) forsLeafBody
 
@@ -471,10 +1231,189 @@ theorem execForsLeaf (st : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rfl
 
+/-- A full FORS leaf iteration never rebinds the digest word `"dVal"`.  The
+setup prefix already exposes this fact; this version includes the inner Merkle
+climb and final root-cell store so outer-loop prefixes can carry the S3 digest
+alias without opening the body. -/
+theorem forsLeafStep_preserves_dVal (st : RuntimeState) :
+    lookupValue (forsLeafStep st).bindings "dVal" = lookupValue st.bindings "dVal" := by
+  refine SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    "dVal" forsLeafBody st (forsLeafStep st) ?_ (execForsLeaf st)
+  intro s s'' stmt hmem hexec
+  simp [forsLeafBody, mstoreE] at hmem
+  rcases hmem with
+    hstmt | hstmt | hstmt | hstmt | hstmt | hstmt |
+    hstmt | hstmt | hstmt | hstmt | hstmt
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "treeIdx" "dVal" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "secretVal" "dVal" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "leafAdrs" "dVal" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "dVal" _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "dVal" _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "node" "dVal" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "treeAdrsBase" "dVal" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "pathIdx" "dVal" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "authPtr" "dVal" _ (by decide) hexec
+  · subst stmt
+    refine SphincsMinusVerifiers.BindingFrame.execStmt_forEach_preserves_lookup
+      "h" "dVal" (.literal 19)
+      (merkleClimbBody "node" "pathIdx" "treeAdrsBase" "authPtr")
+      s s'' (by decide) ?_ hexec
+    intro t t'' inner hinner hinnerExec
+    simp [merkleClimbBody] at hinner
+    rcases hinner with
+      hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
+    · subst inner
+      exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+        t t'' "sibling" "dVal" _ (by decide) hinnerExec
+    · subst inner
+      exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+        t t'' "parentIdx" "dVal" _ (by decide) hinnerExec
+    · subst inner
+      exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+        t t'' "dVal" _ _ hinnerExec
+    · subst inner
+      exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+        t t'' "s" "dVal" _ (by decide) hinnerExec
+    · subst inner
+      exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+        t t'' "dVal" _ _ hinnerExec
+    · subst inner
+      exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+        t t'' "dVal" _ _ hinnerExec
+    · subst inner
+      exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+        t t'' "node" "dVal" _ (by decide) hinnerExec
+    · subst inner
+      exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+        t t'' "pathIdx" "dVal" _ (by decide) hinnerExec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "dVal" _ _ hexec
+
+/-- The final FORS store writes the post-inner-climb `"node"` value to the
+root-array slot selected by the carried outer-loop index.  This is the local
+store half of the six ordinary FORS root-cell correspondence; the remaining data
+obligation is to identify that post-inner `"node"` with the spec tree root. -/
+theorem forsLeafStep_root_cell_range
+    (st : RuntimeState) (idx : Nat) (hidx : idx < 6)
+    (hi : lookupValue st.bindings "i" = idx) :
+    ((forsLeafStep st).world.memory (0x80 + 32 * idx)).val =
+      wordNormalize
+        (lookupValue (forsLeafInnerStep (forsLeafSetupStep st)).bindings "node") := by
+  have hbody : execStmtList [] st forsLeafBody = .continue (forsLeafStep st) :=
+    execForsLeaf st
+  rw [forsLeafBody_eq_segments,
+    SphincsMinusVerifiers.MemoryKit.execStmtList_append_continue
+      st (forsLeafSetupStep st) forsLeafSetupBody [forsLeafInnerStmt, forsLeafStoreStmt]
+      (execForsLeafSetup st)] at hbody
+  have hInnerExec : execStmt [] (forsLeafSetupStep st) forsLeafInnerStmt =
+      .continue (forsLeafInnerStep (forsLeafSetupStep st)) :=
+    execForsLeafInner (forsLeafSetupStep st)
+  rw [execStmtList_cons_continue _ _ _ [forsLeafStoreStmt] hInnerExec] at hbody
+  have hStoreExec :
+      execStmt [] (forsLeafInnerStep (forsLeafSetupStep st)) forsLeafStoreStmt =
+        .continue (forsLeafStep st) := by
+    simpa using hbody
+  have hiSetup :
+      lookupValue (forsLeafSetupStep st).bindings "i" = idx := by
+    rw [forsLeafSetupStep_preserves_i st, hi]
+  have hiInner :
+      lookupValue (forsLeafInnerStep (forsLeafSetupStep st)).bindings "i" = idx := by
+    rw [forsLeafInner_preserves_i (forsLeafSetupStep st)
+      (forsLeafInnerStep (forsLeafSetupStep st)) hInnerExec, hiSetup]
+  exact forsLeafStore_root_cell_range
+    (forsLeafInnerStep (forsLeafSetupStep st)) (forsLeafStep st) idx hidx hiInner hStoreExec
+
+/-- If the setup prefix preserves the target root cell and the inner Merkle climb
+does too, one leaf iteration preserves any *different* in-range root cell.  This
+is the non-alias half needed to carry previously written ordinary roots through
+later FORS iterations. -/
+theorem forsLeafBody_preserves_root_cell_range_ne_of_inner
+    (st s' : RuntimeState) (j idx : Nat) (hidx : idx < 6)
+    (hi : lookupValue st.bindings "i" = idx) (hne : j ≠ idx)
+    (hSetup : ((forsLeafSetupStep st).world.memory (0x80 + 32 * j)).val =
+      (st.world.memory (0x80 + 32 * j)).val)
+    (hInner : ∀ (s s'' : RuntimeState),
+      execStmt [] s forsLeafInnerStmt = .continue s'' →
+      (s''.world.memory (0x80 + 32 * j)).val =
+        (s.world.memory (0x80 + 32 * j)).val)
+    (h : execStmtList [] st forsLeafBody = .continue s') :
+    (s'.world.memory (0x80 + 32 * j)).val =
+      (st.world.memory (0x80 + 32 * j)).val := by
+  rw [forsLeafBody_eq_segments,
+    SphincsMinusVerifiers.MemoryKit.execStmtList_append_continue
+      st (forsLeafSetupStep st) forsLeafSetupBody [forsLeafInnerStmt, forsLeafStoreStmt]
+      (execForsLeafSetup st)] at h
+  have hInnerExec : execStmt [] (forsLeafSetupStep st) forsLeafInnerStmt =
+      .continue (forsLeafInnerStep (forsLeafSetupStep st)) :=
+    execForsLeafInner (forsLeafSetupStep st)
+  rw [execStmtList_cons_continue _ _ _ [forsLeafStoreStmt] hInnerExec] at h
+  have hStoreExec :
+      execStmt [] (forsLeafInnerStep (forsLeafSetupStep st)) forsLeafStoreStmt =
+        .continue s' := by
+    simpa using h
+  have hiSetup :
+      lookupValue (forsLeafSetupStep st).bindings "i" = idx := by
+    rw [forsLeafSetupStep_preserves_i st, hi]
+  have hiInner :
+      lookupValue (forsLeafInnerStep (forsLeafSetupStep st)).bindings "i" = idx := by
+    rw [forsLeafInner_preserves_i (forsLeafSetupStep st)
+      (forsLeafInnerStep (forsLeafSetupStep st)) hInnerExec, hiSetup]
+  have hStoreRoot := forsLeafStore_preserves_root_cell_range_ne
+    (forsLeafInnerStep (forsLeafSetupStep st)) s' j idx hidx hiInner hne hStoreExec
+  have hInnerRoot := hInner (forsLeafSetupStep st)
+    (forsLeafInnerStep (forsLeafSetupStep st)) hInnerExec
+  rw [hStoreRoot, hInnerRoot, hSetup]
+
+/-- Step-form non-alias root-cell frame for one FORS leaf iteration. -/
+theorem forsLeafStep_preserves_root_cell_range_ne_of_inner
+    (st : RuntimeState) (j idx : Nat) (hidx : idx < 6)
+    (hi : lookupValue st.bindings "i" = idx) (hne : j ≠ idx)
+    (hSetup : ((forsLeafSetupStep st).world.memory (0x80 + 32 * j)).val =
+      (st.world.memory (0x80 + 32 * j)).val)
+    (hInner : ∀ (s s'' : RuntimeState),
+      execStmt [] s forsLeafInnerStmt = .continue s'' →
+      (s''.world.memory (0x80 + 32 * j)).val =
+        (s.world.memory (0x80 + 32 * j)).val) :
+    ((forsLeafStep st).world.memory (0x80 + 32 * j)).val =
+      (st.world.memory (0x80 + 32 * j)).val :=
+  forsLeafBody_preserves_root_cell_range_ne_of_inner
+    st (forsLeafStep st) j idx hidx hi hne hSetup hInner (execForsLeaf st)
+
 /-- Step-form binding frame for one FORS leaf iteration. -/
 theorem forsLeafStep_preserves_i (st : RuntimeState) :
     lookupValue (forsLeafStep st).bindings "i" = lookupValue st.bindings "i" :=
   forsLeafBody_preserves_i st (forsLeafStep st) (execForsLeaf st)
+
+/-- Step-form binding frame for the signature base through one FORS leaf
+iteration. -/
+theorem forsLeafStep_preserves_sigBase (st : RuntimeState) :
+    lookupValue (forsLeafStep st).bindings "sigBase"
+      = lookupValue st.bindings "sigBase" :=
+  forsLeafBody_preserves_sigBase st (forsLeafStep st) (execForsLeaf st)
+
+/-- Step-form selector/calldata frame for one FORS leaf iteration. -/
+theorem forsLeafStep_preserves_selector_calldata (st : RuntimeState) :
+    SphincsMinusVerifiers.StateFrame.PreservesSelectorCalldata st (forsLeafStep st) :=
+  forsLeafBody_preserves_selector_calldata st (forsLeafStep st) (execForsLeaf st)
 
 /-- Conditional whole-leaf seed-cell frame.  Once the inner Merkle climb is known
 to preserve `mem[0x00]`, setup and final-store preservation compose to show the
@@ -539,6 +1478,63 @@ theorem execForsOuter (st : RuntimeState) :
   ClimbLoop.execStmt_forEach_of_step "i" (u 6) forsLeafBody st (wordNormalize 6)
     forsLeafStep rfl execForsLeaf
 
+set_option maxHeartbeats 4000000 in
+/-- Outer-loop carry for an ordinary FORS root cell: after the six-iteration
+outer fold, root slot `j` is exactly the value written by iteration `j`, provided
+every later iteration preserves that slot.  The conclusion is still local to the
+model state: the remaining data obligation is to identify the post-inner-climb
+`"node"` with `forsAllRootsC13[j]`. -/
+theorem forsOuter_root_cell_eq_iteration_node_of_suffix_preserves
+    (st : RuntimeState) (j : Nat) (hj : j < 6)
+    (hPres : ∀ (s : RuntimeState) (idx : Nat), j < idx → idx < 6 →
+      ((forsLeafStep { s with bindings := bindValue s.bindings "i" (wordNormalize idx) }).world.memory
+          (0x80 + 32 * j)).val =
+        (s.world.memory (0x80 + 32 * j)).val) :
+    ((foldLoop "i" forsLeafStep
+        { st with bindings := bindValue st.bindings "i" (wordNormalize 0) }
+        0 (wordNormalize 6)).world.memory (0x80 + 32 * j)).val =
+      wordNormalize
+        (lookupValue
+          (forsLeafInnerStep
+            (forsLeafSetupStep
+              { (foldLoop "i" forsLeafStep
+                  { st with bindings := bindValue st.bindings "i" (wordNormalize 0) }
+                  0 j) with
+                bindings :=
+                  bindValue
+                    (foldLoop "i" forsLeafStep
+                      { st with bindings := bindValue st.bindings "i" (wordNormalize 0) }
+                      0 j).bindings "i" (wordNormalize j) })).bindings "node") := by
+  have hcarry := ClimbLoop.foldLoop_memory_val_eq_step_at_of_suffix_preserves
+    "i" forsLeafStep (0x80 + 32 * j)
+    { st with bindings := bindValue st.bindings "i" (wordNormalize 0) }
+    0 (wordNormalize 6) j (by simpa using hj)
+    (fun s idx hgt hlt => hPres s idx (by simpa using hgt) (by simpa using hlt))
+  rw [hcarry]
+  have hj256 : j < 2 ^ 256 := lt_trans hj (by decide)
+  have hnormj : wordNormalize j = j := by
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt hj256]
+  have hi :
+      lookupValue
+          (bindValue
+            (foldLoop "i" forsLeafStep
+              { st with bindings := bindValue st.bindings "i" (wordNormalize 0) }
+              0 j).bindings "i" (wordNormalize j))
+          "i" = j := by
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self, hnormj]
+  simpa [Nat.zero_add] using
+    (forsLeafStep_root_cell_range
+      { (foldLoop "i" forsLeafStep
+          { st with bindings := bindValue st.bindings "i" (wordNormalize 0) }
+          0 j) with
+        bindings :=
+          bindValue
+            (foldLoop "i" forsLeafStep
+              { st with bindings := bindValue st.bindings "i" (wordNormalize 0) }
+              0 j).bindings "i" (wordNormalize j) }
+      j hj hi)
+
 /-- Statement-level range-gated FORS outer-loop seed-cell frame.  Callers only
 need to prove the leaf body preserves `mem[0x00]` for concrete outer-loop
 indices in the real six-iteration range. -/
@@ -582,23 +1578,49 @@ theorem execForsOuter_preserves_seed_slot_range_six
 #print axioms forsLeafBody_eq_segments
 #print axioms execForsLeafSetup
 #print axioms forsLeafSetup_preserves_seed_slot
+#print axioms forsLeafSetup_preserves_root_cell_range
 #print axioms forsLeafSetup_preserves_i
 #print axioms forsLeafSetupStep_preserves_seed_slot
+#print axioms forsLeafSetupStep_preserves_root_cell_range
 #print axioms forsLeafSetupStep_preserves_i
+#print axioms forsLeafSetup_preserves_sigBase
+#print axioms forsLeafSetupStep_preserves_sigBase
+#print axioms forsLeafSetup_preserves_dVal
+#print axioms forsLeafSetupStep_preserves_dVal
+#print axioms forsLeafStep_preserves_dVal
+#print axioms forsLeafSetupStep_preserves_selector_calldata
+#print axioms forsLeafSetupStep_authPtr_eq_sigDataOffset
+#print axioms forsLeafSetupStep_pathIdx_lt
+#print axioms forsLeafSetupStep_pathIdx_eq_of_eval
+#print axioms forsTreeAdrsBase_eval_eq
+#print axioms forsLeafSetupStep_treeAdrsBase_exists_lt
+#print axioms forsLeafSetupStep_treeAdrsBase_eq_of_i
+#print axioms forsLeafSetupStep_node_eq_spec_of_eval
 #print axioms execForsLeafInner
 #print axioms forsLeafInner_preserves_i
 #print axioms execForsLeafStore
 #print axioms forsLeafStore_preserves_seed_slot_of_offset
 #print axioms forsLeafStore_preserves_i
 #print axioms forsLeafBody_preserves_i
+#print axioms forsLeafBody_preserves_sigBase
+#print axioms forsLeafBody_preserves_selector_calldata
 #print axioms forsLeafStep_preserves_i
+#print axioms forsLeafStep_preserves_sigBase
+#print axioms forsLeafStep_preserves_selector_calldata
 #print axioms forsLeafBody_preserves_seed_slot_range_of_inner
 #print axioms forsLeafStep_preserves_seed_slot_range_of_inner
 #print axioms eval_forsLeafStore_offset
 #print axioms forsLeafStore_offset_ne_zero
 #print axioms forsLeafStore_preserves_seed_slot_range
+#print axioms forsLeafStore_root_cell_range
+#print axioms fors_root_cell_ne_of_ne
+#print axioms forsLeafStore_preserves_root_cell_range_ne
+#print axioms forsLeafStep_root_cell_range
+#print axioms forsLeafBody_preserves_root_cell_range_ne_of_inner
+#print axioms forsLeafStep_preserves_root_cell_range_ne_of_inner
 #print axioms execForsLeaf
 #print axioms execForsOuter
+#print axioms forsOuter_root_cell_eq_iteration_node_of_suffix_preserves
 #print axioms execForsOuter_preserves_seed_slot_range
 #print axioms execForsOuter_preserves_seed_slot_range_six
 

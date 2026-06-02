@@ -155,7 +155,7 @@ def c13VerifyParsedBody (pk : PublicKey) (message : Bytes) (sig : Signature) :
         match c13HtClimb pk c13Variant.d 0 digest.hyperIndex forsPk sig.layers with
         | .reverted => none
         | .rejected => some false
-        | .ok root => some (root == pk.pkRoot)
+        | .ok root => some (rootMatchesPk c13Variant root pk.pkRoot)
 
 /-- The named-intermediate body equals the spec's `verifyParsed` for C13. -/
 theorem c13VerifyParsedBody_eq (pk : PublicKey) (message : Bytes)

@@ -16,9 +16,12 @@ close, and what remains outside its scope.
 - Standalone segment, memory-frame, FORS, and accept-path lemmas that do not
   touch `execC13` or `c13_refines_byte_spec` before final integration.
 
-- Boundary byte-shape premises, such as `pkRoot.size = 16`, may remain as
-  explicit input-shape obligations until they are connected to a parser, ABI, or
-  caller-side assumption.
+- Boundary byte-shape premises may remain as explicit input-shape obligations
+  until they are connected to a parser, ABI, or caller-side assumption.  For C13's
+  final public-key-root comparison, the current byte spec instead uses
+  `rootMatchesPk c13`, the low-16-byte projection of the contract's full-word
+  public-key root, so the active final-comparison handoff no longer requires a
+  `pkRoot.size = 16` premise.
 
 - Local frame obligations, such as the range-gated FORS leaf-step
   seed-preservation fact, may remain explicit until their statement-level memory

@@ -199,6 +199,14 @@ theorem readBE_eq_read16 (sig : ByteArray) (off : Nat) :
   unfold readBE
   rw [read16_eq_fold]
 
+/-- A four-byte big-endian read in the public fold form used by the C13 WOTS+C
+count parser. -/
+theorem readBE4_eq_fold (sig : ByteArray) (off : Nat) :
+    readBE sig off 4 =
+      (List.range 4).foldl
+        (fun acc j => acc * 256 + ((sig[off + j]?).getD 0).toNat) 0 := by
+  rfl
+
 /-! ## 4. The headline correspondence (16-byte-aligned offsets). -/
 
 /-- Word-bound helper: any `bytesToWords` entry is `< evmModulus`. -/
@@ -387,6 +395,24 @@ theorem read32BE_calldata
     calc readBE sig sOff 32 < 256 ^ 32 := readBE_lt sig sOff 32
       _ = evmModulus := by rw [show evmModulus = 2 ^ 256 from rfl]; norm_num
 
+/-- The WOTS+C count read shape: shifting the frozen calldata word at signature
+offset `sOff` right by 224 bits returns the high four-byte big-endian integer. -/
+theorem shr224_calldata_eq_readBE4
+    (pkSeed pkRoot message sig : ByteArray) (sOff : Nat) :
+    (calldataloadWord 0
+        (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+        (sigDataOffset + sOff)) >>> 224
+      = readBE sig sOff 4 := by
+  rw [read32BE_calldata]
+  rw [Nat.shiftRight_eq_div_pow]
+  have hsplit : readBE sig sOff 32 =
+      readBE sig sOff 4 * 256 ^ 28 + readBE sig (sOff + 4) 28 := by
+    rw [show (32 : Nat) = 4 + 28 from rfl, readBE_split]
+  rw [hsplit]
+  have hpow : (2 : Nat) ^ 224 = 256 ^ 28 := by norm_num
+  rw [hpow]
+  exact div_helper _ _ _ (by positivity) (readBE_lt sig (sOff + 4) 28)
+
 /-- **Masked sibling read = `wordOfHash16`, for ANY byte offset.**  Generalizes
 `masked_sig_read_eq_wordOfHash16` to drop the `sOff % 16 = 0` hypothesis: masking
 the frozen calldata word at `sigDataOffset + sOff` with `N_MASK` yields the spec's
@@ -423,6 +449,7 @@ theorem masked_sig_read_eq_wordOfHash16_gen
 #print axioms masked_straddle
 #print axioms masked_sig_read_eq_wordOfHash16
 #print axioms read32BE_calldata
+#print axioms shr224_calldata_eq_readBE4
 #print axioms masked_sig_read_eq_wordOfHash16_gen
 
 end SphincsMinusVerifiers.SiblingCalldata

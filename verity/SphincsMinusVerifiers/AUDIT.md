@@ -172,7 +172,8 @@ The current narrow C13 accept handoff still has real residual obligations:
 - six named normal FORS root cells plus the forced root cell;
 - per-layer guarded WOTS/XMSS correspondence;
 - hypertree layer-step and fold correspondence;
-- public-key root byte size `pkRoot.size = 16`.
+- executable checksum/current-node facts for the two concrete C13 hypertree
+  layer states.
 
 The successful C13 FORS/WOTS/XMSS/hypertree outputs now have standalone 16-byte
 shape lemmas and `CanonicalHash16` propagation lemmas.  The base-256 arithmetic
@@ -181,12 +182,12 @@ numeric roundtrip
 `hash16OfWord (wordOfHash16 (hash16OfWord w)) = hash16OfWord w`; combined with
 the C13 canonical-output facts,
 `SegmentAcceptSpec.specRoot_roundtrip_of_c13_fors_fold` derives the spec-root
-roundtrip from successful FORS reconstruction and hypertree folding.  The
-public-key-root roundtrip is now reduced by
-`SegmentAcceptSpec.hash16OfWord_wordOfHash16_of_size` to the ordinary byte-size
-premise `pkRoot.size = 16`.  Once these final-root roundtrips are available,
-`SegmentAcceptSpec.wordCmp_of_wordOfHash16_roundtrip` derives the `hWordCmp`
-premise without a global `LawfulBEq ByteArray` assumption.
+roundtrip from successful FORS reconstruction and hypertree folding.
+`SegmentAcceptSpec.wordCmp_of_wordOfHash16_rootMatchesPk_c13` now derives the
+`hWordCmp` premise against `rootMatchesPk c13`, the byte-spec low-16-byte
+projection of the contract's full-word public-key root.  The old
+`pkRoot.size = 16` public-root roundtrip premise is no longer part of the current
+C13 word-comparison handoff.
 
 The raw C13 length guard can now be derived from successful concrete parsing via
 `SegmentAcceptSpec.c13_sig_length_of_parseSignatureC13`.  The S3 forced-zero
@@ -223,7 +224,7 @@ The narrowest byte-shaped adapter is now
 It also derives the FORS public-key masked-word roundtrip via
 `SegmentAcceptSpec.forsPkWordC13_roundtrip`, so callers no longer supply
 `wordOfHash16 (hash16OfWord forsPkWordC13) = forsPkWordC13`.
-The size-based variant
+The older size-based variant
 `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_obligations_of_bytes`
 derives the remaining public-key-root roundtrip from `pkRoot.size = 16` via
 `SegmentAcceptSpec.hash16OfWord_wordOfHash16_of_size`.  The leaf-frame variant

@@ -22,6 +22,7 @@
 import SphincsMinusVerifiers.ClimbKit
 import SphincsMinusVerifiers.ClimbKeccakStep
 import SphincsMinusVerifiers.ClimbLoop
+import SphincsMinusVerifiers.ClimbStepSpec
 import SphincsMinusVerifiers.SiblingCalldata
 
 namespace SphincsMinusVerifiers.ClimbMemFrameMerkle
@@ -1559,6 +1560,56 @@ theorem merkleSpecStep_snd_normalized (seed treeAdrs : Nat)
   simp only [merkleSpecStep]
   split <;> exact wordNormalize_maskN _
 
+/-- Exact-node variant of `MerkleClimbRel`.  It carries the raw node binding,
+not only its EVM normalization, plus the fact that the spec node is already
+normalized.  This is useful for consumers that must prove exact data-cell
+equality after a Merkle climb. -/
+def MerkleClimbRawRel (nodeVar idxVar : String) (s : RuntimeState) (a : Nat × Nat) : Prop :=
+  lookupValue s.bindings idxVar = a.1 ∧
+  lookupValue s.bindings nodeVar = a.2 ∧
+  wordNormalize a.2 = a.2
+
+theorem MerkleClimbRawRel.intro {nodeVar idxVar : String} {s : RuntimeState} {a : Nat × Nat}
+    (hidx : lookupValue s.bindings idxVar = a.1)
+    (hnode : lookupValue s.bindings nodeVar = a.2)
+    (hnorm : wordNormalize a.2 = a.2) :
+    MerkleClimbRawRel nodeVar idxVar s a := ⟨hidx, hnode, hnorm⟩
+
+theorem MerkleClimbRawRel.idx {nodeVar idxVar : String} {s : RuntimeState} {a : Nat × Nat}
+    (h : MerkleClimbRawRel nodeVar idxVar s a) :
+    lookupValue s.bindings idxVar = a.1 := h.1
+
+theorem MerkleClimbRawRel.node {nodeVar idxVar : String} {s : RuntimeState} {a : Nat × Nat}
+    (h : MerkleClimbRawRel nodeVar idxVar s a) :
+    lookupValue s.bindings nodeVar = a.2 := h.2.1
+
+theorem MerkleClimbRawRel.node_norm {nodeVar idxVar : String} {s : RuntimeState} {a : Nat × Nat}
+    (h : MerkleClimbRawRel nodeVar idxVar s a) :
+    wordNormalize a.2 = a.2 := h.2.2
+
+/-- Forget the exact-node component down to the existing normalized climb relation. -/
+theorem MerkleClimbRawRel.toRel {nodeVar idxVar : String} {s : RuntimeState} {a : Nat × Nat}
+    (h : MerkleClimbRawRel nodeVar idxVar s a) :
+    MerkleClimbRel nodeVar idxVar s a := by
+  refine MerkleClimbRel.intro h.idx ?_
+  rw [h.node]
+  exact h.node_norm
+
+/-- Raw-pair welding lemma: the existing per-step pair equality gives an exact
+node relation, and `merkleSpecStep_snd_normalized` supplies the normalization
+component for the next iteration. -/
+theorem MerkleClimbRawRel_of_pair (nodeVar idxVar : String) (s' : RuntimeState)
+    (seed treeAdrs h mIdx node : Nat) (auth : List SphincsMinusVerifierSpec.Bytes)
+    (hpair : (lookupValue s'.bindings idxVar, lookupValue s'.bindings nodeVar)
+              = merkleSpecStep seed treeAdrs auth h (mIdx, node)) :
+    MerkleClimbRawRel nodeVar idxVar s' (merkleSpecStep seed treeAdrs auth h (mIdx, node)) := by
+  have hidx : lookupValue s'.bindings idxVar
+      = (merkleSpecStep seed treeAdrs auth h (mIdx, node)).1 := (Prod.ext_iff.mp hpair).1
+  have hn : lookupValue s'.bindings nodeVar
+      = (merkleSpecStep seed treeAdrs auth h (mIdx, node)).2 := (Prod.ext_iff.mp hpair).2
+  exact MerkleClimbRawRel.intro hidx hn
+    (merkleSpecStep_snd_normalized seed treeAdrs auth h (mIdx, node))
+
 /-- **`MerkleClimbRel_of_pair`** — repackages the per-step accumulator *pair*
 equality produced by `stepMerkle_eq_merkleSpecStep`
 (`(lookupValue … idxVar, lookupValue … nodeVar) = merkleSpecStep …`) into the
@@ -1911,6 +1962,33 @@ theorem fors_climb_data_range
     rw [hap]; congr 1; omega
   · rw [SphincsMinusVerifierSpec.C13Concrete.parseSignatureC13_fors_authPath_getElem?
         hparse ht htAuth hh]
+    rfl
+
+/-- `getD`-shaped FORS data range, matching the named C13 normal-root expression
+`(s.fors.authPath[t]?).getD []`.  This removes the caller-side need to first
+extract `some tAuth` from the parsed auth-path list. -/
+theorem fors_climb_data_range_getD
+    (pkSeed pkRoot message sig : ByteArray)
+    (v : SphincsMinusVerifierSpec.Variant) (s : SphincsMinusVerifierSpec.Signature)
+    (t authPtr : Nat)
+    (hparse : SphincsMinusVerifierSpec.C13Concrete.parseSignatureC13 v sig = some s)
+    (ht : t < 6)
+    (hap : authPtr
+            = SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t)) :
+    ∀ h, h < 19 → MerkleClimbData ((s.fors.authPath[t]?).getD [])
+        (fun j => Compiler.Proofs.YulGeneration.calldataloadWord 0
+          (SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
+            ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
+          (authPtr + 16 * j)) h := by
+  intro h hh
+  refine merkleClimbData_of_frozenCalldata pkSeed pkRoot message sig
+    ((s.fors.authPath[t]?).getD []) _ h (128 + 304 * t + 16 * h) ?_ ?_
+  · show Compiler.Proofs.YulGeneration.calldataloadWord 0 _ (authPtr + 16 * h)
+        = Compiler.Proofs.YulGeneration.calldataloadWord 0 _
+            (SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t + 16 * h))
+    rw [hap]; congr 1; omega
+  · rw [SphincsMinusVerifierSpec.C13Concrete.parseSignatureC13_fors_authPath_getD_getElem?
+        hparse ht hh]
     rfl
 
 /-- **`merkleClimbData_to_sib`** — the state-dependent seam joining the *index-indexed*
@@ -2454,6 +2532,62 @@ theorem stepMerkle_mem_zero
       MemoryKit.memUpdate_diff _ o5 0x00 vnode ho5,
       MemoryKit.memUpdate_diff _ 0x20 0x00 vadr (by decide)]
 
+/-- Generic value-frame form of `stepMerkle_mem_zero`: any address disjoint from
+the three Merkle scratch writes (`0x20`, `o5`, `o6`) is preserved by one
+branchless-Merkle step. -/
+theorem stepMerkle_mem_val_of_ne
+    (nodeVar idxVar adrsBaseVar authPtrVar : String)
+    (st : RuntimeState) (addr vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (h20 : addr ≠ 0x20) (ho5 : addr ≠ o5) (ho6 : addr ≠ o6)
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.bitOr (.localVar adrsBaseVar)
+              (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+                (.localVar "parentIdx"))) = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    ((stepMerkle nodeVar idxVar adrsBaseVar authPtrVar st).world.memory addr).val =
+      (st.world.memory addr).val := by
+  rw [stepMerkle_memory nodeVar idxVar adrsBaseVar authPtrVar st
+        vsib vpar vadr sval o5 vnode o6 vsib2 h1 h2 h3 h4 h5off h5val h6off h6val]
+  rw [MemoryKit.memUpdate_diff _ o6 addr vsib2 ho6,
+      MemoryKit.memUpdate_diff _ o5 addr vnode ho5,
+      MemoryKit.memUpdate_diff _ 0x20 addr vadr h20]
+
 /-- Parity-packaged form of `stepMerkle_mem_zero`: the usual Merkle child-slot
 offset disjunction (`o5/o6` are `0x40/0x60` in either order) is enough to prove
 that one branchless-Merkle step preserves the seed cell `mem[0x00]`. -/
@@ -2923,6 +3057,30 @@ theorem merkleClimb_foldLoop_correspondence
     (merkleSpecStep seed treeAdrs auth) (MerkleClimbRel nodeVar idxVar)
     (MerkleClimbData auth cdAt) hstep state a index remaining hD hR
 
+/-- Exact-node companion to `merkleClimb_foldLoop_correspondence`.  This keeps
+the raw `nodeVar` binding equal to the spec accumulator node, provided the
+per-step advance also preserves the raw relation. -/
+theorem merkleClimbRaw_foldLoop_correspondence
+    (nodeVar idxVar adrsBaseVar authPtrVar : String)
+    (seed treeAdrs : Nat) (auth : List SphincsMinusVerifierSpec.Bytes) (cdAt : Nat → Nat)
+    (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+        MerkleClimbData auth cdAt idx → MerkleClimbRawRel nodeVar idxVar s a →
+        MerkleClimbRawRel nodeVar idxVar
+          (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+          (merkleSpecStep seed treeAdrs auth idx a))
+    (state : RuntimeState) (a : Nat × Nat) (index remaining : Nat)
+    (hD : ∀ i, index ≤ i → i < index + remaining → MerkleClimbData auth cdAt i)
+    (hR : MerkleClimbRawRel nodeVar idxVar state a) :
+    MerkleClimbRawRel nodeVar idxVar
+      (ClimbLoop.foldLoop "h" (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar)
+        state index remaining)
+      (ClimbLoop.specFold (merkleSpecStep seed treeAdrs auth) a index remaining) :=
+  ClimbLoop.foldLoop_invariant_cond "h"
+    (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar)
+    (merkleSpecStep seed treeAdrs auth) (MerkleClimbRawRel nodeVar idxVar)
+    (MerkleClimbData auth cdAt) hstep state a index remaining hD hR
+
 /-- **`xmssClimb_model_node`** — STEP-2 climb-correspondence equality for one XMSS
 hypertree layer (or one FORS tree): the model node binding after the whole `forEach "h"`
 climb loop EVM-normalises to the spec `xmssClimb` root piece.  Combines
@@ -2950,6 +3108,55 @@ theorem xmssClimb_model_node
     seed treeAdrs auth cdAt hstep state (mIdx, node) h fuel hD hR
   rw [xmssClimb_eq_specFold]
   exact hrel.node
+
+/-- Exact-node companion to `xmssClimb_model_node`: the model node binding itself,
+not only its EVM normalization, is the spec `xmssClimb` result. -/
+theorem xmssClimbRaw_model_node
+    (nodeVar idxVar adrsBaseVar authPtrVar : String)
+    (seed treeAdrs : Nat) (auth : List SphincsMinusVerifierSpec.Bytes) (cdAt : Nat → Nat)
+    (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+        MerkleClimbData auth cdAt idx → MerkleClimbRawRel nodeVar idxVar s a →
+        MerkleClimbRawRel nodeVar idxVar
+          (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+          (merkleSpecStep seed treeAdrs auth idx a))
+    (state : RuntimeState) (mIdx node h fuel : Nat)
+    (hD : ∀ i, h ≤ i → i < h + fuel → MerkleClimbData auth cdAt i)
+    (hR : MerkleClimbRawRel nodeVar idxVar state (mIdx, node)) :
+    lookupValue
+        (ClimbLoop.foldLoop "h" (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar)
+          state h fuel).bindings nodeVar
+      = xmssClimb seed treeAdrs fuel h mIdx node auth := by
+  have hrel := merkleClimbRaw_foldLoop_correspondence nodeVar idxVar adrsBaseVar authPtrVar
+    seed treeAdrs auth cdAt hstep state (mIdx, node) h fuel hD hR
+  rw [xmssClimb_eq_specFold]
+  exact hrel.node
+
+/-- **`forsClimb_model_node`** — FORS-specialised wrapper around
+`xmssClimb_model_node`.  The generic Merkle loop is instantiated with the FORS tree
+base `(3 <<< 96) ||| (i <<< 64)`, then rewritten to the named C13 `forsClimb`
+spec function. -/
+theorem forsClimb_model_node
+    (nodeVar idxVar adrsBaseVar authPtrVar : String)
+    (seed i : Nat) (auth : List SphincsMinusVerifierSpec.Bytes) (cdAt : Nat → Nat)
+    (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+        MerkleClimbData auth cdAt idx → MerkleClimbRel nodeVar idxVar s a →
+        MerkleClimbRel nodeVar idxVar
+          (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+          (merkleSpecStep seed ((3 <<< 96) ||| (i <<< 64)) auth idx a))
+    (state : RuntimeState) (pathIdx node h fuel : Nat)
+    (hD : ∀ idx, h ≤ idx → idx < h + fuel → MerkleClimbData auth cdAt idx)
+    (hR : MerkleClimbRel nodeVar idxVar state (pathIdx, node)) :
+    wordNormalize (lookupValue
+        (ClimbLoop.foldLoop "h" (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar)
+          state h fuel).bindings nodeVar)
+      = SphincsMinusVerifierSpec.C13Concrete.forsClimb seed i fuel h pathIdx node auth := by
+  have hx := xmssClimb_model_node nodeVar idxVar adrsBaseVar authPtrVar
+    seed ((3 <<< 96) ||| (i <<< 64)) auth cdAt hstep state pathIdx node h fuel hD hR
+  exact hx.trans
+    (SphincsMinusVerifiers.ClimbStepSpec.forsClimb_eq_xmssClimb
+      seed i fuel h pathIdx node auth).symm
 
 /-! ## 6c. STEP-3 frame-carrying loop lift: whole-loop `MerkleClimbFrame` ↔
 `specFold`/`xmssClimb`.
@@ -3038,6 +3245,38 @@ theorem xmssClimbFrame_model_node
     hstep state (mIdx, node) h fuel hD hR
   rw [xmssClimb_eq_specFold]
   exact hframe.toRel.node
+
+/-- **`forsClimbFrame_model_node`** — frame-carrying FORS-specialised wrapper around
+`xmssClimbFrame_model_node`, returning the named C13 `forsClimb` root expression. -/
+theorem forsClimbFrame_model_node
+    (nodeVar idxVar adrsBaseVar authPtrVar : String)
+    (pkSeed pkRoot message sig : ByteArray)
+    (seed i merklePtr : Nat)
+    (auth : List SphincsMinusVerifierSpec.Bytes) (cdAt : Nat → Nat)
+    (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+        MerkleClimbData auth cdAt idx →
+        MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+          pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64)) merklePtr s a →
+        MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+          pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64)) merklePtr
+          (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+          (merkleSpecStep seed ((3 <<< 96) ||| (i <<< 64)) auth idx a))
+    (state : RuntimeState) (pathIdx node h fuel : Nat)
+    (hD : ∀ idx, h ≤ idx → idx < h + fuel → MerkleClimbData auth cdAt idx)
+    (hR : MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+            pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64)) merklePtr
+            state (pathIdx, node)) :
+    wordNormalize (lookupValue
+        (ClimbLoop.foldLoop "h" (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar)
+          state h fuel).bindings nodeVar)
+      = SphincsMinusVerifierSpec.C13Concrete.forsClimb seed i fuel h pathIdx node auth := by
+  have hx := xmssClimbFrame_model_node nodeVar idxVar adrsBaseVar authPtrVar
+    pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64)) merklePtr auth cdAt
+    hstep state pathIdx node h fuel hD hR
+  exact hx.trans
+    (SphincsMinusVerifiers.ClimbStepSpec.forsClimb_eq_xmssClimb
+      seed i fuel h pathIdx node auth).symm
 
 /-! ## 6d. Memory-frame loop adapters. -/
 
@@ -3185,6 +3424,12 @@ theorem execStmt_forEach_h_merkleClimb_preserves_memory_val_range
 #print axioms MerkleClimbRel.idx
 #print axioms MerkleClimbRel.node
 #print axioms merkleSpecStep_snd_normalized
+#print axioms MerkleClimbRawRel.intro
+#print axioms MerkleClimbRawRel.idx
+#print axioms MerkleClimbRawRel.node
+#print axioms MerkleClimbRawRel.node_norm
+#print axioms MerkleClimbRawRel.toRel
+#print axioms MerkleClimbRawRel_of_pair
 #print axioms MerkleClimbRel_of_pair
 #print axioms MerkleClimbData_iff
 #print axioms merkleClimbData_to_sib
@@ -3217,14 +3462,19 @@ theorem execStmt_forEach_h_merkleClimb_preserves_memory_val_range
 #print axioms climb_calldata_read_eq_frozen
 #print axioms xmss_climb_data_range
 #print axioms fors_climb_data_range
+#print axioms fors_climb_data_range_getD
 #print axioms merkleClimb_foldLoop_correspondence
+#print axioms merkleClimbRaw_foldLoop_correspondence
 #print axioms xmssClimb_model_node
+#print axioms xmssClimbRaw_model_node
+#print axioms forsClimb_model_node
 #print axioms calldataloadWord_lt_of_ge4
 #print axioms merkle_sibling_read_frozen
 #print axioms MerkleClimbFrame.toRel
 #print axioms stepMerkle_selector_calldata
 #print axioms stepMerkle_binding_frozen
 #print axioms stepMerkle_mem_zero
+#print axioms stepMerkle_mem_val_of_ne
 #print axioms stepMerkle_mem_zero_of_parity
 #print axioms stepMerkle_mem_zero_val_of_parity
 #print axioms eval_parentIdx_shr
@@ -3235,6 +3485,7 @@ theorem execStmt_forEach_h_merkleClimb_preserves_memory_val_range
 #print axioms MerkleClimbFrame_hstep
 #print axioms merkleClimbFrame_foldLoop_correspondence
 #print axioms xmssClimbFrame_model_node
+#print axioms forsClimbFrame_model_node
 #print axioms merkleFold_preserves_memory_val_of_step
 #print axioms merkleFold_preserves_memory_val_bound
 #print axioms merkleFold_preserves_memory_val_range

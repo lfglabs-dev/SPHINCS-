@@ -46,6 +46,12 @@ def allGuardsPass (varName : String) (step : RuntimeState → RuntimeState)
           (step { state with bindings := bindValue state.bindings varName (wordNormalize index) })
           (index + 1) remaining
 
+/-- The loop-state update performed by the source interpreter before each
+`forEach` body execution.  Named here so guard-failure lemmas do not duplicate
+large record updates in their statements. -/
+def loopState (varName : String) (state : RuntimeState) (index : Nat) : RuntimeState :=
+  { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+
 /-- If a relation `R` supplies both the guard fact for the current loop state and
 the related post-step accumulator, then every threaded guard in the corresponding
 fuel-bounded loop passes.  This is the guarded analogue of
@@ -100,6 +106,59 @@ theorem execForEachLoop_of_guarded_step
       exact execForEachLoop_of_guarded_step varName runBody step guard hstep
         _ (index + 1) remaining htail
 
+/-- **`execForEachLoop_revert_on_first_guard`** — dual control-flow fact for the
+first threaded iteration: if the guarded body would see a false guard at the
+current loop index, the whole loop reverts immediately. -/
+theorem execForEachLoop_revert_on_first_guard
+    (varName : String) (runBody : RuntimeState → StmtResult)
+    (step : RuntimeState → RuntimeState) (guard : RuntimeState → Bool)
+    (hstep : ∀ ls, runBody ls = if guard ls then .continue (step ls) else .revert)
+    (state : RuntimeState) (index remaining : Nat)
+    (hguard : guard (loopState varName state index) = false) :
+    execForEachLoop varName runBody state index (remaining + 1) = .revert := by
+  show (match runBody
+          { state with bindings := bindValue state.bindings varName (wordNormalize index) } with
+        | .continue n => execForEachLoop varName runBody n (index + 1) remaining
+        | .stop n => .stop n
+        | .return rval rst => .return rval rst
+        | .revert => .revert) = .revert
+  rw [hstep]
+  have hguard' :
+      guard
+        { state with bindings := bindValue state.bindings varName (index % Compiler.Constants.evmModulus) }
+        = false := by
+    simpa [loopState, wordNormalize] using hguard
+  simp [hguard']
+
+/-- **`execForEachLoop_revert_on_second_guard`** — the two-iteration C13 layer
+case: if the first guard passes but the next threaded guard fails after one
+`step`, the whole loop reverts on the second iteration. -/
+theorem execForEachLoop_revert_on_second_guard
+    (varName : String) (runBody : RuntimeState → StmtResult)
+    (step : RuntimeState → RuntimeState) (guard : RuntimeState → Bool)
+    (hstep : ∀ ls, runBody ls = if guard ls then .continue (step ls) else .revert)
+    (state : RuntimeState) (index remaining : Nat)
+    (hguard0 : guard (loopState varName state index) = true)
+    (hguard1 : guard (loopState varName (step (loopState varName state index)) (index + 1))
+        = false) :
+    execForEachLoop varName runBody state index (remaining + 2) = .revert := by
+  show (match runBody
+          { state with bindings := bindValue state.bindings varName (wordNormalize index) } with
+        | .continue n => execForEachLoop varName runBody n (index + 1) (remaining + 1)
+        | .stop n => .stop n
+        | .return rval rst => .return rval rst
+        | .revert => .revert) = .revert
+  rw [hstep]
+  have hguard0' :
+      guard
+        { state with bindings := bindValue state.bindings varName (index % Compiler.Constants.evmModulus) }
+        = true := by
+    simpa [loopState, wordNormalize] using hguard0
+  simp [hguard0']
+  exact execForEachLoop_revert_on_first_guard varName runBody step guard hstep
+    (step { state with bindings := bindValue state.bindings varName (wordNormalize index) })
+    (index + 1) remaining hguard1
+
 /-! ## 3. The `.forEach`-statement bridge. -/
 
 /-- **`execStmt_forEach_of_guarded_step`** — the statement-level form: a
@@ -130,10 +189,72 @@ theorem execStmt_forEach_of_guarded_step
   rw [hcount]
   exact execForEachLoop_of_guarded_step varName _ step guard hstep _ 0 bound hguards
 
+/-- Statement-level first-guard revert bridge for guarded `.forEach` loops. -/
+theorem execStmt_forEach_revert_on_first_guard
+    (varName : String) (count : Expr) (body : List Stmt)
+    (state : RuntimeState) (bound : Nat)
+    (step : RuntimeState → RuntimeState) (guard : RuntimeState → Bool)
+    (hcount : evalExpr [] state count = some bound)
+    (remaining : Nat)
+    (hbound : bound = remaining + 1)
+    (hstep : ∀ ls, execStmtList [] ls body = if guard ls then .continue (step ls) else .revert)
+    (hguard :
+      guard (loopState varName
+        { state with bindings := bindValue state.bindings varName (wordNormalize 0) } 0) = false) :
+    execStmt [] state (.forEach varName count body) = .revert := by
+  subst hbound
+  show (match evalExpr [] state count with
+        | some bound =>
+            execForEachLoop varName
+              (fun loopState => execStmtList [] loopState body)
+              { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+              0 bound
+        | none => .revert) = .revert
+  rw [hcount]
+  exact execForEachLoop_revert_on_first_guard varName _ step guard hstep
+    { state with bindings := bindValue state.bindings varName (wordNormalize 0) } 0 remaining
+    hguard
+
+/-- Statement-level second-guard revert bridge for guarded `.forEach` loops. -/
+theorem execStmt_forEach_revert_on_second_guard
+    (varName : String) (count : Expr) (body : List Stmt)
+    (state : RuntimeState) (bound : Nat)
+    (step : RuntimeState → RuntimeState) (guard : RuntimeState → Bool)
+    (hcount : evalExpr [] state count = some bound)
+    (remaining : Nat)
+    (hbound : bound = remaining + 2)
+    (hstep : ∀ ls, execStmtList [] ls body = if guard ls then .continue (step ls) else .revert)
+    (hguard0 :
+      guard (loopState varName
+        { state with bindings := bindValue state.bindings varName (wordNormalize 0) } 0) = true)
+    (hguard1 :
+      guard
+        (loopState varName
+          (step (loopState varName
+            { state with bindings := bindValue state.bindings varName (wordNormalize 0) } 0))
+          1) = false) :
+    execStmt [] state (.forEach varName count body) = .revert := by
+  subst hbound
+  show (match evalExpr [] state count with
+        | some bound =>
+            execForEachLoop varName
+              (fun loopState => execStmtList [] loopState body)
+              { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+              0 bound
+        | none => .revert) = .revert
+  rw [hcount]
+  exact execForEachLoop_revert_on_second_guard varName _ step guard hstep
+    { state with bindings := bindValue state.bindings varName (wordNormalize 0) } 0 remaining
+    hguard0 hguard1
+
 /-! ## 4. Axiom audit. -/
 
 #print axioms execForEachLoop_of_guarded_step
 #print axioms execStmt_forEach_of_guarded_step
+#print axioms execForEachLoop_revert_on_first_guard
+#print axioms execForEachLoop_revert_on_second_guard
+#print axioms execStmt_forEach_revert_on_first_guard
+#print axioms execStmt_forEach_revert_on_second_guard
 #print axioms allGuardsPass_of_rel
 
 end SphincsMinusVerifiers.ClimbLoopGuarded
