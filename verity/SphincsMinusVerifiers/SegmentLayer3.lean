@@ -363,6 +363,15 @@ def suffix14 : List Stmt :=
   , .assignVar "currentNode" (v "merkleNode")
   , .assignVar "sigOff" (addE (v "authOff") (u 176)) ]
 
+/-- The straight-line suffix prefix before `authOff := countOff + 4`. -/
+def suffixBeforeAuthOff : List Stmt :=
+  [ .letVar "wotsPtr" (addE (v "sigBase") (v "sigOff"))
+  , .forEach "i" (u 43) wotsOuterBody
+  , .letVar "pkAdrs" (orE (shlE (u 224) (v "layer")) (orE (shlE (u 128) (v "idxTree")) (orE (shlE (u 96) (u 1)) (shlE (u 64) (v "idxLeaf")))))
+  , mstore 0x20 (v "pkAdrs")
+  , .forEach "i" (u 43) copyBody
+  , .letVar "wotsPk" (andE (keccak 0x00 0x5A0) (u N_MASK)) ]
+
 /-- The straight-line part of `suffix14` before the XMSS Merkle-climb loop.
 This state carries the concrete WOTS public-key word and the initialized
 `merkleNode`/`mIdx`/`treeAdrs`/`merklePtr` cells consumed by the generic
@@ -1465,6 +1474,78 @@ def beforeMerkle (ls : RuntimeState) : RuntimeState :=
   | .continue s' => s'
   | _ => afterDigit ls
 
+/-- The state immediately before binding `"authOff"`. -/
+def beforeAuthOff (ls : RuntimeState) : RuntimeState :=
+  match execStmtList [] (afterDigit ls) suffixBeforeAuthOff with
+  | .continue s' => s'
+  | _ => afterDigit ls
+
+theorem beforeAuthOff_eq (ls : RuntimeState) :
+    execStmtList [] (afterDigit ls) suffixBeforeAuthOff = .continue (beforeAuthOff ls) := by
+  unfold beforeAuthOff suffixBeforeAuthOff mstore u
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsPtr" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_forEach_of_step "i" (.literal 43) wotsOuterBody _ _ wotsOuterStep rfl wotsOuterStepLemma)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "pkAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_forEach_of_step "i" (.literal 43) copyBody _ _ copyStep rfl copyStepLemma)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsPk" _ _ rfl)]
+  rfl
+
+/-- The suffix prefix before `"authOff"` does not rebind `"countOff"`. -/
+theorem suffixBeforeAuthOff_preserves_countOff (ls : RuntimeState) :
+    lookupValue (beforeAuthOff ls).bindings "countOff" =
+      lookupValue (afterDigit ls).bindings "countOff" := by
+  refine execStmtList_preserves_lookup "countOff" suffixBeforeAuthOff
+    (afterDigit ls) (beforeAuthOff ls) ?_ (beforeAuthOff_eq ls)
+  intro s s'' stmt hmem hexec
+  simp [suffixBeforeAuthOff, mstore] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl
+  · exact execStmt_letVar_preserves_lookup _ _ "wotsPtr" "countOff" _ (by decide) hexec
+  · exact execStmt_forEach_preserves_lookup "i" "countOff" _ _ _ _ (by decide)
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [wotsOuterBody, mstoreE] at hmem'
+        rcases hmem' with rfl | rfl | rfl | rfl | rfl | rfl
+        · exact execStmt_letVar_preserves_lookup _ _ "digit" "countOff" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "steps" "countOff" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "val" "countOff" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "chainBase" "countOff" _ (by decide) hexec'
+        · exact execStmt_forEach_preserves_lookup "step" "countOff" _ _ _ _ (by decide)
+            (by
+              intro u u'' stmt'' hmem'' hexec''
+              simp [wotsChainBody, mstoreE] at hmem''
+              rcases hmem'' with rfl | rfl | rfl
+              · exact execStmt_mstore_preserves_lookup _ _ "countOff" _ _ hexec''
+              · exact execStmt_mstore_preserves_lookup _ _ "countOff" _ _ hexec''
+              · exact execStmt_assignVar_preserves_lookup _ _ "val" "countOff" _ (by decide) hexec'')
+            hexec'
+        · exact execStmt_mstore_preserves_lookup _ _ "countOff" _ _ hexec')
+      hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "pkAdrs" "countOff" _ (by decide) hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "countOff" _ _ hexec
+  · exact execStmt_forEach_preserves_lookup "i" "countOff" _ _ _ _ (by decide)
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [copyBody, mstoreE] at hmem'
+        subst hmem'
+        exact execStmt_mstore_preserves_lookup _ _ "countOff" _ _ hexec')
+      hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "wotsPk" "countOff" _ (by decide) hexec
+
+/-- The state before binding `"authOff"` still carries the count offset computed
+from the incoming `"sigOff"`. -/
+theorem beforeAuthOff_countOff_eq_of_sigOff
+    (ls : RuntimeState) (sigOff : Nat)
+    (hSigOff : lookupValue ls.bindings "sigOff" = sigOff)
+    (hSigOffLt : sigOff < 2 ^ 256)
+    (hCountOffLt : sigOff + 688 < 2 ^ 256) :
+    lookupValue (beforeAuthOff ls).bindings "countOff" = sigOff + 688 := by
+  rw [suffixBeforeAuthOff_preserves_countOff]
+  rw [afterDigit_preserves_lookup_of_ne ls "countOff" (by decide) (by decide)]
+  exact beforeDigitLoop_countOff_eq_of_sigOff ls sigOff hSigOff hSigOffLt hCountOffLt
+
 theorem beforeMerkle_eq (ls : RuntimeState) :
     execStmtList [] (afterDigit ls) suffixBeforeMerkle = .continue (beforeMerkle ls) := by
   unfold beforeMerkle suffixBeforeMerkle mstore u
@@ -1540,6 +1621,46 @@ theorem beforeMerkle_countOff_eq_of_sigOff
   rw [suffixBeforeMerkle_preserves_countOff]
   rw [afterDigit_preserves_lookup_of_ne ls "countOff" (by decide) (by decide)]
   exact beforeDigitLoop_countOff_eq_of_sigOff ls sigOff hSigOff hSigOffLt hCountOffLt
+
+/-- The state before the Merkle loop binds `"authOff"` to incoming
+`"sigOff" + 692`. -/
+theorem beforeMerkle_authOff_eq_of_sigOff
+    (ls : RuntimeState) (sigOff : Nat)
+    (hSigOff : lookupValue ls.bindings "sigOff" = sigOff)
+    (hSigOffLt : sigOff < 2 ^ 256)
+    (hCountOffLt : sigOff + 688 < 2 ^ 256)
+    (hAuthOffLt : sigOff + 692 < 2 ^ 256) :
+    lookupValue (beforeMerkle ls).bindings "authOff" = sigOff + 692 := by
+  unfold beforeMerkle
+  rw [show suffixBeforeMerkle =
+      suffixBeforeAuthOff ++
+        [ .letVar "authOff" (addE (v "countOff") (u 4))
+        , .letVar "treeAdrs" (orE (shlE (u 224) (v "layer")) (orE (shlE (u 128) (v "idxTree")) (shlE (u 96) (u 2))))
+        , .letVar "merkleNode" (v "wotsPk")
+        , .letVar "mIdx" (v "idxLeaf")
+        , .letVar "merklePtr" (addE (v "sigBase") (v "authOff")) ] by rfl]
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeAuthOff_eq ls)]
+  rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_letVar_continue _ "authOff" _ (sigOff + 692) (by
+    have hCountOff :
+        evalExpr [] (beforeAuthOff ls) (v "countOff") = some (sigOff + 688) := by
+      change some (lookupValue (beforeAuthOff ls).bindings "countOff") = some (sigOff + 688)
+      rw [beforeAuthOff_countOff_eq_of_sigOff ls sigOff hSigOff hSigOffLt hCountOffLt]
+    have hSum : sigOff + 688 + 4 = sigOff + 692 := by omega
+    rw [← hSum]
+    exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      _ (v "countOff") (u 4) (sigOff + 688) 4 hCountOff rfl
+      hCountOffLt (by decide : 4 < 2 ^ 256) (by simpa [hSum] using hAuthOffLt)))]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "treeAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merkleNode" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "mIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merklePtr" _ _ rfl)]
+  simp only [execStmtList]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "merklePtr" "authOff" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "mIdx" "authOff" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "merkleNode" "authOff" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "treeAdrs" "authOff" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_self]
 
 /-- The exact folded XMSS Merkle-climb state inside one accepting layer iteration. -/
 def afterMerkle (ls : RuntimeState) : RuntimeState :=
@@ -1984,9 +2105,13 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms afterDigit_digitSum_eq_wotsDigitSum_of_beforeDigitLoop
 #print axioms layerGuard_of_afterDigit_digitSum_eq
 #print axioms layerGuard_of_afterDigit_digitSum_ne
+#print axioms beforeAuthOff_eq
+#print axioms suffixBeforeAuthOff_preserves_countOff
+#print axioms beforeAuthOff_countOff_eq_of_sigOff
 #print axioms beforeMerkle_eq
 #print axioms suffixBeforeMerkle_preserves_countOff
 #print axioms beforeMerkle_countOff_eq_of_sigOff
+#print axioms beforeMerkle_authOff_eq_of_sigOff
 #print axioms stepLayer_preserves_selector_calldata
 #print axioms stepLayer_idxTree_eq_of_idxTree
 #print axioms stepLayer_sigBase_eq
