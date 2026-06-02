@@ -419,6 +419,24 @@ theorem beforeDigest_eq (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rfl
 
+/-- The pre-digest WOTS prefix never writes scratch cell `0x00`; it only writes
+`0x20`, `0x40`, and `0x60`. -/
+theorem beforeDigest_preserves_memory_zero (ls : RuntimeState) :
+    ((beforeDigest ls).world.memory 0x00).val = (ls.world.memory 0x00).val := by
+  unfold beforeDigest prefixBeforeDigest mstore u
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "idxLeaf" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "idxTree" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "countOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  simp only [execStmtList]
+  rw [MemoryKit.memUpdate_diff _ _ _ _ (by decide),
+      MemoryKit.memUpdate_diff _ _ _ _ (by decide),
+      MemoryKit.memUpdate_diff _ _ _ _ (by decide)]
+
 /-- The pre-checksum prefix binds `"d"` to the Keccak word over the four C13 WOTS
 digest scratch cells.  Cell `0` is prepared by earlier segments; this prefix
 writes `0x20`, `0x40`, and `0x60` before hashing `0x00..0x80`. -/
@@ -914,6 +932,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms afterDigitFold_preserves_lookup_of_ne
 #print axioms beforeDigitLoop_eq
 #print axioms beforeDigest_eq
+#print axioms beforeDigest_preserves_memory_zero
 #print axioms beforeDigitLoop_d_eq_keccakWords
 #print axioms prefix11_eq_afterDigitFold
 #print axioms afterDigit_eq_afterDigitFold
