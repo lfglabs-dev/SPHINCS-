@@ -552,6 +552,29 @@ theorem c13SecondLayerGuardState_sigBase
   rw [SegmentLayer3.stepLayer_sigBase_eq]
   exact c13FirstLayerGuardState_sigBase pkSeed pkRoot message sig
 
+/-- The layer-1 guarded-loop binding updates and the first accepted layer advance
+the seed-stage `"sigOff"` to the second XMSS-layer signature offset. -/
+theorem c13SecondLayerGuardState_sigOff
+    (pkSeed pkRoot message sig : Bytes) :
+    lookupValue (c13SecondLayerGuardState pkSeed pkRoot message sig).bindings
+        "sigOff" = 2820 := by
+  unfold c13SecondLayerGuardState ClimbLoopGuarded.loopState
+  rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "sigOff" _ (by decide)]
+  have hSigOffRaw :
+      lookupValue (c13FirstLayerGuardState pkSeed pkRoot message sig).bindings
+          "sigOff" = 1952 := by
+    rw [c13FirstLayerGuardState_sigOff]
+    exact SegmentS2.wordNormalize_of_lt (by decide : 1952 < 2 ^ 256)
+  have hStep :=
+    SegmentLayer3.stepLayer_sigOff_eq_of_sigOff
+      (c13FirstLayerGuardState pkSeed pkRoot message sig)
+      1952 hSigOffRaw
+      (by decide : 1952 < 2 ^ 256)
+      (by decide : 1952 + 688 < 2 ^ 256)
+      (by decide : 1952 + 692 < 2 ^ 256)
+      (by decide : 1952 + 868 < 2 ^ 256)
+  simpa using hStep
+
 /-- The layer-0 guarded-loop `"layer"` binding is zero. -/
 theorem c13FirstLayerGuardState_layer
     (pkSeed pkRoot message sig : Bytes) :
@@ -994,6 +1017,40 @@ theorem c13FirstLayerBeforeDigest_count_hyperIndex
       hParse (by decide : 0 < 2) hLayer0
   rw [hCountSpec]
   rw [← SphincsMinusVerifiers.SiblingCalldata.readBE4_eq_fold sig (1952 + 688)]
+  exact hRaw
+
+/-- Layer-1 pre-digest `"count"` is the parsed C13 layer-1 WOTS count. -/
+theorem c13SecondLayerBeforeDigest_count_hyperIndex
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (lsig : XmssLayerSig)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hLayer1 : sigParsed.layers[1]? = some lsig) :
+    lookupValue
+        (SegmentLayer3.beforeDigest
+          (c13SecondLayerGuardState pkSeed pkRoot message sig)).bindings
+        "count" = lsig.wots.count := by
+  have hRaw :=
+    SegmentLayer3.beforeDigest_count_eq_of_sigBase_sigOff_calldata
+      (c13SecondLayerGuardState pkSeed pkRoot message sig)
+      sigDataOffset 2820
+      (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+      (c13SecondLayerGuardState_sigBase pkSeed pkRoot message sig)
+      (c13SecondLayerGuardState_sigOff pkSeed pkRoot message sig)
+      (c13SecondLayerGuardState_selector pkSeed pkRoot message sig)
+      (c13SecondLayerGuardState_calldata pkSeed pkRoot message sig)
+      (by decide : sigDataOffset < 2 ^ 256)
+      (by decide : 2820 < 2 ^ 256)
+      (by decide : 2820 + 688 < 2 ^ 256)
+      (by decide :
+        sigDataOffset + (2820 + 688) < 2 ^ 256)
+  rw [SphincsMinusVerifiers.SiblingCalldata.shr224_calldata_eq_readBE4
+      pkSeed pkRoot message sig (2820 + 688)] at hRaw
+  have hCountSpec :=
+    C13Concrete.parseSignatureC13_layer_wots_count
+      hParse (by decide : 1 < 2) hLayer1
+  rw [hCountSpec]
+  rw [show 1952 + 868 * 1 + 688 = 2820 + 688 by decide]
+  rw [← SphincsMinusVerifiers.SiblingCalldata.readBE4_eq_fold sig (2820 + 688)]
   exact hRaw
 
 /-- Layer-0 parsed C13 WOTS count is already an EVM word. -/
@@ -2319,6 +2376,7 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayerGuardState_sigOff
 #print axioms c13FirstLayerGuardState_sigBase
 #print axioms c13SecondLayerGuardState_sigBase
+#print axioms c13SecondLayerGuardState_sigOff
 #print axioms c13FirstLayerGuardState_layer
 #print axioms c13SecondLayerGuardState_layer
 #print axioms c13FirstLayerGuardState_selector
@@ -2341,6 +2399,7 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayerBeforeDigest_count_slot
 #print axioms c13SecondLayerBeforeDigest_count_slot
 #print axioms c13FirstLayerBeforeDigest_count_hyperIndex
+#print axioms c13SecondLayerBeforeDigest_count_hyperIndex
 #print axioms c13FirstLayer_wotsCount_norm
 #print axioms c13SecondLayer_wotsCount_norm
 #print axioms c13FirstLayerBeforeDigest_count_slot_hyperIndex
