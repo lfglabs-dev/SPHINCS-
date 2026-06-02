@@ -532,6 +532,20 @@ theorem c13SecondLayerBeforeDigest_seed_slot_of_first_step_seed_slot
   rw [ClimbLoopGuarded.loopState_preserves_memory_val]
   exact hStepSeed
 
+/-- The first accepting C13 layer seed fact follows from the raw `stepLayer`
+memory-frame obligation for scratch cell `0x00`. -/
+theorem c13FirstStepLayer_seed_slot_of_memory_zero
+    (pkSeed pkRoot message sig : Bytes)
+    (hStepMem :
+      ((SegmentLayer3.stepLayer
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+        ((c13FirstLayerGuardState pkSeed pkRoot message sig).world.memory 0x00).val) :
+    ((SegmentLayer3.stepLayer
+      (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+      C13Concrete.wordOfHash16 pkSeed := by
+  rw [hStepMem]
+  exact c13FirstLayerGuardState_seed_slot pkSeed pkRoot message sig
+
 /-- The layer-0 guarded-loop binding updates do not disturb the seed-stage
 `"currentNode"` binding. -/
 theorem c13FirstLayerGuardState_currentNode
@@ -1623,10 +1637,10 @@ theorem c13FoldRevertedDigestScratchData_of_layer_facts
         (C13Concrete.c13PrimitivesConcrete.hMsg c13
           { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) sigParsed.fors
           = some forsPk)
-    (hFirstStepSeed :
+    (hFirstStepMem :
       ((SegmentLayer3.stepLayer
         (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
-        C13Concrete.wordOfHash16 pkSeed)
+        ((c13FirstLayerGuardState pkSeed pkRoot message sig).world.memory 0x00).val)
     (hCurrent0 :
       lookupValue
           (SegmentLayer3.stepLayer
@@ -1650,7 +1664,9 @@ theorem c13FoldRevertedDigestScratchData_of_layer_facts
       pkSeed pkRoot message sig sigParsed forsPk hCurrent0
   have hSecondSeed :=
     c13SecondLayerBeforeDigest_seed_slot_of_first_step_seed_slot
-      pkSeed pkRoot message sig hFirstStepSeed
+      pkSeed pkRoot message sig
+      (c13FirstStepLayer_seed_slot_of_memory_zero
+        pkSeed pkRoot message sig hFirstStepMem)
   refine ⟨?_, ?_⟩
   · intro d
     refine ⟨?_, ?_, ?_, ?_⟩
@@ -2511,6 +2527,7 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayerGuardState_seed_slot
 #print axioms c13FirstLayerBeforeDigest_seed_slot
 #print axioms c13SecondLayerBeforeDigest_seed_slot_of_first_step_seed_slot
+#print axioms c13FirstStepLayer_seed_slot_of_memory_zero
 #print axioms c13FirstLayerGuardState_currentNode
 #print axioms c13AfterFinalize_forsPk_of_parse_fors
 #print axioms c13FirstLayerGuardState_idxTree
