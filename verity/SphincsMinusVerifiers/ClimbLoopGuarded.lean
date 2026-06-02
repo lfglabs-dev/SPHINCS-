@@ -52,6 +52,13 @@ large record updates in their statements. -/
 def loopState (varName : String) (state : RuntimeState) (index : Nat) : RuntimeState :=
   { state with bindings := bindValue state.bindings varName (wordNormalize index) }
 
+theorem loopState_preserves_memory_val
+    (varName : String) (state : RuntimeState) (index addr : Nat) :
+    ((loopState varName state index).world.memory addr).val =
+      (state.world.memory addr).val := by
+  unfold loopState
+  rfl
+
 /-- If a relation `R` supplies both the guard fact for the current loop state and
 the related post-step accumulator, then every threaded guard in the corresponding
 fuel-bounded loop passes.  This is the guarded analogue of
@@ -256,5 +263,6 @@ theorem execStmt_forEach_revert_on_second_guard
 #print axioms execStmt_forEach_revert_on_first_guard
 #print axioms execStmt_forEach_revert_on_second_guard
 #print axioms allGuardsPass_of_rel
+#print axioms loopState_preserves_memory_val
 
 end SphincsMinusVerifiers.ClimbLoopGuarded
