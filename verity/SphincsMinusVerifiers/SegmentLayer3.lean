@@ -1662,12 +1662,52 @@ theorem beforeMerkle_authOff_eq_of_sigOff
   rw [MemoryKit.lookupValue_bindValue_ne _ "treeAdrs" "authOff" _ (by decide)]
   rw [MemoryKit.lookupValue_bindValue_self]
 
+/-- One XMSS Merkle-climb step does not rebind `"authOff"`. -/
+theorem merkleStep_preserves_authOff (st : RuntimeState) :
+    lookupValue
+        (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr" st).bindings
+        "authOff" =
+      lookupValue st.bindings "authOff" := by
+  refine execStmtList_preserves_lookup "authOff"
+    (merkleClimbBody "merkleNode" "mIdx" "treeAdrs" "merklePtr")
+    st (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr" st)
+    ?_ (SphincsMinusVerifiers.ClimbKit.merkleClimbStep
+      "merkleNode" "mIdx" "treeAdrs" "merklePtr" st)
+  intro s s'' stmt hmem hexec
+  simp [merkleClimbBody, mstoreE] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact execStmt_letVar_preserves_lookup _ _ "sibling" "authOff" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "parentIdx" "authOff" _ (by decide) hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "authOff" _ _ hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "s" "authOff" _ (by decide) hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "authOff" _ _ hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "authOff" _ _ hexec
+  · exact execStmt_assignVar_preserves_lookup _ _ "merkleNode" "authOff" _ (by decide) hexec
+  · exact execStmt_assignVar_preserves_lookup _ _ "mIdx" "authOff" _ (by decide) hexec
+
 /-- The exact folded XMSS Merkle-climb state inside one accepting layer iteration. -/
 def afterMerkle (ls : RuntimeState) : RuntimeState :=
   foldLoop "h" (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr")
     { beforeMerkle ls with
       bindings := bindValue (beforeMerkle ls).bindings "h" (wordNormalize 0) }
     0 (wordNormalize 11)
+
+/-- The folded XMSS Merkle climb preserves the `"authOff"` binding initialized
+before the loop. -/
+theorem afterMerkle_authOff_eq_of_sigOff
+    (ls : RuntimeState) (sigOff : Nat)
+    (hSigOff : lookupValue ls.bindings "sigOff" = sigOff)
+    (hSigOffLt : sigOff < 2 ^ 256)
+    (hCountOffLt : sigOff + 688 < 2 ^ 256)
+    (hAuthOffLt : sigOff + 692 < 2 ^ 256) :
+    lookupValue (afterMerkle ls).bindings "authOff" = sigOff + 692 := by
+  unfold afterMerkle
+  rw [ClimbLoop.foldLoop_preserves_lookup "h" "authOff"
+      (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr")
+      (by decide) (fun s => merkleStep_preserves_authOff s)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "h" "authOff" _ (by decide)]
+  exact beforeMerkle_authOff_eq_of_sigOff
+    ls sigOff hSigOff hSigOffLt hCountOffLt hAuthOffLt
 
 set_option maxHeartbeats 4000000 in
 theorem suffix14_continues (ls : RuntimeState) :
@@ -2112,6 +2152,8 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms suffixBeforeMerkle_preserves_countOff
 #print axioms beforeMerkle_countOff_eq_of_sigOff
 #print axioms beforeMerkle_authOff_eq_of_sigOff
+#print axioms merkleStep_preserves_authOff
+#print axioms afterMerkle_authOff_eq_of_sigOff
 #print axioms stepLayer_preserves_selector_calldata
 #print axioms stepLayer_idxTree_eq_of_idxTree
 #print axioms stepLayer_sigBase_eq
