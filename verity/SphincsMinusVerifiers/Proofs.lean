@@ -1102,6 +1102,22 @@ theorem c13FirstLayerBeforeDigest_count_slot_hyperIndex
       pkSeed pkRoot message sig sigParsed lsig hParse hLayer0)
     (c13FirstLayer_wotsCount_norm sig sigParsed lsig hParse hLayer0)
 
+/-- Layer-1 pre-digest count scratch cell contains the parsed C13 layer-1 WOTS
+count. -/
+theorem c13SecondLayerBeforeDigest_count_slot_hyperIndex
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (lsig : XmssLayerSig)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hLayer1 : sigParsed.layers[1]? = some lsig) :
+    ((SegmentLayer3.beforeDigest
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)).world.memory 0x60).val =
+      lsig.wots.count := by
+  exact c13SecondLayerBeforeDigest_count_slot
+    pkSeed pkRoot message sig lsig.wots.count
+    (c13SecondLayerBeforeDigest_count_hyperIndex
+      pkSeed pkRoot message sig sigParsed lsig hParse hLayer1)
+    (c13SecondLayer_wotsCount_norm sig sigParsed lsig hParse hLayer1)
+
 /-- Remaining concrete data needed for the C13 `.ok` fold branch at the current
 node boundary. -/
 def C13FoldOkCurrentNodeWordcmpData
@@ -2403,6 +2419,7 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayer_wotsCount_norm
 #print axioms c13SecondLayer_wotsCount_norm
 #print axioms c13FirstLayerBeforeDigest_count_slot_hyperIndex
+#print axioms c13SecondLayerBeforeDigest_count_slot_hyperIndex
 #print axioms c13FoldOkCurrentNodePkRootSizeData_of_current_node_facts
 #print axioms c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
 #print axioms c13FoldOkCurrentNodeWordcmpData_of_two_step_obligations
