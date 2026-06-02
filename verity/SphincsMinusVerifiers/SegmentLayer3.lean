@@ -319,6 +319,47 @@ theorem wotsChainFold_preserves_memory_zero (st : RuntimeState) (n : Nat) :
     { st with bindings := bindValue st.bindings "step" (wordNormalize 0) }
     0 (wordNormalize n)]
 
+/-- One WOTS public-key copy step preserves seed cell `0x00` for the actual C13
+loop-index range. -/
+theorem copyStep_preserves_memory_zero_of_i
+    (st : RuntimeState) (i : Nat)
+    (hi : i < 43)
+    (hI : lookupValue st.bindings "i" = wordNormalize i) :
+    ((copyStep st).world.memory 0x00).val =
+      (st.world.memory 0x00).val := by
+  have hINorm : wordNormalize i = i :=
+    SegmentS2.wordNormalize_of_lt (lt_trans hi (by decide : 43 < 2 ^ 256))
+  have hIeval : evalExpr [] st (v "i") = some i := by
+    change some (lookupValue st.bindings "i") = some i
+    rw [hI, hINorm]
+  have hShiftBound : i <<< 5 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    have : i * 2 ^ 5 < 43 * 2 ^ 5 := by
+      exact Nat.mul_lt_mul_of_pos_right hi (by decide : 0 < 2 ^ 5)
+    exact lt_trans this (by decide : 43 * 2 ^ 5 < 2 ^ 256)
+  have hShift :
+      evalExpr [] st (shlE (u 5) (v "i")) = some (i <<< 5) := by
+    exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st (u 5) (v "i") 5 i rfl hIeval
+      (by decide : 5 < 2 ^ 256)
+      (lt_trans hi (by decide : 43 < 2 ^ 256))
+      hShiftBound
+  have hOff :
+      evalExpr [] st (addE (u 0x40) (shlE (u 5) (v "i"))) =
+        some (0x40 + (i <<< 5)) := by
+    exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      st (u 0x40) (shlE (u 5) (v "i")) 0x40 (i <<< 5)
+      rfl hShift (by decide : 0x40 < 2 ^ 256) hShiftBound
+      (by
+        rw [Nat.shiftLeft_eq]
+        have : 0x40 + i * 2 ^ 5 < 0x40 + 43 * 2 ^ 5 := by omega
+        exact lt_trans this (by decide : 0x40 + 43 * 2 ^ 5 < 2 ^ 256))
+  unfold copyStep copyBody mstoreE
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_mstore_continue _ _ _ (0x40 + (i <<< 5)) _ hOff rfl)]
+  simp only [execStmtList]
+  rw [MemoryKit.memUpdate_diff _ (0x40 + (i <<< 5)) 0x00 _ (by omega)]
+
 /-! ## 3. The Layer-3 body reconstruction (Model.lean:154-203), split around the
 checksum-guard `ite` as `prefix11 ++ (ite :: suffix14)`. -/
 
@@ -2306,6 +2347,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms afterDigit_preserves_memory_zero
 #print axioms stepWots_preserves_memory_zero
 #print axioms wotsChainFold_preserves_memory_zero
+#print axioms copyStep_preserves_memory_zero_of_i
 #print axioms beforeDigest_idxLeaf_eq_of_idxTree
 #print axioms beforeDigest_idxTree_eq_of_idxTree
 #print axioms beforeDigitLoop_idxTree_eq_of_idxTree
