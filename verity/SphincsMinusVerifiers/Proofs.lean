@@ -496,6 +496,56 @@ theorem c13FirstLayerGuardState_sigOff
   exact CurrentNodeFrame.afterSeed_sigOff
     (mkC13State pkSeed pkRoot message sig)
 
+/-- Layer-0 pre-digest address scratch cell, once the executable `"wotsAdrs"`
+binding has been identified and shown word-normalized. -/
+theorem c13FirstLayerBeforeDigest_wotsAdrs_slot
+    (pkSeed pkRoot message sig : Bytes) (wotsAdrs : Nat)
+    (hWotsAdrs :
+      lookupValue
+          (SegmentLayer3.beforeDigest
+            (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+          "wotsAdrs" = wotsAdrs)
+    (hNorm : wordNormalize wotsAdrs = wotsAdrs) :
+    ((SegmentLayer3.beforeDigest
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x20).val =
+      wotsAdrs := by
+  rw [SegmentLayer3.beforeDigest_memory_0x20_eq_of_wotsAdrs _ wotsAdrs hWotsAdrs]
+  exact hNorm
+
+/-- Layer-0 pre-digest current-node scratch cell, once `afterFinalize` has
+identified the FORS public-key accumulator word. -/
+theorem c13FirstLayerBeforeDigest_currentNode_slot
+    (pkSeed pkRoot message sig forsPk : Bytes)
+    (hForsPk :
+      lookupValue
+          (SegmentCompose.afterFinalize
+            (mkC13State pkSeed pkRoot message sig)).bindings
+          "forsPk" = C13Concrete.wordOfHash16 forsPk) :
+    ((SegmentLayer3.beforeDigest
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x40).val =
+      C13Concrete.wordOfHash16 forsPk := by
+  exact SegmentLayer3.beforeDigest_memory_0x40_eq_wordOfHash16
+    (c13FirstLayerGuardState pkSeed pkRoot message sig) forsPk
+    (by
+      rw [c13FirstLayerGuardState_currentNode]
+      exact hForsPk)
+
+/-- Layer-0 pre-digest count scratch cell, once the executable `"count"` binding
+has been identified and shown word-normalized. -/
+theorem c13FirstLayerBeforeDigest_count_slot
+    (pkSeed pkRoot message sig : Bytes) (count : Nat)
+    (hCount :
+      lookupValue
+          (SegmentLayer3.beforeDigest
+            (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+          "count" = count)
+    (hNorm : wordNormalize count = count) :
+    ((SegmentLayer3.beforeDigest
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x60).val =
+      count := by
+  rw [SegmentLayer3.beforeDigest_memory_0x60_eq_of_count _ count hCount]
+  exact hNorm
+
 /-- Remaining concrete data needed for the C13 `.ok` fold branch at the current
 node boundary. -/
 def C13FoldOkCurrentNodeWordcmpData
@@ -1697,6 +1747,9 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayerGuardState_currentNode
 #print axioms c13FirstLayerGuardState_idxTree
 #print axioms c13FirstLayerGuardState_sigOff
+#print axioms c13FirstLayerBeforeDigest_wotsAdrs_slot
+#print axioms c13FirstLayerBeforeDigest_currentNode_slot
+#print axioms c13FirstLayerBeforeDigest_count_slot
 #print axioms c13FoldOkCurrentNodePkRootSizeData_of_current_node_facts
 #print axioms c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
 #print axioms c13FoldOkCurrentNodeWordcmpData_of_two_step_obligations
