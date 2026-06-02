@@ -88,7 +88,8 @@ Standalone bricks include:
   `beforeDigest_memory_0x20_eq_of_wotsAdrs`,
   `beforeDigest_memory_0x40_eq_currentNode` /
   `beforeDigest_memory_0x40_eq_wordOfHash16`, and
-  `beforeDigest_memory_0x60_eq_of_count`;
+  `beforeDigest_memory_0x60_eq_of_count`, plus
+  `beforeDigitLoop_d_eq_wotsDigest_of_scratch`;
 - seed and FORS-compression frame adapters in
   `SphincsMinusVerifiers/CurrentNodeFrame.lean`;
 - generic memory-cell frame lemmas in

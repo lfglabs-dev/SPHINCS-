@@ -559,6 +559,23 @@ theorem beforeDigitLoop_d_eq_keccakWords (ls : RuntimeState) :
   rw [MemoryKit.lookupValue_bindValue_ne _ "digitSum" "d" _ (by decide)]
   rw [MemoryKit.lookupValue_bindValue_self]
 
+/-- WOTS-digest specialization of `beforeDigitLoop_d_eq_keccakWords` once the
+four scratch cells have been identified. -/
+theorem beforeDigitLoop_d_eq_wotsDigest_of_scratch
+    (ls : RuntimeState) (seed layer idxTree idxLeaf count node : Nat)
+    (hSeed : ((beforeDigest ls).world.memory 0x00).val = seed)
+    (hAdrs :
+      ((beforeDigest ls).world.memory 0x20).val =
+        SphincsMinusVerifierSpec.C13Concrete.adrsWotsHashBase layer idxTree idxLeaf)
+    (hNode : ((beforeDigest ls).world.memory 0x40).val = node)
+    (hCount : ((beforeDigest ls).world.memory 0x60).val = count) :
+    lookupValue (beforeDigitLoop ls).bindings "d" =
+      SphincsMinusVerifierSpec.C13Concrete.wotsDigest
+        seed layer idxTree idxLeaf count node := by
+  rw [beforeDigitLoop_d_eq_keccakWords]
+  rw [hSeed, hAdrs, hNode, hCount]
+  rfl
+
 theorem afterDigit_eq (ls : RuntimeState) :
     execStmtList [] ls prefix11 = .continue (afterDigit ls) := by
   unfold afterDigit prefix11 mstore u
@@ -1017,6 +1034,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeDigest_memory_0x40_eq_wordOfHash16
 #print axioms beforeDigest_memory_0x60_eq_of_count
 #print axioms beforeDigitLoop_d_eq_keccakWords
+#print axioms beforeDigitLoop_d_eq_wotsDigest_of_scratch
 #print axioms prefix11_eq_afterDigitFold
 #print axioms afterDigit_eq_afterDigitFold
 #print axioms afterDigit_digitSum_eq_afterDigitFold

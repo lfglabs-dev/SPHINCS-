@@ -84,7 +84,8 @@ are:
   `SegmentLayer3.beforeDigest_memory_0x20_eq_of_wotsAdrs`,
   `SegmentLayer3.beforeDigest_memory_0x40_eq_currentNode` /
   `SegmentLayer3.beforeDigest_memory_0x40_eq_wordOfHash16`, and
-  `SegmentLayer3.beforeDigest_memory_0x60_eq_of_count`:
+  `SegmentLayer3.beforeDigest_memory_0x60_eq_of_count`, plus
+  `SegmentLayer3.beforeDigitLoop_d_eq_wotsDigest_of_scratch`:
   `[propext, Classical.choice, Quot.sound]`.
 
 - `CurrentNodeFrame` seed/FORS-compression frame adapters:
