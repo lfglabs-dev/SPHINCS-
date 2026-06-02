@@ -732,6 +732,145 @@ theorem beforeDigest_wotsAdrs_eq_of_layer_idxTree
   rw [hfull]
   simp [SphincsMinusVerifierSpec.C13Concrete.adrsWotsHashBase, Nat.lor_assoc]
 
+/-- The pre-digest WOTS prefix binds `"count"` to the high 32 bits of the
+signature calldata word at `sigBase + sigOff + 688`. -/
+theorem beforeDigest_count_eq_of_sigBase_sigOff_calldata
+    (ls : RuntimeState) (sigBase sigOff : Nat) (calldata : List Nat)
+    (hSigBase : lookupValue ls.bindings "sigBase" = sigBase)
+    (hSigOff : lookupValue ls.bindings "sigOff" = sigOff)
+    (hSelector : ls.selector = 0)
+    (hCalldata : ls.world.calldata = calldata)
+    (hSigBaseLt : sigBase < 2 ^ 256)
+    (hSigOffLt : sigOff < 2 ^ 256)
+    (hCountOffLt : sigOff + 688 < 2 ^ 256)
+    (hOffsetLt : sigBase + (sigOff + 688) < 2 ^ 256) :
+    lookupValue (beforeDigest ls).bindings "count" =
+      (Compiler.Proofs.YulGeneration.calldataloadWord 0 calldata
+        (sigBase + (sigOff + 688))) >>> 224 := by
+  unfold beforeDigest prefixBeforeDigest mstore u andE shrE shlE orE v addE cdload
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "idxLeaf" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "idxTree" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "countOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  simp only [execStmtList]
+  rw [MemoryKit.lookupValue_bindValue_self]
+  let idxLeafVal :=
+    (evalExpr [] ls (.bitAnd (.localVar "idxTree") (.literal 0x7FF))).getD 0
+  let st1 : RuntimeState := { ls with bindings := bindValue ls.bindings "idxLeaf" idxLeafVal }
+  let idxTreeVal := (evalExpr [] st1 (.shr (.literal 11) (.localVar "idxTree"))).getD 0
+  let st2 : RuntimeState := { st1 with bindings := bindValue st1.bindings "idxTree" idxTreeVal }
+  let wotsAdrsVal :=
+    (evalExpr [] st2
+      (.bitOr (.shl (.literal 224) (.localVar "layer"))
+        (.bitOr (.shl (.literal 128) (.localVar "idxTree"))
+          (.shl (.literal 64) (.localVar "idxLeaf"))))).getD 0
+  let st3 : RuntimeState := { st2 with bindings := bindValue st2.bindings "wotsAdrs" wotsAdrsVal }
+  let countOffVal := (evalExpr [] st3 (.add (.localVar "sigOff") (.literal 688))).getD 0
+  let st4 : RuntimeState := { st3 with bindings := bindValue st3.bindings "countOff" countOffVal }
+  change (evalExpr [] st4
+      (.shr (.literal 224)
+        (.calldataload (.add (.localVar "sigBase") (.localVar "countOff"))))).getD 0 =
+      (Compiler.Proofs.YulGeneration.calldataloadWord 0 calldata
+        (sigBase + (sigOff + 688))) >>> 224
+  have hSigOffEval : evalExpr [] st3 (.localVar "sigOff") = some sigOff := by
+    unfold st3 st2 st1
+    change some (lookupValue
+        (bindValue
+          (bindValue (bindValue ls.bindings "idxLeaf" idxLeafVal) "idxTree" idxTreeVal)
+          "wotsAdrs" wotsAdrsVal)
+        "sigOff") = some sigOff
+    rw [MemoryKit.lookupValue_bindValue_ne _ "wotsAdrs" "sigOff" _ (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "idxTree" "sigOff" _ (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "idxLeaf" "sigOff" _ (by decide)]
+    rw [hSigOff]
+  have h688 : evalExpr [] st3 (.literal 688) = some 688 := by
+    show some (wordNormalize 688) = some 688
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide : 688 < 2 ^ 256)]
+  have hCountOffEval :
+      evalExpr [] st3 (.add (.localVar "sigOff") (.literal 688)) =
+        some (sigOff + 688) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      st3 (.localVar "sigOff") (.literal 688) sigOff 688
+      hSigOffEval h688 hSigOffLt (by decide : 688 < 2 ^ 256) hCountOffLt
+  have hCountOffVal : countOffVal = sigOff + 688 := by
+    unfold countOffVal
+    rw [hCountOffEval]
+    rfl
+  have hSigBaseEval : evalExpr [] st4 (.localVar "sigBase") = some sigBase := by
+    unfold st4 st3 st2 st1
+    change some (lookupValue
+        (bindValue
+          (bindValue
+            (bindValue (bindValue ls.bindings "idxLeaf" idxLeafVal) "idxTree" idxTreeVal)
+            "wotsAdrs" wotsAdrsVal)
+          "countOff" countOffVal)
+        "sigBase") = some sigBase
+    rw [MemoryKit.lookupValue_bindValue_ne _ "countOff" "sigBase" _ (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "wotsAdrs" "sigBase" _ (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "idxTree" "sigBase" _ (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "idxLeaf" "sigBase" _ (by decide)]
+    rw [hSigBase]
+  have hCountOffEval4 : evalExpr [] st4 (.localVar "countOff") =
+      some (sigOff + 688) := by
+    unfold st4
+    change some (lookupValue (bindValue st3.bindings "countOff" countOffVal) "countOff")
+      = some (sigOff + 688)
+    rw [MemoryKit.lookupValue_bindValue_self]
+    exact congrArg some hCountOffVal
+  have hOffset :
+      evalExpr [] st4 (.add (.localVar "sigBase") (.localVar "countOff")) =
+        some (sigBase + (sigOff + 688)) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      st4 (.localVar "sigBase") (.localVar "countOff") sigBase (sigOff + 688)
+      hSigBaseEval hCountOffEval4 hSigBaseLt hCountOffLt hOffsetLt
+  have hLoad :
+      evalExpr [] st4 (.calldataload (.add (.localVar "sigBase") (.localVar "countOff"))) =
+        some (Compiler.Proofs.YulGeneration.calldataloadWord 0 calldata
+          (sigBase + (sigOff + 688))) := by
+    change (do
+        let resolvedOffset ←
+          evalExpr [] st4 (.add (.localVar "sigBase") (.localVar "countOff"))
+        some (Compiler.Proofs.YulGeneration.calldataloadWord st4.selector
+          st4.world.calldata resolvedOffset)) =
+      some (Compiler.Proofs.YulGeneration.calldataloadWord 0 calldata
+        (sigBase + (sigOff + 688)))
+    rw [hOffset]
+    unfold st4 st3 st2 st1
+    rw [hSelector, hCalldata]
+    rfl
+  have hLoadLt :
+      Compiler.Proofs.YulGeneration.calldataloadWord 0 calldata
+          (sigBase + (sigOff + 688)) < 2 ^ 256 := by
+    by_cases hsmall : sigBase + (sigOff + 688) < 4
+    · simp [Compiler.Proofs.YulGeneration.calldataloadWord, hsmall]
+    · simp [Compiler.Proofs.YulGeneration.calldataloadWord, hsmall,
+        Compiler.Constants.evmModulus]
+      split <;> exact Nat.mod_lt _ (by decide : 0 < 2 ^ 256)
+  have h224 : evalExpr [] st4 (.literal 224) = some 224 := by
+    show some (wordNormalize 224) = some 224
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide : 224 < 2 ^ 256)]
+  have hShr :
+      evalExpr [] st4
+        (.shr (.literal 224)
+          (.calldataload (.add (.localVar "sigBase") (.localVar "countOff")))) =
+        some ((Compiler.Proofs.YulGeneration.calldataloadWord 0 calldata
+          (sigBase + (sigOff + 688))) >>> 224) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shr_bounded
+      st4 (.literal 224)
+      (.calldataload (.add (.localVar "sigBase") (.localVar "countOff")))
+      224
+      (Compiler.Proofs.YulGeneration.calldataloadWord 0 calldata
+        (sigBase + (sigOff + 688)))
+      h224 hLoad (by decide : 224 < 2 ^ 256) hLoadLt
+  rw [hShr]
+  rfl
+
 /-- If the named WOTS address binding has been identified, the pre-digest
 scratch cell `0x20` contains that word. -/
 theorem beforeDigest_memory_0x20_eq_of_wotsAdrs
@@ -1328,6 +1467,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeDigest_idxLeaf_eq_of_idxTree
 #print axioms beforeDigest_idxTree_eq_of_idxTree
 #print axioms beforeDigest_wotsAdrs_eq_of_layer_idxTree
+#print axioms beforeDigest_count_eq_of_sigBase_sigOff_calldata
 #print axioms beforeDigest_memory_0x20_eq_of_wotsAdrs
 #print axioms beforeDigest_memory_0x40_eq_currentNode
 #print axioms beforeDigest_memory_0x40_eq_wordOfHash16
