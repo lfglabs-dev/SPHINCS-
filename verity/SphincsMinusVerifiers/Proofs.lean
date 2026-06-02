@@ -522,6 +522,15 @@ theorem c13FirstLayerGuardState_sigBase
   rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "sigBase" _ (by decide)]
   exact CurrentNodeFrame.afterSeed_sigBase_mkC13State pkSeed pkRoot message sig
 
+/-- The layer-0 guarded-loop `"layer"` binding is zero. -/
+theorem c13FirstLayerGuardState_layer
+    (pkSeed pkRoot message sig : Bytes) :
+    lookupValue (c13FirstLayerGuardState pkSeed pkRoot message sig).bindings
+        "layer" = 0 := by
+  unfold c13FirstLayerGuardState ClimbLoopGuarded.loopState
+  rw [MemoryKit.lookupValue_bindValue_self]
+  exact SegmentS2.wordNormalize_of_lt (by decide : 0 < 2 ^ 256)
+
 /-- Layer-0 pre-digest `"idxLeaf"` is the low 11 bits of the parsed C13
 hypertree index. -/
 theorem c13FirstLayerBeforeDigest_idxLeaf_hyperIndex
@@ -564,6 +573,73 @@ theorem c13FirstLayerBeforeDigest_idxTree_hyperIndex
       (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
       (by decide : 2 ^ 22 < 2 ^ 256))
 
+/-- Layer-0 pre-digest `"wotsAdrs"` is the C13 WOTS hash-base address assembled
+from layer zero and the split parsed hypertree index. -/
+theorem c13FirstLayerBeforeDigest_wotsAdrs_hyperIndex
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    lookupValue
+        (SegmentLayer3.beforeDigest
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+        "wotsAdrs" =
+      C13Concrete.adrsWotsHashBase
+        0 (digest.hyperIndex / 2048) (digest.hyperIndex % 2048) := by
+  intro pk digest
+  exact SegmentLayer3.beforeDigest_wotsAdrs_eq_of_layer_idxTree
+    (c13FirstLayerGuardState pkSeed pkRoot message sig)
+    0 digest.hyperIndex
+    (c13FirstLayerGuardState_layer pkSeed pkRoot message sig)
+    (c13FirstLayerGuardState_idxTree_hyperIndex
+      pkSeed pkRoot message sig hParse)
+    (by decide : 0 < 2 ^ 32)
+    (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
+
+/-- The layer-0 C13 WOTS hash-base address is already an EVM word. -/
+theorem c13FirstLayer_wotsAdrs_hyperIndex_norm
+    (pkSeed pkRoot message : Bytes) (sigParsed : Signature) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    wordNormalize
+        (C13Concrete.adrsWotsHashBase
+          0 (digest.hyperIndex / 2048) (digest.hyperIndex % 2048))
+      =
+        C13Concrete.adrsWotsHashBase
+          0 (digest.hyperIndex / 2048) (digest.hyperIndex % 2048) := by
+  intro pk digest
+  have h128 :
+      (digest.hyperIndex / 2048) <<< 128 < 2 ^ 256 := by
+    have hnext : digest.hyperIndex / 2048 < 2 ^ 11 := by
+      simpa using C13Concrete.hMsgC13_hyperIndex_div_2048_lt pk sigParsed.R message
+    rw [Nat.shiftLeft_eq]
+    calc
+      (digest.hyperIndex / 2048) * 2 ^ 128 < 2 ^ 11 * 2 ^ 128 :=
+        Nat.mul_lt_mul_of_pos_right hnext (by decide)
+      _ < 2 ^ 256 := by decide
+  have h64 :
+      (digest.hyperIndex % 2048) <<< 64 < 2 ^ 256 := by
+    have hleaf : digest.hyperIndex % 2048 < 2048 :=
+      Nat.mod_lt _ (by decide : 0 < 2048)
+    rw [Nat.shiftLeft_eq]
+    calc
+      (digest.hyperIndex % 2048) * 2 ^ 64 < 2048 * 2 ^ 64 :=
+        Nat.mul_lt_mul_of_pos_right hleaf (by decide)
+      _ < 2 ^ 256 := by decide
+  have h0 : (0 : Nat) <<< 224 < 2 ^ 256 := by
+    norm_num [Nat.shiftLeft_eq]
+  have hinner :
+      ((digest.hyperIndex / 2048) <<< 128 |||
+          ((digest.hyperIndex % 2048) <<< 64)) < 2 ^ 256 :=
+    Nat.bitwise_lt_two_pow h128 h64
+  have haddr :
+      ((0 : Nat) <<< 224 |||
+        ((digest.hyperIndex / 2048) <<< 128 |||
+          ((digest.hyperIndex % 2048) <<< 64))) < 2 ^ 256 :=
+    Nat.bitwise_lt_two_pow h0 hinner
+  simpa [C13Concrete.adrsWotsHashBase, Nat.lor_assoc] using
+    SegmentS2.wordNormalize_of_lt haddr
+
 /-- Layer-0 pre-digest address scratch cell, once the executable `"wotsAdrs"`
 binding has been identified and shown word-normalized. -/
 theorem c13FirstLayerBeforeDigest_wotsAdrs_slot
@@ -579,6 +655,27 @@ theorem c13FirstLayerBeforeDigest_wotsAdrs_slot
       wotsAdrs := by
   rw [SegmentLayer3.beforeDigest_memory_0x20_eq_of_wotsAdrs _ wotsAdrs hWotsAdrs]
   exact hNorm
+
+/-- Layer-0 pre-digest address scratch cell contains the C13 WOTS hash-base
+address assembled from the parsed hypertree index. -/
+theorem c13FirstLayerBeforeDigest_wotsAdrs_slot_hyperIndex
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    ((SegmentLayer3.beforeDigest
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x20).val =
+      C13Concrete.adrsWotsHashBase
+        0 (digest.hyperIndex / 2048) (digest.hyperIndex % 2048) := by
+  intro pk digest
+  exact c13FirstLayerBeforeDigest_wotsAdrs_slot
+    pkSeed pkRoot message sig
+    (C13Concrete.adrsWotsHashBase
+      0 (digest.hyperIndex / 2048) (digest.hyperIndex % 2048))
+    (c13FirstLayerBeforeDigest_wotsAdrs_hyperIndex
+      pkSeed pkRoot message sig sigParsed hParse)
+    (c13FirstLayer_wotsAdrs_hyperIndex_norm
+      pkSeed pkRoot message sigParsed)
 
 /-- Layer-0 pre-digest current-node scratch cell, once `afterFinalize` has
 identified the FORS public-key accumulator word. -/
@@ -1817,9 +1914,13 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayerGuardState_idxTree_hyperIndex
 #print axioms c13FirstLayerGuardState_sigOff
 #print axioms c13FirstLayerGuardState_sigBase
+#print axioms c13FirstLayerGuardState_layer
 #print axioms c13FirstLayerBeforeDigest_idxLeaf_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_idxTree_hyperIndex
+#print axioms c13FirstLayerBeforeDigest_wotsAdrs_hyperIndex
+#print axioms c13FirstLayer_wotsAdrs_hyperIndex_norm
 #print axioms c13FirstLayerBeforeDigest_wotsAdrs_slot
+#print axioms c13FirstLayerBeforeDigest_wotsAdrs_slot_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_currentNode_slot
 #print axioms c13FirstLayerBeforeDigest_count_slot
 #print axioms c13FoldOkCurrentNodePkRootSizeData_of_current_node_facts
