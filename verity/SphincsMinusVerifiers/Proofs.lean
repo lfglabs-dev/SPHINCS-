@@ -995,6 +995,54 @@ theorem c13FirstLayerBeforeDigest_currentNode_slot_of_parse_fors
     (c13AfterFinalize_forsPk_of_parse_fors
       pkSeed pkRoot message sig sigParsed forsPk hParse hFors)
 
+/-- A layer-0 current-node step fact identifies the incoming layer-1 executable
+`"currentNode"` binding for every C13 reverted-at-layer-1 data package. -/
+theorem c13SecondLayerGuardState_currentNode_of_first_step_reverted_layer1
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature) (forsPk : Bytes)
+    (hCurrent0 :
+      lookupValue
+          (SegmentLayer3.stepLayer
+            (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+          "currentNode" =
+        C13Concrete.wordOfHash16
+          (SegmentAcceptSpec.c13HypertreeSpecStepAtLayer
+            { pkSeed := pkSeed, pkRoot := pkRoot }
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+            sigParsed.layers 0 forsPk)) :
+    ∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers,
+      lookupValue
+          (c13SecondLayerGuardState pkSeed pkRoot message sig).bindings
+          "currentNode" = C13Concrete.wordOfHash16 d.root0 := by
+  intro d
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  have hStep0Eq :
+      SegmentAcceptSpec.c13HypertreeSpecStepAtLayer pk digest sigParsed.layers
+        0 forsPk = d.root0 := by
+    exact SegmentAcceptSpec.c13HypertreeSpecStepAtLayer_eq_root_of_success
+      pk digest sigParsed.layers 0 forsPk d.wotsPk0 d.root0 d.lsig0
+      d.hLayer0
+      (by simpa [pk, digest, SegmentAcceptSpec.c13LayerNextTree,
+          SegmentAcceptSpec.c13LayerLeafIdx, SegmentAcceptSpec.c13LayerTreeIdx, c13]
+        using d.hGrinding0)
+      (by simpa [C13Concrete.c13PrimitivesConcrete, pk, digest,
+          SegmentAcceptSpec.c13LayerNextTree, SegmentAcceptSpec.c13LayerLeafIdx,
+          SegmentAcceptSpec.c13LayerTreeIdx, c13]
+        using d.hWots0)
+      (by simpa [C13Concrete.c13PrimitivesConcrete, pk, digest,
+          SegmentAcceptSpec.c13LayerNextTree, SegmentAcceptSpec.c13LayerLeafIdx,
+          SegmentAcceptSpec.c13LayerTreeIdx, c13]
+        using d.hXmss0)
+  unfold c13SecondLayerGuardState ClimbLoopGuarded.loopState
+  rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "currentNode" _ (by decide)]
+  rw [hStep0Eq] at hCurrent0
+  simpa [pk, digest] using hCurrent0
+
 /-- Layer-1 pre-digest current-node scratch cell, once the incoming executable
 `"currentNode"` binding has been identified as a C13 hash word. -/
 theorem c13SecondLayerBeforeDigest_currentNode_slot
@@ -2464,6 +2512,7 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13SecondLayerBeforeDigest_wotsAdrs_slot_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_currentNode_slot
 #print axioms c13FirstLayerBeforeDigest_currentNode_slot_of_parse_fors
+#print axioms c13SecondLayerGuardState_currentNode_of_first_step_reverted_layer1
 #print axioms c13SecondLayerBeforeDigest_currentNode_slot
 #print axioms c13FirstLayerBeforeDigest_count_slot
 #print axioms c13SecondLayerBeforeDigest_count_slot
