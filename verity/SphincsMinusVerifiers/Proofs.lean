@@ -453,6 +453,48 @@ theorem c13SecondLayerGuardState_eq_c13LayerLoopState1
       CurrentNodeFrame.c13LayerLoopState1
         (mkC13State pkSeed pkRoot message sig) := rfl
 
+/-- The concrete C13 FORS-finalize prefix binds `"forsPk"` to the parsed
+spec-side FORS public key word. -/
+theorem c13AfterFinalize_forsPk_of_parse_fors
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature) (forsPk : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) sigParsed.fors
+          = some forsPk) :
+    lookupValue
+        (SegmentCompose.afterFinalize
+          (mkC13State pkSeed pkRoot message sig)).bindings
+        "forsPk" = C13Concrete.wordOfHash16 forsPk := by
+  let st := mkC13State pkSeed pkRoot message sig
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  have hRoots :=
+    CurrentNodeFrame.rootCells_eq_forsAllRootsC13_of_hMsg_parse_concrete
+      pk message sig hParse
+  have hForsPkByte :
+      forsPk = C13Concrete.hash16OfWord
+        (C13Concrete.forsPkWordC13 pk digest sigParsed.fors) := by
+    exact C13Concrete.forsPkFromSigC13_some_eq_hash16_named (v := c13)
+      (pk := pk) (digest := digest) (fors := sigParsed.fors) hFors
+  have hForsPkWord :
+      C13Concrete.forsPkWordC13 pk digest sigParsed.fors =
+        C13Concrete.wordOfHash16 forsPk := by
+    rw [hForsPkByte]
+    exact (SegmentAcceptSpec.forsPkWordC13_roundtrip pk digest sigParsed.fors).symm
+  have hForsCompress :
+      CurrentNodeFrame.forsPkCompressWord (afterFors st) =
+        C13Concrete.wordOfHash16 forsPk := by
+    rw [CurrentNodeFrame.forsPkCompressWord_eq_of_afterFors_concrete_mkC13State_six_plus_last
+      pkSeed pkRoot message sig (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)
+      (C13Concrete.forsAllRootsC13_length pk digest sigParsed.fors)]
+    · simpa [pk, digest, C13Concrete.forsPkWordC13] using hForsPkWord
+    · intro j hj
+      simpa [pk, digest] using hRoots.1 j hj
+    · simpa [pk, digest] using hRoots.2
+  exact CurrentNodeFrame.afterFinalize_forsPk_of_compress st forsPk hForsCompress
+
 /-- The layer-0 guarded-loop state preserves the seed scratch word from
 `afterSeed`. -/
 theorem c13FirstLayerGuardState_seed_slot
@@ -1493,11 +1535,11 @@ theorem c13FoldRevertedDigestScratchData_of_layer_facts
     (pkSeed pkRoot message sig : Bytes)
     (sigParsed : Signature) (forsPk : Bytes)
     (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
-    (hForsPk :
-      lookupValue
-          (SegmentCompose.afterFinalize
-            (mkC13State pkSeed pkRoot message sig)).bindings
-          "forsPk" = C13Concrete.wordOfHash16 forsPk)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) sigParsed.fors
+          = some forsPk)
     (hSecondSeed :
       ((SegmentLayer3.beforeDigest
         (c13SecondLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
@@ -1515,6 +1557,9 @@ theorem c13FoldRevertedDigestScratchData_of_layer_facts
       pkSeed pkRoot message sig sigParsed forsPk := by
   let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
   let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  have hForsPk :=
+    c13AfterFinalize_forsPk_of_parse_fors
+      pkSeed pkRoot message sig sigParsed forsPk hParse hFors
   refine ⟨?_, ?_⟩
   · intro d
     refine ⟨?_, ?_, ?_, ?_⟩
@@ -2375,6 +2420,7 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayerGuardState_seed_slot
 #print axioms c13FirstLayerBeforeDigest_seed_slot
 #print axioms c13FirstLayerGuardState_currentNode
+#print axioms c13AfterFinalize_forsPk_of_parse_fors
 #print axioms c13FirstLayerGuardState_idxTree
 #print axioms c13FirstLayerGuardState_idxTree_hyperIndex
 #print axioms c13FirstLayerGuardState_sigOff
