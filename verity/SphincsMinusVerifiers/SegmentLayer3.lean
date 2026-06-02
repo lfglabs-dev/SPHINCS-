@@ -346,6 +346,18 @@ theorem afterDigitFold_preserves_lookup_of_ne
     (fun s => digitSumStep_preserves_lookup_of_ne s key hneDigit)]
   exact MemoryKit.lookupValue_bindValue_ne _ "ii" key _ hne
 
+/-- The executable checksum fold only changes bindings, so it preserves scratch
+cell `0x00` from the state before the fold. -/
+theorem afterDigitFold_preserves_memory_zero (ls : RuntimeState) :
+    ((afterDigitFold ls).world.memory 0x00).val =
+      ((beforeDigitLoop ls).world.memory 0x00).val := by
+  unfold afterDigitFold
+  rw [ClimbLoop.foldLoop_preserves_memory_val "ii" digitSumStep 0 (by
+    intro s
+    unfold digitSumStep digitSumBody addE andE shrE mulE v u
+    rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue s "digitSum" _ _ rfl)]
+    rfl)]
+
 /-- Statements 168-203 (everything after the guard). -/
 def suffix14 : List Stmt :=
   [ .letVar "wotsPtr" (addE (v "sigBase") (v "sigOff"))
@@ -516,6 +528,26 @@ theorem beforeDigest_preserves_memory_zero (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  simp only [execStmtList]
+  rw [MemoryKit.memUpdate_diff _ _ _ _ (by decide),
+      MemoryKit.memUpdate_diff _ _ _ _ (by decide),
+      MemoryKit.memUpdate_diff _ _ _ _ (by decide)]
+
+/-- The straight-line WOTS prefix before the checksum loop preserves scratch
+cell `0x00`; it only writes `0x20`, `0x40`, and `0x60`. -/
+theorem beforeDigitLoop_preserves_memory_zero (ls : RuntimeState) :
+    ((beforeDigitLoop ls).world.memory 0x00).val = (ls.world.memory 0x00).val := by
+  unfold beforeDigitLoop prefixBeforeDigitLoop mstore u
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "idxLeaf" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "idxTree" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "countOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "d" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "digitSum" _ _ rfl)]
   simp only [execStmtList]
   rw [MemoryKit.memUpdate_diff _ _ _ _ (by decide),
       MemoryKit.memUpdate_diff _ _ _ _ (by decide),
@@ -1330,6 +1362,13 @@ theorem afterDigit_eq_afterDigitFold (ls : RuntimeState) :
     afterDigit ls = afterDigitFold ls := by
   unfold afterDigit
   rw [prefix11_eq_afterDigitFold ls]
+
+/-- The full checksum prefix preserves scratch cell `0x00`. -/
+theorem afterDigit_preserves_memory_zero (ls : RuntimeState) :
+    ((afterDigit ls).world.memory 0x00).val = (ls.world.memory 0x00).val := by
+  rw [afterDigit_eq_afterDigitFold]
+  rw [afterDigitFold_preserves_memory_zero]
+  exact beforeDigitLoop_preserves_memory_zero ls
 
 /-- The executable checksum prefix and the named pure fold expose the same
 `digitSum` binding. -/
@@ -2215,6 +2254,9 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeDigitLoop_countOff_eq_of_sigOff
 #print axioms beforeDigest_eq
 #print axioms beforeDigest_preserves_memory_zero
+#print axioms beforeDigitLoop_preserves_memory_zero
+#print axioms afterDigitFold_preserves_memory_zero
+#print axioms afterDigit_preserves_memory_zero
 #print axioms beforeDigest_idxLeaf_eq_of_idxTree
 #print axioms beforeDigest_idxTree_eq_of_idxTree
 #print axioms beforeDigitLoop_idxTree_eq_of_idxTree
