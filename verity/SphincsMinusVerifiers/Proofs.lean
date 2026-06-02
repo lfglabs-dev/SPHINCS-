@@ -511,6 +511,17 @@ theorem c13FirstLayerGuardState_sigOff
   exact CurrentNodeFrame.afterSeed_sigOff
     (mkC13State pkSeed pkRoot message sig)
 
+/-- The layer-0 guarded-loop binding updates do not disturb the seed-stage
+`"sigBase"` binding. -/
+theorem c13FirstLayerGuardState_sigBase
+    (pkSeed pkRoot message sig : Bytes) :
+    lookupValue (c13FirstLayerGuardState pkSeed pkRoot message sig).bindings
+        "sigBase" = sigDataOffset := by
+  unfold c13FirstLayerGuardState ClimbLoopGuarded.loopState
+  rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "sigBase" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "sigBase" _ (by decide)]
+  exact CurrentNodeFrame.afterSeed_sigBase_mkC13State pkSeed pkRoot message sig
+
 /-- Layer-0 pre-digest address scratch cell, once the executable `"wotsAdrs"`
 binding has been identified and shown word-normalized. -/
 theorem c13FirstLayerBeforeDigest_wotsAdrs_slot
@@ -1763,6 +1774,7 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayerGuardState_idxTree
 #print axioms c13FirstLayerGuardState_idxTree_hyperIndex
 #print axioms c13FirstLayerGuardState_sigOff
+#print axioms c13FirstLayerGuardState_sigBase
 #print axioms c13FirstLayerBeforeDigest_wotsAdrs_slot
 #print axioms c13FirstLayerBeforeDigest_currentNode_slot
 #print axioms c13FirstLayerBeforeDigest_count_slot
