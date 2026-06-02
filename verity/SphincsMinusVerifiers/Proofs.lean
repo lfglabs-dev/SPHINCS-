@@ -1610,15 +1610,17 @@ theorem c13FoldRevertedDigestScratchData_of_layer_facts
       ((SegmentLayer3.beforeDigest
         (c13SecondLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
         C13Concrete.wordOfHash16 pkSeed)
-    (hSecondCurrent :
-      ∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
-          { pkSeed := pkSeed, pkRoot := pkRoot }
-          (C13Concrete.c13PrimitivesConcrete.hMsg c13
-            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
-          forsPk sigParsed.layers,
-        lookupValue
-            (c13SecondLayerGuardState pkSeed pkRoot message sig).bindings
-            "currentNode" = C13Concrete.wordOfHash16 d.root0) :
+    (hCurrent0 :
+      lookupValue
+          (SegmentLayer3.stepLayer
+            (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+          "currentNode" =
+        C13Concrete.wordOfHash16
+          (SegmentAcceptSpec.c13HypertreeSpecStepAtLayer
+            { pkSeed := pkSeed, pkRoot := pkRoot }
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+            sigParsed.layers 0 forsPk)) :
     C13FoldRevertedDigestScratchData
       pkSeed pkRoot message sig sigParsed forsPk := by
   let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
@@ -1626,6 +1628,9 @@ theorem c13FoldRevertedDigestScratchData_of_layer_facts
   have hForsPk :=
     c13AfterFinalize_forsPk_of_parse_fors
       pkSeed pkRoot message sig sigParsed forsPk hParse hFors
+  have hSecondCurrent :=
+    c13SecondLayerGuardState_currentNode_of_first_step_reverted_layer1
+      pkSeed pkRoot message sig sigParsed forsPk hCurrent0
   refine ⟨?_, ?_⟩
   · intro d
     refine ⟨?_, ?_, ?_, ?_⟩
