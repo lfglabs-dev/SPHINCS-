@@ -901,6 +901,20 @@ theorem c13FirstLayerBeforeDigest_currentNode_slot
       rw [c13FirstLayerGuardState_currentNode]
       exact hForsPk)
 
+/-- Layer-1 pre-digest current-node scratch cell, once the incoming executable
+`"currentNode"` binding has been identified as a C13 hash word. -/
+theorem c13SecondLayerBeforeDigest_currentNode_slot
+    (pkSeed pkRoot message sig root0 : Bytes)
+    (hCurrent :
+      lookupValue
+          (c13SecondLayerGuardState pkSeed pkRoot message sig).bindings
+          "currentNode" = C13Concrete.wordOfHash16 root0) :
+    ((SegmentLayer3.beforeDigest
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)).world.memory 0x40).val =
+      C13Concrete.wordOfHash16 root0 := by
+  exact SegmentLayer3.beforeDigest_memory_0x40_eq_wordOfHash16
+    (c13SecondLayerGuardState pkSeed pkRoot message sig) root0 hCurrent
+
 /-- Layer-0 pre-digest count scratch cell, once the executable `"count"` binding
 has been identified and shown word-normalized. -/
 theorem c13FirstLayerBeforeDigest_count_slot
@@ -913,6 +927,22 @@ theorem c13FirstLayerBeforeDigest_count_slot
     (hNorm : wordNormalize count = count) :
     ((SegmentLayer3.beforeDigest
         (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x60).val =
+      count := by
+  rw [SegmentLayer3.beforeDigest_memory_0x60_eq_of_count _ count hCount]
+  exact hNorm
+
+/-- Layer-1 pre-digest count scratch cell, once the executable `"count"` binding
+has been identified and shown word-normalized. -/
+theorem c13SecondLayerBeforeDigest_count_slot
+    (pkSeed pkRoot message sig : Bytes) (count : Nat)
+    (hCount :
+      lookupValue
+          (SegmentLayer3.beforeDigest
+            (c13SecondLayerGuardState pkSeed pkRoot message sig)).bindings
+          "count" = count)
+    (hNorm : wordNormalize count = count) :
+    ((SegmentLayer3.beforeDigest
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)).world.memory 0x60).val =
       count := by
   rw [SegmentLayer3.beforeDigest_memory_0x60_eq_of_count _ count hCount]
   exact hNorm
@@ -2225,7 +2255,9 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13SecondLayerBeforeDigest_wotsAdrs_slot
 #print axioms c13SecondLayerBeforeDigest_wotsAdrs_slot_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_currentNode_slot
+#print axioms c13SecondLayerBeforeDigest_currentNode_slot
 #print axioms c13FirstLayerBeforeDigest_count_slot
+#print axioms c13SecondLayerBeforeDigest_count_slot
 #print axioms c13FirstLayerBeforeDigest_count_hyperIndex
 #print axioms c13FirstLayer_wotsCount_norm
 #print axioms c13SecondLayer_wotsCount_norm
