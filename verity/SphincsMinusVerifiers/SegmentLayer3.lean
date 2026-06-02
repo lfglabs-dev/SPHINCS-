@@ -360,6 +360,26 @@ theorem copyStep_preserves_memory_zero_of_i
   simp only [execStmtList]
   rw [MemoryKit.memUpdate_diff _ (0x40 + (i <<< 5)) 0x00 _ (by omega)]
 
+/-- The 43-step WOTS public-key copy fold preserves seed cell `0x00`. -/
+theorem copyFold_preserves_memory_zero (st : RuntimeState) :
+    ((foldLoop "i" copyStep
+        { st with bindings := bindValue st.bindings "i" (wordNormalize 0) }
+        0 (wordNormalize 43)).world.memory 0x00).val =
+      (st.world.memory 0x00).val := by
+  rw [ClimbLoop.foldLoop_preserves_memory_val_range "i" copyStep 0x00
+    (fun i => i < 43)
+    (fun s i hi => by
+      have hI :
+          lookupValue ({ s with bindings := bindValue s.bindings "i" (wordNormalize i) }).bindings
+              "i" =
+            wordNormalize i := by
+        exact MemoryKit.lookupValue_bindValue_self s.bindings "i" (wordNormalize i)
+      exact copyStep_preserves_memory_zero_of_i
+        { s with bindings := bindValue s.bindings "i" (wordNormalize i) } i hi hI)
+    { st with bindings := bindValue st.bindings "i" (wordNormalize 0) }
+    0 (wordNormalize 43)
+    (fun i _ hi => by simpa using hi)]
+
 /-! ## 3. The Layer-3 body reconstruction (Model.lean:154-203), split around the
 checksum-guard `ite` as `prefix11 ++ (ite :: suffix14)`. -/
 
@@ -2348,6 +2368,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms stepWots_preserves_memory_zero
 #print axioms wotsChainFold_preserves_memory_zero
 #print axioms copyStep_preserves_memory_zero_of_i
+#print axioms copyFold_preserves_memory_zero
 #print axioms beforeDigest_idxLeaf_eq_of_idxTree
 #print axioms beforeDigest_idxTree_eq_of_idxTree
 #print axioms beforeDigitLoop_idxTree_eq_of_idxTree
