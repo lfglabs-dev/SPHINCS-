@@ -116,6 +116,77 @@ theorem nat_land_low19 (x : Nat) : Nat.land x 0x7FFFF = x % 2 ^ 19 := by
     rw [Nat.testBit_mod_two_pow]
     simp [hi]
 
+theorem nat_land_low22 (x : Nat) : Nat.land x 0x3FFFFF = x % 2 ^ 22 := by
+  change (x &&& (2 ^ 22 - 1)) = x % 2 ^ 22
+  apply Nat.eq_of_testBit_eq
+  intro i
+  rw [Nat.testBit_land]
+  by_cases hi : i < 22
+  · have hmask : (2 ^ 22 - 1).testBit i = true := by
+      rw [Nat.testBit_two_pow_sub_one]
+      exact decide_eq_true hi
+    rw [hmask, Bool.and_true]
+    rw [Nat.testBit_mod_two_pow]
+    simp [hi]
+  · have hmask : (2 ^ 22 - 1).testBit i = false := by
+      rw [Nat.testBit_two_pow_sub_one]
+      exact decide_eq_false hi
+    rw [hmask, Bool.and_false]
+    rw [Nat.testBit_mod_two_pow]
+    simp [hi]
+
+theorem htIdxVal_eq_hyperIndex
+    (st : RuntimeState) (digest : Nat)
+    (hdigest : lookupValue st.bindings "digest" = digest)
+    (hBound : digest < 2 ^ 256) :
+    htIdxVal st = (digest >>> 133) % 2 ^ 22 := by
+  unfold htIdxVal
+  rw [hdigest]
+  have h133 : wordNormalize 133 = 133 := by
+    rw [wordNormalize_eq_mod]
+    exact Nat.mod_eq_of_lt (by decide : 133 < 2 ^ 256)
+  have hmask : wordNormalize 0x3FFFFF = 0x3FFFFF := by
+    rw [wordNormalize_eq_mod]
+    exact Nat.mod_eq_of_lt (by decide : 0x3FFFFF < 2 ^ 256)
+  rw [h133, hmask]
+  show (Verity.Core.Uint256.and (Verity.Core.Uint256.shr 133 digest).val 0x3FFFFF).val
+      = (digest >>> 133) % 2 ^ 22
+  show ((Verity.Core.Uint256.ofNat
+        (Nat.land (Verity.Core.Uint256.ofNat
+          (Verity.Core.Uint256.shr 133 digest).val).val
+          (Verity.Core.Uint256.ofNat 0x3FFFFF).val)).val)
+      = (digest >>> 133) % 2 ^ 22
+  have h133v : (Verity.Core.Uint256.ofNat 133).val = 133 :=
+    Nat.mod_eq_of_lt (by decide : 133 < 2 ^ 256)
+  have hdv : (Verity.Core.Uint256.ofNat digest).val = digest :=
+    Nat.mod_eq_of_lt hBound
+  have hshrval : (Verity.Core.Uint256.shr 133 digest).val = digest >>> 133 := by
+    show ((Verity.Core.Uint256.ofNat
+            ((Verity.Core.Uint256.ofNat digest).val >>>
+              (Verity.Core.Uint256.ofNat 133).val)).val)
+        = digest >>> 133
+    rw [hdv, h133v]
+    show (digest >>> 133) % Verity.Core.Uint256.modulus = digest >>> 133
+    have hlt : digest >>> 133 < 2 ^ 256 := by
+      rw [Nat.shiftRight_eq_div_pow]
+      exact Nat.lt_of_le_of_lt (Nat.div_le_self digest (2 ^ 133)) hBound
+    rw [show Verity.Core.Uint256.modulus = 2 ^ 256 from rfl, Nat.mod_eq_of_lt hlt]
+  rw [hshrval]
+  have hshrBound : digest >>> 133 < 2 ^ 256 := by
+    rw [Nat.shiftRight_eq_div_pow]
+    exact Nat.lt_of_le_of_lt (Nat.div_le_self digest (2 ^ 133)) hBound
+  have hshrv : (Verity.Core.Uint256.ofNat (digest >>> 133)).val = digest >>> 133 :=
+    Nat.mod_eq_of_lt hshrBound
+  have hmaskv : (Verity.Core.Uint256.ofNat 0x3FFFFF).val = 0x3FFFFF :=
+    Nat.mod_eq_of_lt (by decide : 0x3FFFFF < 2 ^ 256)
+  rw [hshrv, hmaskv]
+  show Nat.land (digest >>> 133) 0x3FFFFF % Verity.Core.Uint256.modulus =
+      (digest >>> 133) % 2 ^ 22
+  have hlandBound : Nat.land (digest >>> 133) 0x3FFFFF < 2 ^ 256 :=
+    Nat.lt_of_le_of_lt Nat.and_le_left hshrBound
+  rw [show Verity.Core.Uint256.modulus = 2 ^ 256 from rfl, Nat.mod_eq_of_lt hlandBound]
+  exact nat_land_low22 (digest >>> 133)
+
 theorem s3Guard_eq_forsIndex6
     (st : RuntimeState) (digest : Nat)
     (hdigest : lookupValue st.bindings "digest" = digest)
@@ -352,6 +423,8 @@ theorem execSegmentS3 (st : RuntimeState) :
 #print axioms execSegmentS3
 #print axioms segmentS3_eq_slice
 #print axioms nat_land_low19
+#print axioms nat_land_low22
+#print axioms htIdxVal_eq_hyperIndex
 #print axioms s3Guard_eq_forsIndex6
 
 end SphincsMinusVerifiers.SegmentS3

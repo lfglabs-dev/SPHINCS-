@@ -164,6 +164,38 @@ theorem afterS3_sigBase_mkC13State
   rw [MemoryKit.lookupValue_bindValue_self]
   exact afterS2_sig_data_offset_mkC13State pkSeed pkRoot message sig
 
+/-- S3 binds `"htIdx"` to the concrete C13 `H_msg` hypertree index. -/
+theorem afterS3_htIdx_mkC13State (pkSeed pkRoot message sig : ByteArray) :
+    lookupValue (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings "htIdx"
+      =
+        (C13Concrete.hMsgC13 c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.read16 sig 0) message).hyperIndex := by
+  let digest :=
+    keccakWords [ wordOfHash16 pkSeed, wordOfHash16 pkRoot,
+      wordOfHash16 (C13Concrete.read16 sig 0), C13Concrete.baToNatBE message % C13Concrete.wordMod,
+      C13Concrete.hMsgPad ]
+  have hdigest :
+      lookupValue (afterS2 (mkC13State pkSeed pkRoot message sig)).bindings "digest"
+        = digest := by
+    dsimp [digest]
+    exact SphincsMinusVerifiers.SegmentS2R.s2_digest_mkC13State_final
+      pkSeed pkRoot message sig
+  unfold afterS3 SegmentS3.stepS3
+  rw [MemoryKit.lookupValue_bindValue_ne _ "sigBase" "htIdx" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "dVal" "htIdx" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_self]
+  have hBound : digest < 2 ^ 256 := by
+    dsimp [digest]
+    simpa [Compiler.Constants.evmModulus] using
+      KeccakBridge.keccakWords_lt
+        [ wordOfHash16 pkSeed, wordOfHash16 pkRoot,
+          wordOfHash16 (C13Concrete.read16 sig 0),
+          C13Concrete.baToNatBE message % C13Concrete.wordMod, C13Concrete.hMsgPad ]
+  rw [SegmentS3.htIdxVal_eq_hyperIndex
+    (afterS2 (mkC13State pkSeed pkRoot message sig)) digest hdigest hBound]
+  rfl
+
 /-- Frozen-entry S2 preserves the static selector and calldata image installed by
 `mkC13State`. -/
 theorem afterS2_selector_calldata_mkC13State
@@ -507,6 +539,25 @@ theorem afterFors_sigBase_mkC13State
         "i" "sigBase" (wordNormalize 0) (by decide)]
   exact afterS3_sigBase_mkC13State pkSeed pkRoot message sig
 
+/-- The FORS outer loop carries the digest-derived hypertree index unchanged. -/
+theorem afterFors_htIdx_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) :
+    lookupValue (afterFors (mkC13State pkSeed pkRoot message sig)).bindings
+        "htIdx"
+      =
+        (C13Concrete.hMsgC13 c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.read16 sig 0) message).hyperIndex := by
+  unfold afterFors
+  rw [ClimbLoop.foldLoop_preserves_lookup "i" "htIdx"
+        SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+        (by decide) SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep_preserves_htIdx
+        _ 0 (wordNormalize 6)]
+  rw [MemoryKit.lookupValue_bindValue_ne
+        (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+        "i" "htIdx" (wordNormalize 0) (by decide)]
+  exact afterS3_htIdx_mkC13State pkSeed pkRoot message sig
+
 /-- The FORS outer loop carries the frozen selector and calldata image unchanged. -/
 theorem afterFors_selector_calldata_mkC13State
     (pkSeed pkRoot message sig : ByteArray) :
@@ -539,7 +590,7 @@ theorem afterFors_calldata_mkC13State
 
 theorem forsFinalizeStep_preserves_sigBase (st : RuntimeState) :
     lookupValue (SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeStep st).bindings
-        "sigBase" = lookupValue st.bindings "sigBase" := by
+      "sigBase" = lookupValue st.bindings "sigBase" := by
   refine SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
     "sigBase" SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeBody st
     (SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeStep st) ?_
@@ -574,6 +625,44 @@ theorem forsFinalizeStep_preserves_sigBase (st : RuntimeState) :
   · subst stmt
     exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
       s s'' "forsPk" "sigBase" _ (by decide) hexec
+
+theorem forsFinalizeStep_preserves_htIdx (st : RuntimeState) :
+    lookupValue (SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeStep st).bindings
+      "htIdx" = lookupValue st.bindings "htIdx" := by
+  refine SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    "htIdx" SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeBody st
+    (SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeStep st) ?_
+    (SphincsMinusVerifiers.SegmentS4Finalize.execForsFinalize st)
+  intro s s'' stmt hmem hexec
+  simp [SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeBody] at hmem
+  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "lastSecret" "htIdx" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "htIdx" _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "htIdx" _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "htIdx" _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "htIdx" _ _ hexec
+  · subst stmt
+    refine SphincsMinusVerifiers.BindingFrame.execStmt_forEach_preserves_lookup
+      "i" "htIdx" _ SphincsMinusVerifiers.SegmentS4Finalize.forsCopyBody
+      s s'' (by decide) ?_ hexec
+    intro s0 s1 copyStmt hcopy hcopyExec
+    simp [SphincsMinusVerifiers.SegmentS4Finalize.forsCopyBody] at hcopy
+    subst copyStmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s0 s1 "htIdx" _ _ hcopyExec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "forsPk" "htIdx" _ (by decide) hexec
 
 theorem forsFinalizeStep_preserves_selector_calldata (st : RuntimeState) :
     StateFrame.PreservesSelectorCalldata st
@@ -620,6 +709,18 @@ theorem afterFinalize_sigBase_mkC13State
   rw [forsFinalizeStep_preserves_sigBase]
   exact afterFors_sigBase_mkC13State pkSeed pkRoot message sig
 
+theorem afterFinalize_htIdx_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) :
+    lookupValue (afterFinalize (mkC13State pkSeed pkRoot message sig)).bindings
+        "htIdx"
+      =
+        (C13Concrete.hMsgC13 c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.read16 sig 0) message).hyperIndex := by
+  unfold afterFinalize
+  rw [forsFinalizeStep_preserves_htIdx]
+  exact afterFors_htIdx_mkC13State pkSeed pkRoot message sig
+
 theorem afterFinalize_seed_slot_mkC13State
     (pkSeed pkRoot message sig : ByteArray) :
     ((afterFinalize (mkC13State pkSeed pkRoot message sig)).world.memory 0).val
@@ -647,6 +748,14 @@ theorem stepSeed_preserves_sigBase (st : RuntimeState) :
   rw [MemoryKit.lookupValue_bindValue_ne _ "idxTree" "sigBase" _ (by decide)]
   rw [MemoryKit.lookupValue_bindValue_ne _ "currentNode" "sigBase" _ (by decide)]
 
+theorem stepSeed_preserves_htIdx (st : RuntimeState) :
+    lookupValue (SphincsMinusVerifiers.SegmentSeed.stepSeed st).bindings "htIdx"
+      = lookupValue st.bindings "htIdx" := by
+  unfold SphincsMinusVerifiers.SegmentSeed.stepSeed
+  rw [MemoryKit.lookupValue_bindValue_ne _ "sigOff" "htIdx" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "idxTree" "htIdx" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "currentNode" "htIdx" _ (by decide)]
+
 theorem stepSeed_preserves_selector_calldata (st : RuntimeState) :
     StateFrame.PreservesSelectorCalldata st
       (SphincsMinusVerifiers.SegmentSeed.stepSeed st) := by
@@ -666,6 +775,18 @@ theorem afterSeed_sigBase_mkC13State
   unfold afterSeed
   rw [stepSeed_preserves_sigBase]
   exact afterFinalize_sigBase_mkC13State pkSeed pkRoot message sig
+
+theorem afterSeed_htIdx_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) :
+    lookupValue (afterSeed (mkC13State pkSeed pkRoot message sig)).bindings
+        "htIdx"
+      =
+        (C13Concrete.hMsgC13 c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.read16 sig 0) message).hyperIndex := by
+  unfold afterSeed
+  rw [stepSeed_preserves_htIdx]
+  exact afterFinalize_htIdx_mkC13State pkSeed pkRoot message sig
 
 theorem afterSeed_selector_calldata_mkC13State
     (pkSeed pkRoot message sig : ByteArray) :
@@ -2632,18 +2753,23 @@ theorem afterLayer_currentNode_wordOfHash16_of_forsPk_two_steps
 #print axioms forsOuterPrefix_seed_slot_mkC13State
 #print axioms afterFors_seed_slot_mkC13State
 #print axioms afterFors_sigBase_mkC13State
+#print axioms afterFors_htIdx_mkC13State
 #print axioms afterFors_selector_calldata_mkC13State
 #print axioms afterFors_selector_mkC13State
 #print axioms afterFors_calldata_mkC13State
 #print axioms forsFinalizeStep_preserves_sigBase
+#print axioms forsFinalizeStep_preserves_htIdx
 #print axioms forsFinalizeStep_preserves_selector_calldata
 #print axioms afterFinalize_sigBase_mkC13State
+#print axioms afterFinalize_htIdx_mkC13State
 #print axioms afterFinalize_seed_slot_mkC13State
 #print axioms afterFinalize_selector_calldata_mkC13State
 #print axioms stepSeed_preserves_sigBase
+#print axioms stepSeed_preserves_htIdx
 #print axioms stepSeed_preserves_selector_calldata
 #print axioms stepSeed_preserves_memory_zero
 #print axioms afterSeed_sigBase_mkC13State
+#print axioms afterSeed_htIdx_mkC13State
 #print axioms afterSeed_selector_calldata_mkC13State
 #print axioms afterSeed_selector_mkC13State
 #print axioms afterSeed_calldata_mkC13State
@@ -2666,6 +2792,7 @@ theorem afterLayer_currentNode_wordOfHash16_of_forsPk_two_steps
 #print axioms forsLeafAddress_eval_eq_adrsForsLeaf
 #print axioms forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_eval_parse
 #print axioms afterS3_dVal_mkC13State
+#print axioms afterS3_htIdx_mkC13State
 #print axioms forsOuterPrefix_dVal_mkC13State
 #print axioms forsOuterLeafState_dVal_mkC13State
 #print axioms forsOuterLeafState_treeIdx_eval_eq_hMsg_parse

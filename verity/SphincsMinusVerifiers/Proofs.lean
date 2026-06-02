@@ -484,6 +484,21 @@ theorem c13FirstLayerGuardState_idxTree
   exact CurrentNodeFrame.afterSeed_idxTree
     (mkC13State pkSeed pkRoot message sig)
 
+/-- The layer-0 guarded-loop `"idxTree"` binding is the parsed C13 `H_msg`
+hypertree index. -/
+theorem c13FirstLayerGuardState_idxTree_hyperIndex
+    (pkSeed pkRoot message sig : Bytes) {sigParsed : Signature}
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    lookupValue (c13FirstLayerGuardState pkSeed pkRoot message sig).bindings
+        "idxTree"
+      =
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex := by
+  rw [c13FirstLayerGuardState_idxTree]
+  rw [CurrentNodeFrame.afterFinalize_htIdx_mkC13State]
+  rw [C13Concrete.parseSignatureC13_R hParse]
+  rfl
+
 /-- The layer-0 guarded-loop binding updates do not disturb the seed-stage
 `"sigOff"` binding. -/
 theorem c13FirstLayerGuardState_sigOff
@@ -1746,6 +1761,7 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayerBeforeDigest_seed_slot
 #print axioms c13FirstLayerGuardState_currentNode
 #print axioms c13FirstLayerGuardState_idxTree
+#print axioms c13FirstLayerGuardState_idxTree_hyperIndex
 #print axioms c13FirstLayerGuardState_sigOff
 #print axioms c13FirstLayerBeforeDigest_wotsAdrs_slot
 #print axioms c13FirstLayerBeforeDigest_currentNode_slot

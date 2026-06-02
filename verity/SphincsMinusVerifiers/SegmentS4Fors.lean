@@ -1308,6 +1308,82 @@ theorem forsLeafStep_preserves_dVal (st : RuntimeState) :
     exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
       s s'' "dVal" _ _ hexec
 
+/-- A full FORS leaf iteration never rebinds the hypertree index `"htIdx"`.
+This is the same binding-frame fact as `forsLeafStep_preserves_dVal`, specialized
+to the S3 hypertree-index binding consumed by the later layer seed. -/
+theorem forsLeafStep_preserves_htIdx (st : RuntimeState) :
+    lookupValue (forsLeafStep st).bindings "htIdx" = lookupValue st.bindings "htIdx" := by
+  refine SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    "htIdx" forsLeafBody st (forsLeafStep st) ?_ (execForsLeaf st)
+  intro s s'' stmt hmem hexec
+  simp [forsLeafBody, mstoreE] at hmem
+  rcases hmem with
+    hstmt | hstmt | hstmt | hstmt | hstmt | hstmt |
+    hstmt | hstmt | hstmt | hstmt | hstmt
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "treeIdx" "htIdx" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "secretVal" "htIdx" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "leafAdrs" "htIdx" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "htIdx" _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "htIdx" _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "node" "htIdx" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "treeAdrsBase" "htIdx" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "pathIdx" "htIdx" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "authPtr" "htIdx" _ (by decide) hexec
+  · subst stmt
+    refine SphincsMinusVerifiers.BindingFrame.execStmt_forEach_preserves_lookup
+      "h" "htIdx" (.literal 19)
+      (merkleClimbBody "node" "pathIdx" "treeAdrsBase" "authPtr")
+      s s'' (by decide) ?_ hexec
+    intro t t'' inner hinner hinnerExec
+    simp [merkleClimbBody] at hinner
+    rcases hinner with
+      hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
+    · subst inner
+      exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+        t t'' "sibling" "htIdx" _ (by decide) hinnerExec
+    · subst inner
+      exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+        t t'' "parentIdx" "htIdx" _ (by decide) hinnerExec
+    · subst inner
+      exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+        t t'' "htIdx" _ _ hinnerExec
+    · subst inner
+      exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+        t t'' "s" "htIdx" _ (by decide) hinnerExec
+    · subst inner
+      exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+        t t'' "htIdx" _ _ hinnerExec
+    · subst inner
+      exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+        t t'' "htIdx" _ _ hinnerExec
+    · subst inner
+      exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+        t t'' "node" "htIdx" _ (by decide) hinnerExec
+    · subst inner
+      exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+        t t'' "pathIdx" "htIdx" _ (by decide) hinnerExec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "htIdx" _ _ hexec
+
 /-- The final FORS store writes the post-inner-climb `"node"` value to the
 root-array slot selected by the carried outer-loop index.  This is the local
 store half of the six ordinary FORS root-cell correspondence; the remaining data
@@ -1588,6 +1664,7 @@ theorem execForsOuter_preserves_seed_slot_range_six
 #print axioms forsLeafSetup_preserves_dVal
 #print axioms forsLeafSetupStep_preserves_dVal
 #print axioms forsLeafStep_preserves_dVal
+#print axioms forsLeafStep_preserves_htIdx
 #print axioms forsLeafSetupStep_preserves_selector_calldata
 #print axioms forsLeafSetupStep_authPtr_eq_sigDataOffset
 #print axioms forsLeafSetupStep_pathIdx_lt
