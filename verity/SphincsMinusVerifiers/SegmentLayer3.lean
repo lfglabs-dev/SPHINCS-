@@ -462,6 +462,16 @@ theorem beforeDigest_memory_0x40_eq_currentNode (ls : RuntimeState) :
   rw [MemoryKit.lookupValue_bindValue_ne _ "idxTree" "currentNode" _ (by decide)]
   rw [MemoryKit.lookupValue_bindValue_ne _ "idxLeaf" "currentNode" _ (by decide)]
 
+/-- Word-shaped specialization of `beforeDigest_memory_0x40_eq_currentNode`. -/
+theorem beforeDigest_memory_0x40_eq_wordOfHash16
+    (ls : RuntimeState) (node : ByteArray)
+    (hCurrent : lookupValue ls.bindings "currentNode" =
+      SphincsMinusVerifierSpec.C13Concrete.wordOfHash16 node) :
+    ((beforeDigest ls).world.memory 0x40).val =
+      SphincsMinusVerifierSpec.C13Concrete.wordOfHash16 node := by
+  rw [beforeDigest_memory_0x40_eq_currentNode, hCurrent]
+  exact SegmentS2.wordNormalize_of_lt (SegmentS2.wordOfHash16_lt node)
+
 /-- The pre-checksum prefix binds `"d"` to the Keccak word over the four C13 WOTS
 digest scratch cells.  Cell `0` is prepared by earlier segments; this prefix
 writes `0x20`, `0x40`, and `0x60` before hashing `0x00..0x80`. -/
@@ -959,6 +969,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeDigest_eq
 #print axioms beforeDigest_preserves_memory_zero
 #print axioms beforeDigest_memory_0x40_eq_currentNode
+#print axioms beforeDigest_memory_0x40_eq_wordOfHash16
 #print axioms beforeDigitLoop_d_eq_keccakWords
 #print axioms prefix11_eq_afterDigitFold
 #print axioms afterDigit_eq_afterDigitFold

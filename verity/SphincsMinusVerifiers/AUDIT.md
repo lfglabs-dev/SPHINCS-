@@ -85,7 +85,8 @@ Standalone bricks include:
 - Layer-3 pre-digest scratch-cell facts in
   `SphincsMinusVerifiers/SegmentLayer3.lean`:
   `beforeDigest_preserves_memory_zero` and
-  `beforeDigest_memory_0x40_eq_currentNode`;
+  `beforeDigest_memory_0x40_eq_currentNode` /
+  `beforeDigest_memory_0x40_eq_wordOfHash16`;
 - seed and FORS-compression frame adapters in
   `SphincsMinusVerifiers/CurrentNodeFrame.lean`;
 - generic memory-cell frame lemmas in

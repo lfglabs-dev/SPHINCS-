@@ -81,7 +81,8 @@ are:
   `[propext, Classical.choice, Quot.sound]`.
 
 - `SegmentLayer3.beforeDigest_preserves_memory_zero` and
-  `SegmentLayer3.beforeDigest_memory_0x40_eq_currentNode`:
+  `SegmentLayer3.beforeDigest_memory_0x40_eq_currentNode` /
+  `SegmentLayer3.beforeDigest_memory_0x40_eq_wordOfHash16`:
   `[propext, Classical.choice, Quot.sound]`.
 
 - `CurrentNodeFrame` seed/FORS-compression frame adapters:
