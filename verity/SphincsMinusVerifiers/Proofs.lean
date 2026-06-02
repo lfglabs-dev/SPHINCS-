@@ -860,6 +860,23 @@ theorem c13FirstLayer_wotsCount_norm
       (SphincsMinusVerifiers.SiblingCalldata.readBE_lt sig (1952 + 688) 4)
       (by decide : 256 ^ 4 < 2 ^ 256))
 
+/-- Layer-1 parsed C13 WOTS count is already an EVM word. -/
+theorem c13SecondLayer_wotsCount_norm
+    (sig : Bytes) (sigParsed : Signature) (lsig : XmssLayerSig)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hLayer1 : sigParsed.layers[1]? = some lsig) :
+    wordNormalize lsig.wots.count = lsig.wots.count := by
+  have hCountSpec :=
+    C13Concrete.parseSignatureC13_layer_wots_count
+      hParse (by decide : 1 < 2) hLayer1
+  rw [hCountSpec]
+  rw [show 1952 + 868 * 1 + 688 = 3508 by decide]
+  rw [← SphincsMinusVerifiers.SiblingCalldata.readBE4_eq_fold sig 3508]
+  exact SegmentS2.wordNormalize_of_lt
+    (lt_trans
+      (SphincsMinusVerifiers.SiblingCalldata.readBE_lt sig 3508 4)
+      (by decide : 256 ^ 4 < 2 ^ 256))
+
 /-- Layer-0 pre-digest count scratch cell contains the parsed C13 layer-0 WOTS
 count. -/
 theorem c13FirstLayerBeforeDigest_count_slot_hyperIndex
@@ -2094,6 +2111,7 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayerBeforeDigest_count_slot
 #print axioms c13FirstLayerBeforeDigest_count_hyperIndex
 #print axioms c13FirstLayer_wotsCount_norm
+#print axioms c13SecondLayer_wotsCount_norm
 #print axioms c13FirstLayerBeforeDigest_count_slot_hyperIndex
 #print axioms c13FoldOkCurrentNodePkRootSizeData_of_current_node_facts
 #print axioms c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
