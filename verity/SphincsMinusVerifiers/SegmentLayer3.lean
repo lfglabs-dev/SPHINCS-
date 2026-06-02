@@ -25,6 +25,7 @@ import SphincsMinusVerifiers.ClimbLoop
 import SphincsMinusVerifiers.ClimbLoopGuarded
 import SphincsMinusVerifiers.ClimbKeccakStep
 import SphincsMinusVerifiers.BindingFrame
+import SphincsMinusVerifiers.MemoryFrame
 import SphincsMinusVerifiers.Model
 import SphincsMinusVerifiers.SegmentS2
 import SphincsMinusVerifiers.StateFrame
@@ -283,6 +284,40 @@ theorem copyStepLemma (st : RuntimeState) :
   unfold copyStep copyBody mstoreE
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rfl
+
+/-- One WOTS chain step only writes scratch cells `0x20` and `0x40`, so it
+preserves seed cell `0x00`. -/
+theorem stepWots_preserves_memory_zero (st : RuntimeState) :
+    ((stepWots st).world.memory 0x00).val =
+      (st.world.memory 0x00).val := by
+  refine SphincsMinusVerifiers.MemoryFrame.execStmtList_preserves_memory_val
+    0x00 wotsChainBody st (stepWots st) ?_ (wotsChainStep st)
+  intro s s'' stmt hmem hexec
+  simp [wotsChainBody] at hmem
+  rcases hmem with rfl | rfl | rfl
+  · refine SphincsMinusVerifiers.MemoryFrame.execStmt_mstore_preserves_memory_val
+      s s'' 0x00 _ _ ?_ hexec
+    intro ro rv hoff hval
+    cases hoff
+    decide
+  · refine SphincsMinusVerifiers.MemoryFrame.execStmt_mstore_preserves_memory_val
+      s s'' 0x00 _ _ ?_ hexec
+    intro ro rv hoff hval
+    cases hoff
+    decide
+  · exact SphincsMinusVerifiers.MemoryFrame.execStmt_assignVar_preserves_memory_val
+      s s'' 0x00 "val" _ hexec
+
+/-- A folded WOTS chain preserves seed cell `0x00`. -/
+theorem wotsChainFold_preserves_memory_zero (st : RuntimeState) (n : Nat) :
+    ((foldLoop "step" stepWots
+        { st with bindings := bindValue st.bindings "step" (wordNormalize 0) }
+        0 (wordNormalize n)).world.memory 0x00).val =
+      (st.world.memory 0x00).val := by
+  rw [ClimbLoop.foldLoop_preserves_memory_val
+    "step" stepWots 0x00 stepWots_preserves_memory_zero
+    { st with bindings := bindValue st.bindings "step" (wordNormalize 0) }
+    0 (wordNormalize n)]
 
 /-! ## 3. The Layer-3 body reconstruction (Model.lean:154-203), split around the
 checksum-guard `ite` as `prefix11 ++ (ite :: suffix14)`. -/
@@ -2269,6 +2304,8 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeDigitLoop_preserves_memory_zero
 #print axioms afterDigitFold_preserves_memory_zero
 #print axioms afterDigit_preserves_memory_zero
+#print axioms stepWots_preserves_memory_zero
+#print axioms wotsChainFold_preserves_memory_zero
 #print axioms beforeDigest_idxLeaf_eq_of_idxTree
 #print axioms beforeDigest_idxTree_eq_of_idxTree
 #print axioms beforeDigitLoop_idxTree_eq_of_idxTree
