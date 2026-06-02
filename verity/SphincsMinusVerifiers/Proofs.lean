@@ -515,6 +515,23 @@ theorem c13FirstLayerBeforeDigest_seed_slot
   rw [SegmentLayer3.beforeDigest_preserves_memory_zero]
   exact c13FirstLayerGuardState_seed_slot pkSeed pkRoot message sig
 
+/-- If the first accepting C13 layer preserves the seed scratch word, then the
+layer-1 pre-digest seed slot is already fixed.  This isolates the remaining
+seed proof obligation at the exact `stepLayer` frame boundary. -/
+theorem c13SecondLayerBeforeDigest_seed_slot_of_first_step_seed_slot
+    (pkSeed pkRoot message sig : Bytes)
+    (hStepSeed :
+      ((SegmentLayer3.stepLayer
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+        C13Concrete.wordOfHash16 pkSeed) :
+    ((SegmentLayer3.beforeDigest
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+      C13Concrete.wordOfHash16 pkSeed := by
+  rw [SegmentLayer3.beforeDigest_preserves_memory_zero]
+  unfold c13SecondLayerGuardState
+  rw [ClimbLoopGuarded.loopState_preserves_memory_val]
+  exact hStepSeed
+
 /-- The layer-0 guarded-loop binding updates do not disturb the seed-stage
 `"currentNode"` binding. -/
 theorem c13FirstLayerGuardState_currentNode
@@ -1606,9 +1623,9 @@ theorem c13FoldRevertedDigestScratchData_of_layer_facts
         (C13Concrete.c13PrimitivesConcrete.hMsg c13
           { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) sigParsed.fors
           = some forsPk)
-    (hSecondSeed :
-      ((SegmentLayer3.beforeDigest
-        (c13SecondLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+    (hFirstStepSeed :
+      ((SegmentLayer3.stepLayer
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
         C13Concrete.wordOfHash16 pkSeed)
     (hCurrent0 :
       lookupValue
@@ -1631,6 +1648,9 @@ theorem c13FoldRevertedDigestScratchData_of_layer_facts
   have hSecondCurrent :=
     c13SecondLayerGuardState_currentNode_of_first_step_reverted_layer1
       pkSeed pkRoot message sig sigParsed forsPk hCurrent0
+  have hSecondSeed :=
+    c13SecondLayerBeforeDigest_seed_slot_of_first_step_seed_slot
+      pkSeed pkRoot message sig hFirstStepSeed
   refine ⟨?_, ?_⟩
   · intro d
     refine ⟨?_, ?_, ?_, ?_⟩
@@ -2490,6 +2510,7 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13SecondLayerGuardState_eq_c13LayerLoopState1
 #print axioms c13FirstLayerGuardState_seed_slot
 #print axioms c13FirstLayerBeforeDigest_seed_slot
+#print axioms c13SecondLayerBeforeDigest_seed_slot_of_first_step_seed_slot
 #print axioms c13FirstLayerGuardState_currentNode
 #print axioms c13AfterFinalize_forsPk_of_parse_fors
 #print axioms c13FirstLayerGuardState_idxTree
