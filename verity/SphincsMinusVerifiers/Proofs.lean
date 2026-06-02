@@ -1488,7 +1488,7 @@ def C13FoldRevertedDigestScratchData
 digest-scratch data shape, leaving only the genuinely semantic layer-threading
 facts as hypotheses.  This concentrates the remaining universal proof work:
 FORS compression must identify layer 0's current node, and layer 1 still needs
-seed/current-node/count threading from the first accepted layer. -/
+seed/current-node threading from the first accepted layer. -/
 theorem c13FoldRevertedDigestScratchData_of_layer_facts
     (pkSeed pkRoot message sig : Bytes)
     (sigParsed : Signature) (forsPk : Bytes)
@@ -1510,17 +1510,7 @@ theorem c13FoldRevertedDigestScratchData_of_layer_facts
           forsPk sigParsed.layers,
         lookupValue
             (c13SecondLayerGuardState pkSeed pkRoot message sig).bindings
-            "currentNode" = C13Concrete.wordOfHash16 d.root0)
-    (hSecondCount :
-      ∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
-          { pkSeed := pkSeed, pkRoot := pkRoot }
-          (C13Concrete.c13PrimitivesConcrete.hMsg c13
-            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
-          forsPk sigParsed.layers,
-        lookupValue
-            (SegmentLayer3.beforeDigest
-              (c13SecondLayerGuardState pkSeed pkRoot message sig)).bindings
-            "count" = d.lsig1.wots.count) :
+            "currentNode" = C13Concrete.wordOfHash16 d.root0) :
     C13FoldRevertedDigestScratchData
       pkSeed pkRoot message sig sigParsed forsPk := by
   let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
@@ -1549,10 +1539,8 @@ theorem c13FoldRevertedDigestScratchData_of_layer_facts
         pkSeed pkRoot message sig sigParsed hParse
     · exact c13SecondLayerBeforeDigest_currentNode_slot
         pkSeed pkRoot message sig d.root0 (hSecondCurrent d)
-    · exact c13SecondLayerBeforeDigest_count_slot
-        pkSeed pkRoot message sig d.lsig1.wots.count
-        (hSecondCount d)
-        (c13SecondLayer_wotsCount_norm sig sigParsed d.lsig1 hParse d.hLayer1)
+    · exact c13SecondLayerBeforeDigest_count_slot_hyperIndex
+        pkSeed pkRoot message sig sigParsed d.lsig1 hParse d.hLayer1
 
 /-- The generic Layer-3 pre-digest theorem turns concrete scratch-cell data into
 the `"d" = C13Concrete.wotsDigest ...` facts required by the checksum reducer. -/
