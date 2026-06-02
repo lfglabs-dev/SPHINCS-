@@ -620,6 +620,14 @@ theorem afterFinalize_sigBase_mkC13State
   rw [forsFinalizeStep_preserves_sigBase]
   exact afterFors_sigBase_mkC13State pkSeed pkRoot message sig
 
+theorem afterFinalize_seed_slot_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) :
+    ((afterFinalize (mkC13State pkSeed pkRoot message sig)).world.memory 0).val
+      = wordOfHash16 pkSeed := by
+  unfold afterFinalize
+  rw [SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeStep_seed_slot]
+  exact afterFors_seed_slot_mkC13State pkSeed pkRoot message sig
+
 theorem afterFinalize_selector_calldata_mkC13State
     (pkSeed pkRoot message sig : ByteArray) :
     (afterFinalize (mkC13State pkSeed pkRoot message sig)).selector = 0
@@ -644,6 +652,12 @@ theorem stepSeed_preserves_selector_calldata (st : RuntimeState) :
       (SphincsMinusVerifiers.SegmentSeed.stepSeed st) := by
   unfold SphincsMinusVerifiers.SegmentSeed.stepSeed
   exact ⟨rfl, rfl⟩
+
+theorem stepSeed_preserves_memory_zero (st : RuntimeState) :
+    ((SphincsMinusVerifiers.SegmentSeed.stepSeed st).world.memory 0).val =
+      (st.world.memory 0).val := by
+  unfold SphincsMinusVerifiers.SegmentSeed.stepSeed
+  rfl
 
 theorem afterSeed_sigBase_mkC13State
     (pkSeed pkRoot message sig : ByteArray) :
@@ -674,6 +688,14 @@ theorem afterSeed_calldata_mkC13State
     (afterSeed (mkC13State pkSeed pkRoot message sig)).world.calldata
       = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig :=
   (afterSeed_selector_calldata_mkC13State pkSeed pkRoot message sig).2
+
+theorem afterSeed_seed_slot_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) :
+    ((afterSeed (mkC13State pkSeed pkRoot message sig)).world.memory 0).val
+      = wordOfHash16 pkSeed := by
+  unfold afterSeed
+  rw [stepSeed_preserves_memory_zero]
+  exact afterFinalize_seed_slot_mkC13State pkSeed pkRoot message sig
 
 /-- Loop-plumbing adapter for the FORS outer loop: once the per-iteration
 `forsLeafStep` memory-frame fact is available for a seed cell, the whole
@@ -2616,13 +2638,16 @@ theorem afterLayer_currentNode_wordOfHash16_of_forsPk_two_steps
 #print axioms forsFinalizeStep_preserves_sigBase
 #print axioms forsFinalizeStep_preserves_selector_calldata
 #print axioms afterFinalize_sigBase_mkC13State
+#print axioms afterFinalize_seed_slot_mkC13State
 #print axioms afterFinalize_selector_calldata_mkC13State
 #print axioms stepSeed_preserves_sigBase
 #print axioms stepSeed_preserves_selector_calldata
+#print axioms stepSeed_preserves_memory_zero
 #print axioms afterSeed_sigBase_mkC13State
 #print axioms afterSeed_selector_calldata_mkC13State
 #print axioms afterSeed_selector_mkC13State
 #print axioms afterSeed_calldata_mkC13State
+#print axioms afterSeed_seed_slot_mkC13State
 #print axioms afterFors_seed_slot_of_forsLeafStep_preserves
 #print axioms afterFors_seed_slot_of_forsLeafStep_bound_preserves
 #print axioms afterFors_seed_slot_of_forsLeafStep_range_preserves

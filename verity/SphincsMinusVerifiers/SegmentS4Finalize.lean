@@ -671,6 +671,11 @@ theorem forsFinalizePrePkStep_preserves_low_slot
       bindings := bindValue (forsFinalizePreCopyStep st).bindings "i" (wordNormalize 0) }
     addr haddr
 
+theorem forsFinalizePrePkStep_seed_slot (st : RuntimeState) :
+    ((forsFinalizePrePkStep st).world.memory 0).val = (st.world.memory 0).val := by
+  rw [forsFinalizePrePkStep_preserves_low_slot st 0 (by decide : 0 < 0x40)]
+  exact forsFinalizePreCopyStep_seed_slot st
+
 set_option maxHeartbeats 4000000 in
 /-- **`execForsFinalize`** — running the FORS finalize block over the real
 interpreter continues to `forsFinalizeStep st`.  The leaf-hash setup chains via
@@ -710,6 +715,17 @@ theorem forsFinalizeStep_forsPk
       (execStmt_letVar_continue (forsFinalizePrePkStep st) "forsPk" _ _ rfl)]
   rfl
 
+theorem forsFinalizeStep_seed_slot (st : RuntimeState) :
+    ((forsFinalizeStep st).world.memory 0).val = (st.world.memory 0).val := by
+  unfold forsFinalizeStep
+  rw [forsFinalizeBody_eq_prePk_append]
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (execForsFinalizePrePk st)]
+  unfold forsPkExpr
+  rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_letVar_continue (forsFinalizePrePkStep st) "forsPk" _ _ rfl)]
+  simp only [execStmtList]
+  exact forsFinalizePrePkStep_seed_slot st
+
 /-! ## 5. Axiom audit. -/
 
 #print axioms forsFinalizeBody_eq_slice
@@ -733,7 +749,9 @@ theorem forsFinalizeStep_forsPk
 #print axioms execForsFinalizePrePk
 #print axioms forsFinalizePrePkStep_copy_slot
 #print axioms forsFinalizePrePkStep_preserves_low_slot
+#print axioms forsFinalizePrePkStep_seed_slot
 #print axioms execForsFinalize
 #print axioms forsFinalizeStep_forsPk
+#print axioms forsFinalizeStep_seed_slot
 
 end SphincsMinusVerifiers.SegmentS4Finalize
