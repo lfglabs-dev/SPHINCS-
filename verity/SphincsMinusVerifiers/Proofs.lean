@@ -522,6 +522,48 @@ theorem c13FirstLayerGuardState_sigBase
   rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "sigBase" _ (by decide)]
   exact CurrentNodeFrame.afterSeed_sigBase_mkC13State pkSeed pkRoot message sig
 
+/-- Layer-0 pre-digest `"idxLeaf"` is the low 11 bits of the parsed C13
+hypertree index. -/
+theorem c13FirstLayerBeforeDigest_idxLeaf_hyperIndex
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    lookupValue
+        (SegmentLayer3.beforeDigest
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+        "idxLeaf" = digest.hyperIndex % 2048 := by
+  intro pk digest
+  exact SegmentLayer3.beforeDigest_idxLeaf_eq_of_idxTree
+    (c13FirstLayerGuardState pkSeed pkRoot message sig)
+    digest.hyperIndex
+    (c13FirstLayerGuardState_idxTree_hyperIndex
+      pkSeed pkRoot message sig hParse)
+    (lt_trans
+      (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
+      (by decide : 2 ^ 22 < 2 ^ 256))
+
+/-- Layer-0 pre-digest `"idxTree"` is the parsed C13 hypertree index shifted by
+the C13 subtree height. -/
+theorem c13FirstLayerBeforeDigest_idxTree_hyperIndex
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    lookupValue
+        (SegmentLayer3.beforeDigest
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+        "idxTree" = digest.hyperIndex / 2048 := by
+  intro pk digest
+  exact SegmentLayer3.beforeDigest_idxTree_eq_of_idxTree
+    (c13FirstLayerGuardState pkSeed pkRoot message sig)
+    digest.hyperIndex
+    (c13FirstLayerGuardState_idxTree_hyperIndex
+      pkSeed pkRoot message sig hParse)
+    (lt_trans
+      (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
+      (by decide : 2 ^ 22 < 2 ^ 256))
+
 /-- Layer-0 pre-digest address scratch cell, once the executable `"wotsAdrs"`
 binding has been identified and shown word-normalized. -/
 theorem c13FirstLayerBeforeDigest_wotsAdrs_slot
@@ -1775,6 +1817,8 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayerGuardState_idxTree_hyperIndex
 #print axioms c13FirstLayerGuardState_sigOff
 #print axioms c13FirstLayerGuardState_sigBase
+#print axioms c13FirstLayerBeforeDigest_idxLeaf_hyperIndex
+#print axioms c13FirstLayerBeforeDigest_idxTree_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_wotsAdrs_slot
 #print axioms c13FirstLayerBeforeDigest_currentNode_slot
 #print axioms c13FirstLayerBeforeDigest_count_slot
