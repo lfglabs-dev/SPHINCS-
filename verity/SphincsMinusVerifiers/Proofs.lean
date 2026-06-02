@@ -601,6 +601,27 @@ theorem c13SecondLayerGuardState_calldata
   rw [hFrame.2]
   exact c13FirstLayerGuardState_calldata pkSeed pkRoot message sig
 
+/-- The layer-1 guarded-loop `"idxTree"` binding is the parsed C13 hypertree
+index shifted by one XMSS subtree height. -/
+theorem c13SecondLayerGuardState_idxTree_hyperIndex
+    (pkSeed pkRoot message sig : Bytes) {sigParsed : Signature}
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    lookupValue (c13SecondLayerGuardState pkSeed pkRoot message sig).bindings
+        "idxTree" = digest.hyperIndex / 2048 := by
+  intro pk digest
+  unfold c13SecondLayerGuardState ClimbLoopGuarded.loopState
+  rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "idxTree" _ (by decide)]
+  exact SegmentLayer3.stepLayer_idxTree_eq_of_idxTree
+    (c13FirstLayerGuardState pkSeed pkRoot message sig)
+    digest.hyperIndex
+    (c13FirstLayerGuardState_idxTree_hyperIndex
+      pkSeed pkRoot message sig hParse)
+    (lt_trans
+      (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
+      (by decide : 2 ^ 22 < 2 ^ 256))
+
 /-- Layer-0 pre-digest `"idxLeaf"` is the low 11 bits of the parsed C13
 hypertree index. -/
 theorem c13FirstLayerBeforeDigest_idxLeaf_hyperIndex
@@ -760,6 +781,32 @@ theorem c13SecondLayer_wotsAdrs_hyperIndex_norm
   simpa [C13Concrete.adrsWotsHashBase, Nat.lor_assoc] using
     SegmentS2.wordNormalize_of_lt haddr
 
+/-- Layer-1 pre-digest `"wotsAdrs"` is the C13 WOTS hash-base address assembled
+from layer one and the layer-1 split parsed hypertree index. -/
+theorem c13SecondLayerBeforeDigest_wotsAdrs_hyperIndex
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    lookupValue
+        (SegmentLayer3.beforeDigest
+          (c13SecondLayerGuardState pkSeed pkRoot message sig)).bindings
+        "wotsAdrs" =
+      C13Concrete.adrsWotsHashBase
+        1 ((digest.hyperIndex / 2048) / 2048)
+          ((digest.hyperIndex / 2048) % 2048) := by
+  intro pk digest
+  exact SegmentLayer3.beforeDigest_wotsAdrs_eq_of_layer_idxTree
+    (c13SecondLayerGuardState pkSeed pkRoot message sig)
+    1 (digest.hyperIndex / 2048)
+    (c13SecondLayerGuardState_layer pkSeed pkRoot message sig)
+    (c13SecondLayerGuardState_idxTree_hyperIndex
+      pkSeed pkRoot message sig hParse)
+    (by decide : 1 < 2 ^ 32)
+    (lt_of_le_of_lt
+      (Nat.div_le_self _ _)
+      (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message))
+
 /-- Layer-0 pre-digest address scratch cell, once the executable `"wotsAdrs"`
 binding has been identified and shown word-normalized. -/
 theorem c13FirstLayerBeforeDigest_wotsAdrs_slot
@@ -795,6 +842,45 @@ theorem c13FirstLayerBeforeDigest_wotsAdrs_slot_hyperIndex
     (c13FirstLayerBeforeDigest_wotsAdrs_hyperIndex
       pkSeed pkRoot message sig sigParsed hParse)
     (c13FirstLayer_wotsAdrs_hyperIndex_norm
+      pkSeed pkRoot message sigParsed)
+
+/-- Layer-1 pre-digest address scratch cell, once the executable `"wotsAdrs"`
+binding has been identified and shown word-normalized. -/
+theorem c13SecondLayerBeforeDigest_wotsAdrs_slot
+    (pkSeed pkRoot message sig : Bytes) (wotsAdrs : Nat)
+    (hWotsAdrs :
+      lookupValue
+          (SegmentLayer3.beforeDigest
+            (c13SecondLayerGuardState pkSeed pkRoot message sig)).bindings
+          "wotsAdrs" = wotsAdrs)
+    (hNorm : wordNormalize wotsAdrs = wotsAdrs) :
+    ((SegmentLayer3.beforeDigest
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)).world.memory 0x20).val =
+      wotsAdrs := by
+  rw [SegmentLayer3.beforeDigest_memory_0x20_eq_of_wotsAdrs _ wotsAdrs hWotsAdrs]
+  exact hNorm
+
+/-- Layer-1 pre-digest address scratch cell contains the C13 WOTS hash-base
+address assembled from the parsed hypertree index. -/
+theorem c13SecondLayerBeforeDigest_wotsAdrs_slot_hyperIndex
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    ((SegmentLayer3.beforeDigest
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)).world.memory 0x20).val =
+      C13Concrete.adrsWotsHashBase
+        1 ((digest.hyperIndex / 2048) / 2048)
+          ((digest.hyperIndex / 2048) % 2048) := by
+  intro pk digest
+  exact c13SecondLayerBeforeDigest_wotsAdrs_slot
+    pkSeed pkRoot message sig
+    (C13Concrete.adrsWotsHashBase
+      1 ((digest.hyperIndex / 2048) / 2048)
+        ((digest.hyperIndex / 2048) % 2048))
+    (c13SecondLayerBeforeDigest_wotsAdrs_hyperIndex
+      pkSeed pkRoot message sig sigParsed hParse)
+    (c13SecondLayer_wotsAdrs_hyperIndex_norm
       pkSeed pkRoot message sigParsed)
 
 /-- Layer-0 pre-digest current-node scratch cell, once `afterFinalize` has
@@ -2127,13 +2213,17 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayerGuardState_calldata
 #print axioms c13SecondLayerGuardState_selector
 #print axioms c13SecondLayerGuardState_calldata
+#print axioms c13SecondLayerGuardState_idxTree_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_idxLeaf_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_idxTree_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_wotsAdrs_hyperIndex
 #print axioms c13FirstLayer_wotsAdrs_hyperIndex_norm
 #print axioms c13SecondLayer_wotsAdrs_hyperIndex_norm
+#print axioms c13SecondLayerBeforeDigest_wotsAdrs_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_wotsAdrs_slot
 #print axioms c13FirstLayerBeforeDigest_wotsAdrs_slot_hyperIndex
+#print axioms c13SecondLayerBeforeDigest_wotsAdrs_slot
+#print axioms c13SecondLayerBeforeDigest_wotsAdrs_slot_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_currentNode_slot
 #print axioms c13FirstLayerBeforeDigest_count_slot
 #print axioms c13FirstLayerBeforeDigest_count_hyperIndex
