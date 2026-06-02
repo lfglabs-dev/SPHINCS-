@@ -257,6 +257,14 @@ def wotsOuterBody : List Stmt :=
   , .forEach "step" (v "steps") wotsChainBody
   , mstoreE (addE (u 0x80) (shlE (u 5) (v "i"))) (v "val") ]
 
+/-- The WOTS outer-loop body before the final public-key scratch store. -/
+def wotsOuterPrefix : List Stmt :=
+  [ .letVar "digit" (andE (shrE (mulE (v "i") (u 3)) (v "d")) (u 0x7))
+  , .letVar "steps" (subE (u 7) (v "digit"))
+  , .letVar "val" (andE (cdload (addE (v "wotsPtr") (shlE (u 4) (v "i")))) (u N_MASK))
+  , .letVar "chainBase" (orE (v "wotsAdrs") (shlE (u 32) (v "i")))
+  , .forEach "step" (v "steps") wotsChainBody ]
+
 def wotsOuterStep (st : RuntimeState) : RuntimeState :=
   match execStmtList [] st wotsOuterBody with | .continue s' => s' | _ => st
 
@@ -345,6 +353,163 @@ theorem wotsChainFold_preserves_i_lookup (st : RuntimeState) (n : Nat) :
     { st with bindings := bindValue st.bindings "step" (wordNormalize 0) }
     0 n]
   exact MemoryKit.lookupValue_bindValue_ne st.bindings "step" "i" (wordNormalize 0) (by decide)
+
+/-- The WOTS outer prefix preserves seed cell `0x00`. -/
+theorem wotsOuterPrefix_preserves_memory_zero
+    (st s' : RuntimeState)
+    (hExec : execStmtList [] st wotsOuterPrefix = .continue s') :
+    (s'.world.memory 0x00).val = (st.world.memory 0x00).val := by
+  refine SphincsMinusVerifiers.MemoryFrame.execStmtList_preserves_memory_val
+    0x00 wotsOuterPrefix st s' ?_ hExec
+  intro s s'' stmt hmem hexec
+  simp [wotsOuterPrefix] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl
+  · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' 0x00 "digit" _ hexec
+  · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' 0x00 "steps" _ hexec
+  · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' 0x00 "val" _ hexec
+  · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' 0x00 "chainBase" _ hexec
+  · refine SphincsMinusVerifiers.MemoryFrame.execStmt_forEach_preserves_memory_val
+      "step" 0x00 (v "steps") wotsChainBody s s'' ?_ hexec
+    intro t t'' stmt hmem' hexec'
+    simp [wotsChainBody] at hmem'
+    rcases hmem' with rfl | rfl | rfl
+    · refine SphincsMinusVerifiers.MemoryFrame.execStmt_mstore_preserves_memory_val
+        t t'' 0x00 _ _ ?_ hexec'
+      intro ro rv hoff hval
+      cases hoff
+      decide
+    · refine SphincsMinusVerifiers.MemoryFrame.execStmt_mstore_preserves_memory_val
+        t t'' 0x00 _ _ ?_ hexec'
+      intro ro rv hoff hval
+      cases hoff
+      decide
+    · exact SphincsMinusVerifiers.MemoryFrame.execStmt_assignVar_preserves_memory_val
+        t t'' 0x00 "val" _ hexec'
+
+/-- The WOTS outer prefix preserves the outer-loop index binding `"i"`. -/
+theorem wotsOuterPrefix_preserves_i_lookup
+    (st s' : RuntimeState)
+    (hExec : execStmtList [] st wotsOuterPrefix = .continue s') :
+    lookupValue s'.bindings "i" = lookupValue st.bindings "i" := by
+  refine SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    "i" wotsOuterPrefix st s' ?_ hExec
+  intro s s'' stmt hmem hexec
+  simp [wotsOuterPrefix] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl
+  · exact execStmt_letVar_preserves_lookup s s'' "digit" "i" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup s s'' "steps" "i" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup s s'' "val" "i" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup s s'' "chainBase" "i" _ (by decide) hexec
+  · exact execStmt_forEach_preserves_lookup "step" "i" _ _ s s'' (by decide)
+      (by
+        intro t t'' stmt hmem' hexec'
+        simp [wotsChainBody] at hmem'
+        rcases hmem' with rfl | rfl | rfl
+        · exact execStmt_mstore_preserves_lookup t t'' "i" _ _ hexec'
+        · exact execStmt_mstore_preserves_lookup t t'' "i" _ _ hexec'
+        · exact execStmt_assignVar_preserves_lookup t t'' "val" "i" _ (by decide) hexec')
+      hexec
+
+/-- Executing one WOTS outer-loop body preserves seed cell `0x00` for the actual
+C13 outer-loop index range. -/
+theorem wotsOuterBody_preserves_memory_zero_of_i
+    (st s' : RuntimeState) (i : Nat)
+    (hi : i < 43)
+    (hI : lookupValue st.bindings "i" = wordNormalize i)
+    (hExec : execStmtList [] st wotsOuterBody = .continue s') :
+    (s'.world.memory 0x00).val = (st.world.memory 0x00).val := by
+  have hSplit :
+      wotsOuterBody =
+        wotsOuterPrefix ++
+          [mstoreE (addE (u 0x80) (shlE (u 5) (v "i"))) (v "val")] := rfl
+  rw [hSplit, MemoryKit.execStmtList_append] at hExec
+  cases hPrefix : execStmtList [] st wotsOuterPrefix with
+  | «continue» mid =>
+      rw [hPrefix] at hExec
+      have hPrefixMem := wotsOuterPrefix_preserves_memory_zero st mid hPrefix
+      have hPrefixI := wotsOuterPrefix_preserves_i_lookup st mid hPrefix
+      have hINorm : wordNormalize i = i :=
+        SegmentS2.wordNormalize_of_lt (lt_trans hi (by decide : 43 < 2 ^ 256))
+      have hIeval : evalExpr [] mid (v "i") = some i := by
+        change some (lookupValue mid.bindings "i") = some i
+        rw [hPrefixI, hI, hINorm]
+      have hShiftBound : i <<< 5 < 2 ^ 256 := by
+        rw [Nat.shiftLeft_eq]
+        have : i * 2 ^ 5 < 43 * 2 ^ 5 := by
+          exact Nat.mul_lt_mul_of_pos_right hi (by decide : 0 < 2 ^ 5)
+        exact lt_trans this (by decide : 43 * 2 ^ 5 < 2 ^ 256)
+      have hShift :
+          evalExpr [] mid (shlE (u 5) (v "i")) = some (i <<< 5) := by
+        exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+          mid (u 5) (v "i") 5 i rfl hIeval
+          (by decide : 5 < 2 ^ 256)
+          (lt_trans hi (by decide : 43 < 2 ^ 256))
+          hShiftBound
+      have hOff :
+          evalExpr [] mid (addE (u 0x80) (shlE (u 5) (v "i"))) =
+            some (0x80 + (i <<< 5)) := by
+        exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+          mid (u 0x80) (shlE (u 5) (v "i")) 0x80 (i <<< 5)
+          rfl hShift (by decide : 0x80 < 2 ^ 256) hShiftBound
+          (by
+            rw [Nat.shiftLeft_eq]
+            have : 0x80 + i * 2 ^ 5 < 0x80 + 43 * 2 ^ 5 := by omega
+            exact lt_trans this (by decide : 0x80 + 43 * 2 ^ 5 < 2 ^ 256))
+      have hVal : evalExpr [] mid (v "val") = some (lookupValue mid.bindings "val") := rfl
+      let mid' : RuntimeState :=
+        { mid with world := { mid.world with
+          memory := MemoryKit.memUpdate mid.world.memory (0x80 + (i <<< 5))
+            (lookupValue mid.bindings "val") } }
+      have hStore :
+          execStmt [] mid
+              (mstoreE (addE (u 0x80) (shlE (u 5) (v "i"))) (v "val")) =
+            .continue mid' := by
+        unfold mid' mstoreE
+        exact execStmt_mstore_continue mid
+          (addE (u 0x80) (shlE (u 5) (v "i"))) (v "val")
+          (0x80 + (i <<< 5)) (lookupValue mid.bindings "val") hOff hVal
+      change
+        (match execStmt [] mid
+            (mstoreE (addE (u 0x80) (shlE (u 5) (v "i"))) (v "val")) with
+          | .continue n => execStmtList [] n []
+          | .stop n => .stop n
+          | .return rv rs => .return rv rs
+          | .revert => .revert) = .continue s' at hExec
+      rw [hStore] at hExec
+      simp only [execStmtList] at hExec
+      injection hExec with hs'
+      subst s'
+      unfold mid'
+      change
+        (MemoryKit.memUpdate mid.world.memory (0x80 + (i <<< 5))
+            (lookupValue mid.bindings "val") 0x00).val =
+          (st.world.memory 0x00).val
+      rw [MemoryKit.memUpdate_diff _ (0x80 + (i <<< 5)) 0x00 _ (by omega)]
+      exact hPrefixMem
+  | stop stopped =>
+      rw [hPrefix] at hExec
+      simp at hExec
+  | «return» rv rst =>
+      rw [hPrefix] at hExec
+      simp at hExec
+  | revert =>
+      rw [hPrefix] at hExec
+      simp at hExec
+
+/-- One WOTS outer-loop step preserves seed cell `0x00` for the actual C13
+outer-loop index range. -/
+theorem wotsOuterStep_preserves_memory_zero_of_i
+    (st : RuntimeState) (i : Nat)
+    (hi : i < 43)
+    (hI : lookupValue st.bindings "i" = wordNormalize i) :
+    ((wotsOuterStep st).world.memory 0x00).val =
+      (st.world.memory 0x00).val :=
+  wotsOuterBody_preserves_memory_zero_of_i st (wotsOuterStep st) i hi hI
+    (wotsOuterStepLemma st)
 
 /-- Executing one WOTS outer-loop body preserves the outer-loop index binding
 `"i"`. -/
@@ -2427,6 +2592,10 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms stepWots_preserves_memory_zero
 #print axioms wotsChainFold_preserves_memory_zero
 #print axioms wotsChainFold_preserves_i_lookup
+#print axioms wotsOuterPrefix_preserves_memory_zero
+#print axioms wotsOuterPrefix_preserves_i_lookup
+#print axioms wotsOuterBody_preserves_memory_zero_of_i
+#print axioms wotsOuterStep_preserves_memory_zero_of_i
 #print axioms wotsOuterBody_preserves_i_lookup
 #print axioms wotsOuterStep_preserves_i_lookup
 #print axioms copyStep_preserves_memory_zero_of_i
