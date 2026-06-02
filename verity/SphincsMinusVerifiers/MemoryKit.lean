@@ -338,6 +338,13 @@ lemmas resolve a `lookupValue` against such a chain — `_self` when the read ke
 is the one just bound, `_ne` when it differs (so the read falls through to the
 underlying bindings). -/
 
+/-- Updating only the local variable bindings preserves every memory cell. -/
+theorem withBindings_preserves_memory_val
+    (st : RuntimeState) (bindings : List (String × Nat)) (addr : Nat) :
+    (({ st with bindings := bindings } : RuntimeState).world.memory addr).val =
+      (st.world.memory addr).val := by
+  rfl
+
 /-- `find?` over a `filter (·.1 != k)` is unchanged when searching for a *different*
 key `k'`: the filter only removes `k`-keyed entries, which `find? (·.1 == k')`
 would skip anyway. -/
@@ -443,6 +450,7 @@ example (st : RuntimeState) (base : Nat → Verity.Core.Uint256)
 #print axioms execStmt_letVar_continue
 #print axioms execStmtList_append
 #print axioms mload_symMem
+#print axioms withBindings_preserves_memory_val
 #print axioms lookupValue_bindValue_ne
 #print axioms lookupValue_bindValue_self
 
