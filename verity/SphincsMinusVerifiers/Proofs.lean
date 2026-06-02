@@ -1400,6 +1400,76 @@ def C13FoldRevertedDigestScratchData
       (st1.world.memory 0x40).val = C13Concrete.wordOfHash16 d.root0 ∧
       (st1.world.memory 0x60).val = d.lsig1.wots.count)
 
+/-- Package the proved C13 pre-digest scratch-cell facts into the full reverted
+digest-scratch data shape, leaving only the genuinely semantic layer-threading
+facts as hypotheses.  This concentrates the remaining universal proof work:
+FORS compression must identify layer 0's current node, and layer 1 still needs
+seed/current-node/count threading from the first accepted layer. -/
+theorem c13FoldRevertedDigestScratchData_of_layer_facts
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hForsPk :
+      lookupValue
+          (SegmentCompose.afterFinalize
+            (mkC13State pkSeed pkRoot message sig)).bindings
+          "forsPk" = C13Concrete.wordOfHash16 forsPk)
+    (hSecondSeed :
+      ((SegmentLayer3.beforeDigest
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+        C13Concrete.wordOfHash16 pkSeed)
+    (hSecondCurrent :
+      ∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers,
+        lookupValue
+            (c13SecondLayerGuardState pkSeed pkRoot message sig).bindings
+            "currentNode" = C13Concrete.wordOfHash16 d.root0)
+    (hSecondCount :
+      ∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers,
+        lookupValue
+            (SegmentLayer3.beforeDigest
+              (c13SecondLayerGuardState pkSeed pkRoot message sig)).bindings
+            "count" = d.lsig1.wots.count) :
+    C13FoldRevertedDigestScratchData
+      pkSeed pkRoot message sig sigParsed forsPk := by
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  refine ⟨?_, ?_⟩
+  · intro d
+    refine ⟨?_, ?_, ?_, ?_⟩
+    · exact c13FirstLayerBeforeDigest_seed_slot pkSeed pkRoot message sig
+    · exact c13FirstLayerBeforeDigest_wotsAdrs_slot_hyperIndex
+        pkSeed pkRoot message sig sigParsed hParse
+    · exact c13FirstLayerBeforeDigest_currentNode_slot
+        pkSeed pkRoot message sig forsPk hForsPk
+    · exact c13FirstLayerBeforeDigest_count_slot_hyperIndex
+        pkSeed pkRoot message sig sigParsed d.lsig0 hParse d.hLayer0
+  · intro d
+    refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    · exact c13FirstLayerBeforeDigest_seed_slot pkSeed pkRoot message sig
+    · exact c13FirstLayerBeforeDigest_wotsAdrs_slot_hyperIndex
+        pkSeed pkRoot message sig sigParsed hParse
+    · exact c13FirstLayerBeforeDigest_currentNode_slot
+        pkSeed pkRoot message sig forsPk hForsPk
+    · exact c13FirstLayerBeforeDigest_count_slot_hyperIndex
+        pkSeed pkRoot message sig sigParsed d.lsig0 hParse d.hLayer0
+    · exact hSecondSeed
+    · exact c13SecondLayerBeforeDigest_wotsAdrs_slot_hyperIndex
+        pkSeed pkRoot message sig sigParsed hParse
+    · exact c13SecondLayerBeforeDigest_currentNode_slot
+        pkSeed pkRoot message sig d.root0 (hSecondCurrent d)
+    · exact c13SecondLayerBeforeDigest_count_slot
+        pkSeed pkRoot message sig d.lsig1.wots.count
+        (hSecondCount d)
+        (c13SecondLayer_wotsCount_norm sig sigParsed d.lsig1 hParse d.hLayer1)
+
 /-- The generic Layer-3 pre-digest theorem turns concrete scratch-cell data into
 the `"d" = C13Concrete.wotsDigest ...` facts required by the checksum reducer. -/
 theorem c13FoldRevertedBeforeDigitData_of_digest_scratch_data
@@ -2275,6 +2345,7 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13_refines_byte_spec_of_current_node_pkroot_size_and_reverted_before_digit_cover
 #print axioms c13_refines_byte_spec_of_current_node_pkroot_size_and_reverted_digest_scratch_cover
 #print axioms c13_refines_byte_spec_of_current_node_wordcmp_and_reverted_before_digit_cover
+#print axioms c13FoldRevertedDigestScratchData_of_layer_facts
 #print axioms c13_refines_byte_spec_of_current_node_wordcmp_and_reverted_digest_scratch_cover
 #print axioms c13_refines_byte_spec_of_two_step_current_node_and_reverted_digest_scratch_cover
 #print axioms c12_refines_byte_spec_of_good_length_cover
