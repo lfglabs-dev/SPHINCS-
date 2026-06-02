@@ -576,6 +576,31 @@ theorem c13FirstLayerGuardState_calldata
   rw [loopState_calldata, runtimeState_with_bindings_calldata]
   exact CurrentNodeFrame.afterSeed_calldata_mkC13State pkSeed pkRoot message sig
 
+/-- The layer-1 guarded-loop state carries the frozen ABI selector. -/
+theorem c13SecondLayerGuardState_selector
+    (pkSeed pkRoot message sig : Bytes) :
+    (c13SecondLayerGuardState pkSeed pkRoot message sig).selector = 0 := by
+  unfold c13SecondLayerGuardState
+  rw [loopState_selector]
+  have hFrame :=
+    SegmentLayer3.stepLayer_preserves_selector_calldata
+      (c13FirstLayerGuardState pkSeed pkRoot message sig)
+  rw [hFrame.1]
+  exact c13FirstLayerGuardState_selector pkSeed pkRoot message sig
+
+/-- The layer-1 guarded-loop state carries the frozen ABI calldata image. -/
+theorem c13SecondLayerGuardState_calldata
+    (pkSeed pkRoot message sig : Bytes) :
+    (c13SecondLayerGuardState pkSeed pkRoot message sig).world.calldata =
+      headWords pkSeed pkRoot message sig.size ++ bytesToWords sig := by
+  unfold c13SecondLayerGuardState
+  rw [loopState_calldata]
+  have hFrame :=
+    SegmentLayer3.stepLayer_preserves_selector_calldata
+      (c13FirstLayerGuardState pkSeed pkRoot message sig)
+  rw [hFrame.2]
+  exact c13FirstLayerGuardState_calldata pkSeed pkRoot message sig
+
 /-- Layer-0 pre-digest `"idxLeaf"` is the low 11 bits of the parsed C13
 hypertree index. -/
 theorem c13FirstLayerBeforeDigest_idxLeaf_hyperIndex
@@ -2100,6 +2125,8 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13SecondLayerGuardState_layer
 #print axioms c13FirstLayerGuardState_selector
 #print axioms c13FirstLayerGuardState_calldata
+#print axioms c13SecondLayerGuardState_selector
+#print axioms c13SecondLayerGuardState_calldata
 #print axioms c13FirstLayerBeforeDigest_idxLeaf_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_idxTree_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_wotsAdrs_hyperIndex

@@ -1076,6 +1076,119 @@ theorem afterDigit_preserves_selector_calldata (ls : RuntimeState) :
     exact SphincsMinusVerifiers.StateFrame.execStmt_assignVar_preserves_selector_calldata
       t t'' "digitSum" _ hexec'
 
+/-- Frame obligation for statement bodies that preserve selector/calldata. -/
+abbrev PreservesSelectorCalldataBody (body : List Stmt) : Prop :=
+  ∀ (s s'' : RuntimeState) (stmt : Stmt),
+    stmt ∈ body → execStmt [] s stmt = .continue s'' →
+    SphincsMinusVerifiers.StateFrame.PreservesSelectorCalldata s s''
+
+theorem digitSumBody_preserves_selector_calldata :
+    PreservesSelectorCalldataBody digitSumBody := by
+  intro s s'' stmt hmem hexec
+  simp [digitSumBody] at hmem
+  subst hmem
+  exact SphincsMinusVerifiers.StateFrame.execStmt_assignVar_preserves_selector_calldata
+    s s'' "digitSum" _ hexec
+
+theorem wotsChainBody_preserves_selector_calldata :
+    PreservesSelectorCalldataBody wotsChainBody := by
+  intro s s'' stmt hmem hexec
+  simp [wotsChainBody] at hmem
+  rcases hmem with rfl | rfl | rfl
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' _ _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' _ _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_assignVar_preserves_selector_calldata
+      s s'' "val" _ hexec
+
+theorem copyBody_preserves_selector_calldata :
+    PreservesSelectorCalldataBody copyBody := by
+  intro s s'' stmt hmem hexec
+  simp [copyBody] at hmem
+  subst hmem
+  exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+    s s'' _ _ hexec
+
+theorem merkleClimbBody_preserves_selector_calldata
+    (nodeVar idxVar adrsBaseVar authPtrVar : String) :
+    PreservesSelectorCalldataBody
+      (merkleClimbBody nodeVar idxVar adrsBaseVar authPtrVar) := by
+  intro s s'' stmt hmem hexec
+  simp [merkleClimbBody] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "sibling" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "parentIdx" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' _ _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "s" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' _ _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' _ _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_assignVar_preserves_selector_calldata
+      s s'' nodeVar _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_assignVar_preserves_selector_calldata
+      s s'' idxVar _ hexec
+
+theorem wotsOuterBody_preserves_selector_calldata :
+    PreservesSelectorCalldataBody wotsOuterBody := by
+  intro s s'' stmt hmem hexec
+  simp [wotsOuterBody] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "digit" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "steps" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "val" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "chainBase" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_forEach_preserves_selector_calldata
+      "step" _ wotsChainBody s s'' wotsChainBody_preserves_selector_calldata hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' _ _ hexec
+
+/-- The accepting layer suffix preserves selector/calldata. -/
+theorem suffix14_preserves_selector_calldata :
+    PreservesSelectorCalldataBody suffix14 := by
+  intro s s'' stmt hmem hexec
+  simp [suffix14, mstore] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "wotsPtr" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_forEach_preserves_selector_calldata
+      "i" _ wotsOuterBody s s'' wotsOuterBody_preserves_selector_calldata hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "pkAdrs" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' _ _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_forEach_preserves_selector_calldata
+      "i" _ copyBody s s'' copyBody_preserves_selector_calldata hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "wotsPk" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "authOff" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "treeAdrs" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "merkleNode" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "mIdx" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "merklePtr" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_forEach_preserves_selector_calldata
+      "h" _ (merkleClimbBody "merkleNode" "mIdx" "treeAdrs" "merklePtr")
+      s s'' (merkleClimbBody_preserves_selector_calldata
+        "merkleNode" "mIdx" "treeAdrs" "merklePtr") hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_assignVar_preserves_selector_calldata
+      s s'' "currentNode" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_assignVar_preserves_selector_calldata
+      s s'' "sigOff" _ hexec
+
 /-- The full checksum prefix continues to the named pure fold state. -/
 theorem prefix11_eq_afterDigitFold (ls : RuntimeState) :
     execStmtList [] ls prefix11 = .continue (afterDigitFold ls) := by
@@ -1285,6 +1398,19 @@ theorem suffix14_continues (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "currentNode" _ _ rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "sigOff" _ _ rfl)]
   rfl
+
+/-- One accepting layer iteration preserves selector/calldata from the incoming
+guard state through the checksum prefix and layer suffix. -/
+theorem stepLayer_preserves_selector_calldata (ls : RuntimeState) :
+    SphincsMinusVerifiers.StateFrame.PreservesSelectorCalldata ls (stepLayer ls) := by
+  have hPrefix := afterDigit_preserves_selector_calldata ls
+  have hSuffix :
+      SphincsMinusVerifiers.StateFrame.PreservesSelectorCalldata
+        (afterDigit ls) (stepLayer ls) :=
+    SphincsMinusVerifiers.StateFrame.execStmtList_preserves_selector_calldata
+      suffix14 (afterDigit ls) (stepLayer ls)
+      suffix14_preserves_selector_calldata (suffix14_continues ls)
+  exact ⟨by rw [hSuffix.1, hPrefix.1], by rw [hSuffix.2, hPrefix.2]⟩
 
 /-- The final two layer assignments do not rebind `"merkleNode"`.  This is the
 cheap tail brick used by structural layer-suffix proofs without replaying the
@@ -1524,6 +1650,12 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeDigitLoop_d_eq_keccakWords
 #print axioms beforeDigitLoop_d_eq_wotsDigest_of_scratch
 #print axioms afterDigit_preserves_selector_calldata
+#print axioms digitSumBody_preserves_selector_calldata
+#print axioms wotsChainBody_preserves_selector_calldata
+#print axioms copyBody_preserves_selector_calldata
+#print axioms merkleClimbBody_preserves_selector_calldata
+#print axioms wotsOuterBody_preserves_selector_calldata
+#print axioms suffix14_preserves_selector_calldata
 #print axioms prefix11_eq_afterDigitFold
 #print axioms afterDigit_eq_afterDigitFold
 #print axioms afterDigit_digitSum_eq_afterDigitFold
@@ -1533,6 +1665,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms layerGuard_of_afterDigit_digitSum_eq
 #print axioms layerGuard_of_afterDigit_digitSum_ne
 #print axioms beforeMerkle_eq
+#print axioms stepLayer_preserves_selector_calldata
 #print axioms finalLayerTail_preserves_merkleNode
 #print axioms execLayerBody
 #print axioms execLayerLoop
