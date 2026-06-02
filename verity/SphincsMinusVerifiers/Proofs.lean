@@ -434,6 +434,26 @@ theorem c13SecondLayerGuardState_eq_c13LayerLoopState1
       CurrentNodeFrame.c13LayerLoopState1
         (mkC13State pkSeed pkRoot message sig) := rfl
 
+/-- The layer-0 guarded-loop state preserves the seed scratch word from
+`afterSeed`. -/
+theorem c13FirstLayerGuardState_seed_slot
+    (pkSeed pkRoot message sig : Bytes) :
+    ((c13FirstLayerGuardState pkSeed pkRoot message sig).world.memory 0x00).val =
+      C13Concrete.wordOfHash16 pkSeed := by
+  unfold c13FirstLayerGuardState
+  rw [ClimbLoopGuarded.loopState_preserves_memory_val]
+  rw [MemoryKit.withBindings_preserves_memory_val]
+  exact CurrentNodeFrame.afterSeed_seed_slot_mkC13State pkSeed pkRoot message sig
+
+/-- The layer-0 pre-digest prefix does not disturb the seed scratch word. -/
+theorem c13FirstLayerBeforeDigest_seed_slot
+    (pkSeed pkRoot message sig : Bytes) :
+    ((SegmentLayer3.beforeDigest
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+      C13Concrete.wordOfHash16 pkSeed := by
+  rw [SegmentLayer3.beforeDigest_preserves_memory_zero]
+  exact c13FirstLayerGuardState_seed_slot pkSeed pkRoot message sig
+
 /-- Remaining concrete data needed for the C13 `.ok` fold branch at the current
 node boundary. -/
 def C13FoldOkCurrentNodeWordcmpData
@@ -1630,6 +1650,8 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13_refines_byte_spec_of_fold_result_cover
 #print axioms c13FirstLayerGuardState_eq_c13LayerLoopState0
 #print axioms c13SecondLayerGuardState_eq_c13LayerLoopState1
+#print axioms c13FirstLayerGuardState_seed_slot
+#print axioms c13FirstLayerBeforeDigest_seed_slot
 #print axioms c13FoldOkCurrentNodePkRootSizeData_of_current_node_facts
 #print axioms c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
 #print axioms c13FoldOkCurrentNodeWordcmpData_of_two_step_obligations
