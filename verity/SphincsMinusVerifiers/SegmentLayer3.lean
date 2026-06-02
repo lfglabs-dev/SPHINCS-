@@ -272,6 +272,20 @@ theorem wotsOuterStepLemma (st : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rfl
 
+/-- One WOTS chain step preserves lookups other than its `"val"` assignment. -/
+theorem stepWots_preserves_lookup_of_ne
+    (st : RuntimeState) (key : String) (hne : "val" ≠ key) :
+    lookupValue (stepWots st).bindings key =
+      lookupValue st.bindings key := by
+  refine execStmtList_preserves_lookup key wotsChainBody st (stepWots st) ?_
+    (wotsChainStep st)
+  intro s s'' stmt hmem hexec
+  simp [wotsChainBody] at hmem
+  rcases hmem with rfl | rfl | rfl
+  · exact execStmt_mstore_preserves_lookup s s'' key _ _ hexec
+  · exact execStmt_mstore_preserves_lookup s s'' key _ _ hexec
+  · exact execStmt_assignVar_preserves_lookup s s'' "val" key _ hne hexec
+
 /-- The WOTS-pk copy loop body (`forEach "i" (u 43)`). -/
 def copyBody : List Stmt :=
   [ mstoreE (addE (u 0x40) (shlE (u 5) (v "i"))) (mloadE (addE (u 0x80) (shlE (u 5) (v "i")))) ]
@@ -318,6 +332,19 @@ theorem wotsChainFold_preserves_memory_zero (st : RuntimeState) (n : Nat) :
     "step" stepWots 0x00 stepWots_preserves_memory_zero
     { st with bindings := bindValue st.bindings "step" (wordNormalize 0) }
     0 (wordNormalize n)]
+
+/-- A folded WOTS chain preserves outer-loop index `"i"`. -/
+theorem wotsChainFold_preserves_i_lookup (st : RuntimeState) (n : Nat) :
+    lookupValue
+        (foldLoop "step" stepWots
+          { st with bindings := bindValue st.bindings "step" (wordNormalize 0) }
+          0 n).bindings "i" =
+      lookupValue st.bindings "i" := by
+  rw [ClimbLoop.foldLoop_preserves_lookup "step" "i" stepWots (by decide)
+    (fun s => stepWots_preserves_lookup_of_ne s "i" (by decide))
+    { st with bindings := bindValue st.bindings "step" (wordNormalize 0) }
+    0 n]
+  exact MemoryKit.lookupValue_bindValue_ne st.bindings "step" "i" (wordNormalize 0) (by decide)
 
 /-- One WOTS public-key copy step preserves seed cell `0x00` for the actual C13
 loop-index range. -/
@@ -2365,8 +2392,10 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeDigitLoop_preserves_memory_zero
 #print axioms afterDigitFold_preserves_memory_zero
 #print axioms afterDigit_preserves_memory_zero
+#print axioms stepWots_preserves_lookup_of_ne
 #print axioms stepWots_preserves_memory_zero
 #print axioms wotsChainFold_preserves_memory_zero
+#print axioms wotsChainFold_preserves_i_lookup
 #print axioms copyStep_preserves_memory_zero_of_i
 #print axioms copyFold_preserves_memory_zero
 #print axioms beforeDigest_idxLeaf_eq_of_idxTree
