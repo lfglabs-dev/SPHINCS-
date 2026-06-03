@@ -417,6 +417,8 @@ are:
 - `SegmentAcceptSpec.LayerGuardedStep`,
   `SegmentLayer3.nat_land_low3`,
   `SegmentLayer3.digitSumStep_digitSum_eq`,
+  `SegmentLayer3.digitSumStep_preserves_d`,
+  `SegmentLayer3.foldLoop_digitSum_eq`,
   `SegmentLayer3.layerGuard_of_afterDigit_digitSum_eq`,
   `SegmentLayer3.beforeMerkle_eq`,
   `SegmentLayer3.finalLayerTail_preserves_merkleNode`,

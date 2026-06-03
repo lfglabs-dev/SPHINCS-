@@ -94,7 +94,9 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   `nat_land_low19` and `s3Guard_eq_forsIndex6`;
 - Layer-3 digit-sum arithmetic facts in
   `SphincsMinusVerifiers/SegmentLayer3.lean`: `nat_land_low3` and
-  `digitSumStep_digitSum_eq`, covering one executable digit-sum loop step;
+  `digitSumStep_digitSum_eq`, covering one executable digit-sum loop step, plus
+  `digitSumStep_preserves_d` and `foldLoop_digitSum_eq`, lifting that step over
+  the pure checksum `foldLoop`;
 - seed and FORS-compression frame adapters in
   `SphincsMinusVerifiers/CurrentNodeFrame.lean`;
 - forced-root final-secret calldata and parsed-root cell adapters in
@@ -525,9 +527,11 @@ The current narrow C13 accept handoff still has real residual obligations:
   grinding-success fact, and `C13Concrete.wotsDigitSum_lt_uint256` supplies the
   overflow bound for the corresponding executable accumulator.
   `SegmentLayer3.digitSumStep_digitSum_eq` supplies the single-step executable
-  arithmetic for that cell; the remaining work is the 43-step digit fold, its
-  prefix-to-`wotsDigest` correspondence, concrete WOTS/XMSS success, and exact
-  `"merkleNode"` model-cell facts through the bounded boundary.  The older
+  arithmetic for that cell, and `SegmentLayer3.foldLoop_digitSum_eq` lifts it
+  through the pure `forEach "ii"` image; the remaining digit-cell work is the
+  recursive fold/prefix-to-`wotsDigest` correspondence, followed by concrete
+  WOTS/XMSS success and exact `"merkleNode"` model-cell facts through the
+  bounded boundary.  The older
   concrete-layer packages still quantify
   success over every `idx : Nat`;
   `no_concrete_layer_site_root_obligations_of_parse` and

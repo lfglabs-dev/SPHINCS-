@@ -90,6 +90,13 @@ def digitSumBody : List Stmt :=
 def digitSumStep (st : RuntimeState) : RuntimeState :=
   match execStmtList [] st digitSumBody with | .continue s' => s' | _ => st
 
+def digitAt (d i : Nat) : Nat :=
+  (d >>> (3 * i)) % 8
+
+def digitSumFold (d acc index : Nat) : Nat → Nat
+  | 0 => acc
+  | remaining + 1 => digitSumFold d (acc + digitAt d index) (index + 1) remaining
+
 theorem digitSumStepLemma (st : RuntimeState) :
     execStmtList [] st digitSumBody = .continue (digitSumStep st) := by
   unfold digitSumStep digitSumBody
@@ -197,6 +204,65 @@ theorem digitSumStep_digitSum_eq
   rw [execStmtList_cons_continue _ _ _ _
     (assignVar_continue st "digitSum" _ _ hsum)]
   simp only [execStmtList, MemoryKit.lookupValue_bindValue_self]
+
+theorem digitSumStep_preserves_d (st : RuntimeState) :
+    lookupValue (digitSumStep st).bindings "d" = lookupValue st.bindings "d" := by
+  unfold digitSumStep digitSumBody
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue st "digitSum" _ _ rfl)]
+  simp only [execStmtList, MemoryKit.lookupValue_bindValue_ne, ne_eq, String.reduceEq,
+    not_false_eq_true]
+
+/-- The pure digit-sum loop fold accumulates exactly the recursive digit fold.
+This is the 43-iteration lift of `digitSumStep_digitSum_eq`; it reasons over
+`foldLoop` directly and does not unfold the enclosing layer prefix. -/
+theorem foldLoop_digitSum_eq
+    (st : RuntimeState) (d acc index remaining : Nat)
+    (hd : lookupValue st.bindings "d" = d)
+    (hacc : lookupValue st.bindings "digitSum" = acc)
+    (hRange : index + remaining ≤ 43)
+    (hdLt : d < 2 ^ 256)
+    (haccLt : acc + 7 * remaining < 2 ^ 256) :
+    lookupValue
+        (foldLoop "ii" digitSumStep st index remaining).bindings
+        "digitSum"
+      = digitSumFold d acc index remaining := by
+  induction remaining generalizing st acc index with
+  | zero =>
+      simp [ClimbLoop.foldLoop_zero, digitSumFold, hacc]
+  | succ remaining ih =>
+      rw [ClimbLoop.foldLoop_succ]
+      let s1 : RuntimeState :=
+        { st with bindings := bindValue st.bindings "ii" (wordNormalize index) }
+      have hidxLt : index < 43 := by omega
+      have hidxNorm : wordNormalize index = index := by
+        rw [wordNormalize_eq_mod]
+        exact Nat.mod_eq_of_lt (lt_trans hidxLt (by decide : 43 < 2 ^ 256))
+      have hii : lookupValue s1.bindings "ii" = index := by
+        simp only [s1, hidxNorm, MemoryKit.lookupValue_bindValue_self]
+      have hd1 : lookupValue s1.bindings "d" = d := by
+        rw [MemoryKit.lookupValue_bindValue_ne _ "ii" "d" _ (by decide), hd]
+      have hacc1 : lookupValue s1.bindings "digitSum" = acc := by
+        rw [MemoryKit.lookupValue_bindValue_ne _ "ii" "digitSum" _ (by decide), hacc]
+      have hdigitLe : digitAt d index ≤ 7 := by
+        unfold digitAt
+        exact Nat.le_pred_of_lt (Nat.mod_lt _ (by decide : 0 < 8))
+      have haddLt : acc + digitAt d index < 2 ^ 256 := by
+        omega
+      have hstep :
+          lookupValue (digitSumStep s1).bindings "digitSum"
+            = acc + digitAt d index := by
+        unfold digitAt
+        exact digitSumStep_digitSum_eq s1 index d acc
+          hii hd1 hacc1 hidxLt hdLt haddLt
+      have hdStep : lookupValue (digitSumStep s1).bindings "d" = d := by
+        rw [digitSumStep_preserves_d, hd1]
+      have hRangeTail : index + 1 + remaining ≤ 43 := by omega
+      have haccLtTail : (acc + digitAt d index) + 7 * remaining < 2 ^ 256 := by
+        omega
+      have htail :=
+        ih (digitSumStep s1) (acc + digitAt d index) (index + 1)
+          hdStep hstep hRangeTail haccLtTail
+      simpa [s1, digitSumFold] using htail
 
 /-- The WOTS-chain outer-loop body (`forEach "i" (u 43)`), with its inner
 variable-bound chain `forEach "step" (v "steps")` written as `wotsChainBody`. -/
@@ -541,6 +607,8 @@ theorem execLayerLoop (state : RuntimeState)
 #print axioms layerStmt_eq_slice
 #print axioms nat_land_low3
 #print axioms digitSumStep_digitSum_eq
+#print axioms digitSumStep_preserves_d
+#print axioms foldLoop_digitSum_eq
 #print axioms layerGuard_of_afterDigit_digitSum_eq
 #print axioms beforeMerkle_eq
 #print axioms finalLayerTail_preserves_merkleNode
