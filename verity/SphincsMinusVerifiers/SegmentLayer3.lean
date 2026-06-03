@@ -314,6 +314,18 @@ theorem copyStepLemma (st : RuntimeState) :
 /-! ## 3. The Layer-3 body reconstruction (Model.lean:154-203), split around the
 checksum-guard `ite` as `prefix11 ++ (ite :: suffix14)`. -/
 
+/-- Statements 154-161, stopping just before the WOTS digest keccak binding. -/
+def prefixBeforeWotsDigest : List Stmt :=
+  [ .letVar "idxLeaf" (andE (v "idxTree") (u 0x7FF))
+  , .assignVar "idxTree" (shrE (u 11) (v "idxTree"))
+  , .letVar "wotsAdrs" (orE (shlE (u 224) (v "layer")) (orE (shlE (u 128) (v "idxTree")) (shlE (u 64) (v "idxLeaf"))))
+  , .letVar "countOff" (addE (v "sigOff") (u 688))
+  , .letVar "count" (shrE (u 224) (cdload (addE (v "sigBase") (v "countOff"))))
+  , mstore 0x20 (v "wotsAdrs")
+  , mstore 0x40 (v "currentNode")
+  , mstore 0x60 (v "count")
+  ]
+
 /-- Statements 154-163, stopping just before the digit-sum loop. -/
 def prefixBeforeDigitSum : List Stmt :=
   [ .letVar "idxLeaf" (andE (v "idxTree") (u 0x7FF))
@@ -327,6 +339,11 @@ def prefixBeforeDigitSum : List Stmt :=
   , .letVar "d" (keccak 0x00 0x80)
   , .letVar "digitSum" (u 0)
   ]
+
+theorem prefixBeforeDigitSum_eq_prefixBeforeWotsDigest_append :
+    prefixBeforeDigitSum =
+      prefixBeforeWotsDigest ++ [ .letVar "d" (keccak 0x00 0x80), .letVar "digitSum" (u 0) ] :=
+  rfl
 
 /-- Statements 154-163 + the digit-sum loop (everything before the guard). -/
 def prefix11 : List Stmt :=
@@ -407,6 +424,24 @@ private theorem execStmtList_cons_eq (st : RuntimeState) (s : Stmt) (rest : List
 
 /-! ## 4. Threading the guard-free prefix and suffix. -/
 
+/-- The state after the straight-line setup has populated the WOTS-digest
+scratch frame, just before binding `"d"` from `keccak256(0x00, 0x80)`. -/
+def beforeWotsDigest (ls : RuntimeState) : RuntimeState :=
+  match execStmtList [] ls prefixBeforeWotsDigest with | .continue s' => s' | _ => ls
+
+theorem beforeWotsDigest_eq (ls : RuntimeState) :
+    execStmtList [] ls prefixBeforeWotsDigest = .continue (beforeWotsDigest ls) := by
+  unfold beforeWotsDigest prefixBeforeWotsDigest mstore u
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "idxLeaf" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "idxTree" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "countOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rfl
+
 /-- The state after the straight-line prefix that sets up `"d"` and initializes
 `"digitSum"`, just before the 43-step checksum loop. -/
 def beforeDigitSum (ls : RuntimeState) : RuntimeState :=
@@ -444,6 +479,79 @@ theorem beforeDigitSum_digitSum_eq_zero (ls : RuntimeState) :
     rw [wordNormalize_eq_mod]
     exact Nat.zero_mod _
   simp only [execStmtList, h0, MemoryKit.lookupValue_bindValue_self]
+
+/-- If the WOTS-digest scratch frame contains the four expected words, then the
+straight-line prefix binds `"d"` to the corresponding concrete keccak word.
+This is the hash half of the remaining `"d" = wotsDigest ...` correspondence;
+the caller still identifies the scratch words with `seed`, `WOTS_HASH` ADRS,
+`currentNode`, and the parsed WOTS count. -/
+theorem beforeDigitSum_d_eq_keccakWords_of_beforeWotsDigest_memory
+    (ls : RuntimeState) (seed wotsAdrs currentNode count : Nat)
+    (h0 : ((beforeWotsDigest ls).world.memory 0x00).val = seed)
+    (h1 : ((beforeWotsDigest ls).world.memory 0x20).val = wotsAdrs)
+    (h2 : ((beforeWotsDigest ls).world.memory 0x40).val = currentNode)
+    (h3 : ((beforeWotsDigest ls).world.memory 0x60).val = count) :
+    lookupValue (beforeDigitSum ls).bindings "d"
+      = SphincsMinusVerifierSpec.C13Concrete.keccakWords
+          [seed, wotsAdrs, currentNode, count] := by
+  unfold beforeDigitSum
+  rw [prefixBeforeDigitSum_eq_prefixBeforeWotsDigest_append]
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeWotsDigest_eq ls)]
+  have hkeccak :
+      evalExpr [] (beforeWotsDigest ls) (keccak 0x00 0x80)
+        = some (SphincsMinusVerifierSpec.C13Concrete.keccakWords
+          [seed, wotsAdrs, currentNode, count]) := by
+    unfold keccak u
+    apply SphincsMinusVerifiers.KeccakBridge.evalExpr_keccak256_eq_keccakWords
+    · rfl
+    · rfl
+    · intro i hi
+      have hi4 : i < 4 := by simpa using hi
+      match i with
+      | 0 => simpa using h0
+      | 1 => simpa using h1
+      | 2 => simpa using h2
+      | 3 => simpa using h3
+      | j + 4 =>
+          omega
+  let dval := SphincsMinusVerifierSpec.C13Concrete.keccakWords
+    [seed, wotsAdrs, currentNode, count]
+  let stD : RuntimeState :=
+    { beforeWotsDigest ls with
+      bindings := bindValue (beforeWotsDigest ls).bindings "d" dval }
+  let stSum : RuntimeState :=
+    { stD with bindings := bindValue stD.bindings "digitSum" (wordNormalize 0) }
+  have htail :
+      execStmtList [] (beforeWotsDigest ls)
+          [ .letVar "d" (keccak 0x00 0x80), .letVar "digitSum" (u 0) ]
+        = .continue stSum := by
+    rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "d" _ _ hkeccak)]
+    rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "digitSum" _ _ rfl)]
+    rfl
+  rw [htail]
+  simp only [stSum, stD, dval, MemoryKit.lookupValue_bindValue_ne, ne_eq, String.reduceEq,
+    not_false_eq_true, MemoryKit.lookupValue_bindValue_self]
+
+/-- Spec-shaped version of
+`beforeDigitSum_d_eq_keccakWords_of_beforeWotsDigest_memory`: once the WOTS
+scratch ADRS word is identified as `adrsWotsHashBase`, the executable `"d"`
+cell is exactly the concrete C13 `wotsDigest`. -/
+theorem beforeDigitSum_d_eq_wotsDigest_of_beforeWotsDigest_memory
+    (ls : RuntimeState) (seed layer idxTree idxLeaf count currentNode : Nat)
+    (h0 : ((beforeWotsDigest ls).world.memory 0x00).val = seed)
+    (h1 :
+      ((beforeWotsDigest ls).world.memory 0x20).val
+        = SphincsMinusVerifierSpec.C13Concrete.adrsWotsHashBase layer idxTree idxLeaf)
+    (h2 : ((beforeWotsDigest ls).world.memory 0x40).val = currentNode)
+    (h3 : ((beforeWotsDigest ls).world.memory 0x60).val = count) :
+    lookupValue (beforeDigitSum ls).bindings "d"
+      =
+    SphincsMinusVerifierSpec.C13Concrete.wotsDigest
+      seed layer idxTree idxLeaf count currentNode := by
+  simpa [SphincsMinusVerifierSpec.C13Concrete.wotsDigest] using
+    beforeDigitSum_d_eq_keccakWords_of_beforeWotsDigest_memory
+      ls seed (SphincsMinusVerifierSpec.C13Concrete.adrsWotsHashBase layer idxTree idxLeaf)
+      currentNode count h0 h1 h2 h3
 
 /-- The state after running `prefix11` (always continues). -/
 def afterDigit (ls : RuntimeState) : RuntimeState :=
@@ -520,6 +628,45 @@ theorem afterDigit_digitSum_eq_wotsDigitSum_of_beforeDigitSum_d
       (by norm_num) hdLt (by decide : 0 + 7 * 43 < 2 ^ 256)
   rw [hfold]
   exact digitSumFold_zero_eq_wotsDigitSum d
+
+/-- Combined WOTS digit-cell bridge from the WOTS-digest scratch frame: the
+post-prefix executable `"digitSum"` cell is the concrete digit sum of the
+concrete WOTS digest.  The remaining outer obligation is to prove that the
+straight-line stores indeed populate this scratch frame from the parsed C13
+layer inputs. -/
+theorem afterDigit_digitSum_eq_wotsDigitSum_wotsDigest_of_beforeWotsDigest_memory
+    (ls : RuntimeState) (seed layer idxTree idxLeaf count currentNode : Nat)
+    (h0 : ((beforeWotsDigest ls).world.memory 0x00).val = seed)
+    (h1 :
+      ((beforeWotsDigest ls).world.memory 0x20).val
+        = SphincsMinusVerifierSpec.C13Concrete.adrsWotsHashBase layer idxTree idxLeaf)
+    (h2 : ((beforeWotsDigest ls).world.memory 0x40).val = currentNode)
+    (h3 : ((beforeWotsDigest ls).world.memory 0x60).val = count) :
+    lookupValue (afterDigit ls).bindings "digitSum"
+      =
+    SphincsMinusVerifierSpec.C13Concrete.wotsDigitSum
+      (SphincsMinusVerifierSpec.C13Concrete.wotsDigest
+        seed layer idxTree idxLeaf count currentNode) := by
+  have hd :
+      lookupValue (beforeDigitSum ls).bindings "d"
+        =
+      SphincsMinusVerifierSpec.C13Concrete.wotsDigest
+        seed layer idxTree idxLeaf count currentNode :=
+    beforeDigitSum_d_eq_wotsDigest_of_beforeWotsDigest_memory
+      ls seed layer idxTree idxLeaf count currentNode h0 h1 h2 h3
+  have hdLt :
+      SphincsMinusVerifierSpec.C13Concrete.wotsDigest
+        seed layer idxTree idxLeaf count currentNode < 2 ^ 256 := by
+    simpa [SphincsMinusVerifierSpec.C13Concrete.wotsDigest,
+      Compiler.Constants.evmModulus] using
+      SphincsMinusVerifiers.KeccakBridge.keccakWords_lt
+        [seed, SphincsMinusVerifierSpec.C13Concrete.adrsWotsHashBase layer idxTree idxLeaf,
+          currentNode, count]
+  exact afterDigit_digitSum_eq_wotsDigitSum_of_beforeDigitSum_d
+    ls
+    (SphincsMinusVerifierSpec.C13Concrete.wotsDigest
+      seed layer idxTree idxLeaf count currentNode)
+    hd hdLt
 
 /-- The pure transformer for one accepting layer iteration: the `.continue`
 payload of `suffix14` run from `afterDigit ls`. -/
@@ -729,8 +876,12 @@ theorem execLayerLoop (state : RuntimeState)
 #print axioms digitSumStep_preserves_d
 #print axioms foldLoop_digitSum_eq
 #print axioms digitSumFold_zero_eq_wotsDigitSum
+#print axioms beforeWotsDigest_eq
 #print axioms beforeDigitSum_eq
 #print axioms beforeDigitSum_digitSum_eq_zero
+#print axioms beforeDigitSum_d_eq_keccakWords_of_beforeWotsDigest_memory
+#print axioms beforeDigitSum_d_eq_wotsDigest_of_beforeWotsDigest_memory
+#print axioms afterDigit_digitSum_eq_wotsDigitSum_wotsDigest_of_beforeWotsDigest_memory
 #print axioms afterDigit_eq_foldLoop_digitSum
 #print axioms afterDigit_digitSum_eq_wotsDigitSum_of_beforeDigitSum_d
 #print axioms layerGuard_of_afterDigit_digitSum_eq

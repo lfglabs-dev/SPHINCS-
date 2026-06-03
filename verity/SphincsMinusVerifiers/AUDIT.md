@@ -97,10 +97,12 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   `digitSumStep_digitSum_eq`, covering one executable digit-sum loop step, plus
   `digitSumStep_preserves_d` and `foldLoop_digitSum_eq`, lifting that step over
   the pure checksum `foldLoop`, and `digitSumFold_zero_eq_wotsDigitSum`, matching
-  the 43-step pure fold to the concrete C13 `wotsDigitSum`.  The `beforeDigitSum`
-  split, `afterDigit_eq_foldLoop_digitSum`, and
-  `afterDigit_digitSum_eq_wotsDigitSum_of_beforeDigitSum_d` expose the exact
-  `afterDigit ... "digitSum"` handoff from a pre-loop `"d"` binding;
+  the 43-step pure fold to the concrete C13 `wotsDigitSum`.  The
+  `beforeWotsDigest`/`beforeDigitSum` splits,
+  `beforeDigitSum_d_eq_wotsDigest_of_beforeWotsDigest_memory`, and
+  `afterDigit_digitSum_eq_wotsDigitSum_wotsDigest_of_beforeWotsDigest_memory`
+  expose the exact executable `"d"` and post-prefix `"digitSum"` handoff from a
+  four-word WOTS-digest scratch-frame hypothesis;
 - seed and FORS-compression frame adapters in
   `SphincsMinusVerifiers/CurrentNodeFrame.lean`;
 - forced-root final-secret calldata and parsed-root cell adapters in
@@ -533,11 +535,12 @@ The current narrow C13 accept handoff still has real residual obligations:
   `SegmentLayer3.digitSumStep_digitSum_eq` supplies the single-step executable
   arithmetic for that cell, and `SegmentLayer3.foldLoop_digitSum_eq` lifts it
   through the pure `forEach "ii"` image.  `digitSumFold_zero_eq_wotsDigitSum`
-  closes the pure recursive-fold side, while
-  `afterDigit_digitSum_eq_wotsDigitSum_of_beforeDigitSum_d` connects the
-  post-prefix `"digitSum"` cell to any pre-loop `"d"` binding.  The remaining
-  digit-cell gap is therefore the executable `"d" = wotsDigest ...` cell
-  correspondence, followed by concrete
+  closes the pure recursive-fold side.  The `beforeWotsDigest` scratch-frame
+  bridge now proves executable `"d" = wotsDigest ...` and the post-prefix
+  `"digitSum" = wotsDigitSum (wotsDigest ...)` once memory `[0x00,0x80)` is
+  identified with seed, WOTS_HASH ADRS, current node, and count.  The remaining
+  digit-cell gap is therefore proving those scratch-frame cells from the parsed
+  layer inputs, followed by concrete
   WOTS/XMSS success and exact `"merkleNode"` model-cell facts through the
   bounded boundary.  The older
   concrete-layer packages still quantify
