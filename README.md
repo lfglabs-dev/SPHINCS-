@@ -74,12 +74,12 @@ C11 and C12 are light enough to run on a hardware wallet, 390s and 47.5s signatu
 
 ### Shared hash kernel
 
-Two distinct ADRS layouts live in this repo. The keccak-family verifiers used to all share JARDIN's, but **C7, C9 and C13** now use the FIPS 205 uncompressed layout instead. Target end state: just two layouts — **FIPS uncompressed 32 B for keccak/SHAKE-family hashes**, and **FIPS ADRSc 22 B for SHA-2** — both straight out of FIPS 205. JARDIN remains for C11, C12 and the keccak SLH-DSA twin until they're migrated.
+The repo now ships **only two ADRS layouts** in `src/`, both straight out of FIPS 205 — **FIPS uncompressed 32 B for the keccak/SHAKE-family hashes** (C7, C9, C13) and **FIPS ADRSc 22 B for SHA-2** (SLH-DSA-SHA2). The keccak-family verifiers used to all share JARDIN's layout; C7/C9/C13 migrated to FIPS uncompressed, and the verifiers that stayed on JARDIN — C11, C12, and the keccak SLH-DSA twin — were **retired to `legacy/`** rather than migrated. The JARDIN row below is kept for historical reference; those contracts are frozen, not part of the default build.
 
 | Layout | Variants | ADRS bytes | Hash | F/H/T input |
 |---|---|---|---|---|
-| **JARDIN 32 B**            | C11, C12, SLH-DSA-Keccak-128-24     | `layer4 ‖ tree8 ‖ type4 ‖ kp4 ‖ ci4 ‖ cp4 ‖ ha4` | keccak256 | `seed32 ‖ adrs32 ‖ payload` |
 | **FIPS uncompressed 32 B** | **C7, C9, C13** (C13 first)          | `layer4 ‖ tree12 ‖ type4 ‖ word1·4 ‖ word2·4 ‖ word3·4` | keccak256 | `seed32 ‖ adrs32 ‖ payload` |
+| _JARDIN 32 B (retired → `legacy/`)_ | C11, C12, SLH-DSA-Keccak-128-24 | `layer4 ‖ tree8 ‖ type4 ‖ kp4 ‖ ci4 ‖ cp4 ‖ ha4` | keccak256 | `seed32 ‖ adrs32 ‖ payload` |
 | **FIPS ADRSc 22 B**        | SLH-DSA-SHA2-128-24                  | `layer1 ‖ tree8 ‖ type1 ‖ 12 B type-dependent` | SHA-256 (precompile 0x02) | `PK.seed(16) ‖ zeros(48) ‖ ADRSc(22) ‖ payload` |
 
 ### Address layout
@@ -103,7 +103,7 @@ bytes 28..32  word3 (type-dependent)
 | 3 | FORS_TREE  | key_pair_address | tree_height | tree_index |
 | 4 | FORS_ROOTS | key_pair_address | 0 | 0 |
 
-**JARDIN 32-byte ADRS** (used by C7/C11/C12/SLH-DSA-Keccak today): same 32-byte width, but with an 8-byte `tree` field (FIPS gives it 12) and **four** type-dependent words (FIPS uses three). The freed-up byte budget went to `ci` (chain_index) being a dedicated WOTS-only slot, while in FIPS `chain_address` and `tree_height` share `word2` — same bytes, type-dependent meaning. JARDIN's 4th word (`ha`) is unused for every type in practice; the structural divergence from FIPS is the 8 vs 12 byte tree field.
+**JARDIN 32-byte ADRS** (retired to `legacy/`; was used by C11/C12/SLH-DSA-Keccak — C7/C9 migrated off it): same 32-byte width, but with an 8-byte `tree` field (FIPS gives it 12) and **four** type-dependent words (FIPS uses three). The freed-up byte budget went to `ci` (chain_index) being a dedicated WOTS-only slot, while in FIPS `chain_address` and `tree_height` share `word2` — same bytes, type-dependent meaning. JARDIN's 4th word (`ha`) is unused for every type in practice; the structural divergence from FIPS is the 8 vs 12 byte tree field.
 
 **Why C13 moved to FIPS uncompressed.** "Reduce differences between families": FIPS-aligning the ADRS makes the keccak verifier port cleanly from a FIPS reference implementation, and pares the repo's address-layout inventory toward just two layouts (above). The hash stays keccak256 — switching to SHA-256 would double on-chain gas (precompile staticcall vs native opcode) and would only be relevant if we needed full SLH-DSA-SHA2 family alignment, which we don't.
 
