@@ -61,6 +61,7 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   `parseSignatureC13_fors_sk_getElem?`,
   `parseSignatureC13_fors_authPath_getD_getElem?`,
   `publicKeyOk_c13`, `parsePublicKey_c13`,
+  `parsePublicKey_c13_does_not_imply_pkRoot_size`,
   `forcedZeroOk_c13_forsIndex_six`, `hMsgC13_forsIndex_six`,
   `hMsgC13_forsIndex_getD_eq`, `hMsgC13_forsIndex_getD_lt`,
   `adrsForsLeaf_lt_of_normal_idx_lt`, and `adrsForsLeaf_hMsgC13_normal_lt`;
@@ -478,7 +479,11 @@ The current narrow C13 accept handoff still has real residual obligations:
   existing Merkle frame/data obligations;
 - per-layer guarded WOTS/XMSS correspondence;
 - remaining concrete data-cell proof for the new C13 hypertree layer step;
-- public-key root byte size `pkRoot.size = 16`.
+- public-key root byte size `pkRoot.size = 16`, as an ABI boundary premise
+  rather than a Lean byte-spec consequence.  `C13Concrete.parsePublicKey_c13`
+  accepts arbitrary `ByteArray` roots, and
+  `C13Concrete.parsePublicKey_c13_does_not_imply_pkRoot_size` gives a formal
+  empty-root counterexample.
 
 The successful C13 FORS/WOTS/XMSS/hypertree outputs now have standalone 16-byte
 shape lemmas and `CanonicalHash16` propagation lemmas.  The base-256 arithmetic
@@ -490,7 +495,10 @@ the C13 canonical-output facts,
 roundtrip from successful FORS reconstruction and hypertree folding.  The
 public-key-root roundtrip is now reduced by
 `SegmentAcceptSpec.hash16OfWord_wordOfHash16_of_size` to the ordinary byte-size
-premise `pkRoot.size = 16`.  Once these final-root roundtrips are available,
+premise `pkRoot.size = 16`.  That premise cannot be derived from
+`parsePublicKey_c13` in the current byte spec; the formal counterexample is
+`C13Concrete.parsePublicKey_c13_does_not_imply_pkRoot_size`.  Once these
+final-root roundtrips are available,
 `SegmentAcceptSpec.wordCmp_of_wordOfHash16_roundtrip` derives the `hWordCmp`
 premise without a global `LawfulBEq ByteArray` assumption.
 

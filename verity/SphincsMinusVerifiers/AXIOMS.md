@@ -52,6 +52,10 @@ are:
 - `C13Concrete.publicKeyOk_c13` and `C13Concrete.parsePublicKey_c13`:
   `[propext]`.
 
+- `C13Concrete.parsePublicKey_c13_does_not_imply_pkRoot_size`:
+  `[propext]`.  This is a formal counterexample showing `pkRoot.size = 16`
+  cannot be derived from C13 byte-level public-key parsing alone.
+
 - `C13Concrete.forcedZeroOk_c13_forsIndex_six`:
   `[propext, Quot.sound]`.
 
