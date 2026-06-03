@@ -23,7 +23,11 @@ fn u256_hex(val: &hash::U256) -> String {
 const PY_PK_SEED: &str = "0x012dd57311a3728fd6988fb2a583bb9e00000000000000000000000000000000";
 const PY_SK_SEED: &str = "0x11d47d1635d4ad4852852dae8fd9dbbd699558d7907907cdae4203bdbae7f7aa";
 const PY_WOTS_SK_1_0_0_0: &str = "0x60fd5cf59c3c018fca334b8538cc52fe00000000000000000000000000000000";
-const PY_FORS_SECRET_0_0: &str = "0x644806f57db3ea90131947530251a86200000000000000000000000000000000";
+// fors_secret(sk_seed, tree=0, leaf=0, ht_idx=0): keccak256(sk_seed || "fors" ||
+// ht_idx(4) || tree_idx(4) || leaf_idx(4)) masked to top 128 bits. Regenerated
+// for the ht_idx-folding preimage (the Finding-C fix); cross-checked against
+// script/signer.py's fors_secret. (audit C13-S-f2)
+const PY_FORS_SECRET_0_0: &str = "0xf3c46060303099c9faed1691ad98823900000000000000000000000000000000";
 
 fn derive_test_keys() -> (hash::U256, hash::U256) {
     let test_entropy = [0x42u8; 32];
@@ -48,9 +52,14 @@ fn test_wots_secret_matches_python() {
 
 #[test]
 fn test_fors_secret_matches_python() {
+    // fors_secret now folds the per-message hypertree leaf `ht_idx` into the PRF
+    // preimage (the Finding-C fix). The pinned value below is for ht_idx = 0 and
+    // MUST be regenerated from script/signer.py's fors_secret with the same
+    // preimage (sk_seed || "fors" || ht_idx(4) || tree_idx(4) || leaf_idx(4)) if
+    // any of those change. (audit C13-S-f1 / C13-S-f2)
     let (_, sk_seed) = derive_test_keys();
-    let fs = fors::fors_secret(sk_seed, 0, 0);
-    assert_eq!(u256_hex(&fs), PY_FORS_SECRET_0_0, "fors_secret(0,0) mismatch");
+    let fs = fors::fors_secret(sk_seed, 0, 0, 0);
+    assert_eq!(u256_hex(&fs), PY_FORS_SECRET_0_0, "fors_secret(0,0,ht=0) mismatch");
 }
 
 #[test]
