@@ -24,6 +24,7 @@
 import SphincsMinusVerifiers.ClimbLoop
 import SphincsMinusVerifiers.ClimbLoopGuarded
 import SphincsMinusVerifiers.ClimbKeccakStep
+import SphincsMinusVerifiers.MemoryFrame
 import SphincsMinusVerifiers.Model
 import SphincsMinusVerifierSpec.C13Concrete
 
@@ -441,6 +442,61 @@ theorem beforeWotsDigest_eq (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rfl
+
+/-- The WOTS-digest setup does not touch the seed scratch slot at `0x00`. -/
+theorem beforeWotsDigest_seed_slot_eq (ls : RuntimeState) :
+    ((beforeWotsDigest ls).world.memory 0x00).val = (ls.world.memory 0x00).val := by
+  exact SphincsMinusVerifiers.MemoryFrame.execStmtList_preserves_memory_val
+    0x00 prefixBeforeWotsDigest ls (beforeWotsDigest ls)
+    (by
+      intro s s'' stmt hmem hexec
+      unfold prefixBeforeWotsDigest mstore u at hmem
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+      rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+      · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+          s s'' 0x00 "idxLeaf" _ hexec
+      · exact SphincsMinusVerifiers.MemoryFrame.execStmt_assignVar_preserves_memory_val
+          s s'' 0x00 "idxTree" _ hexec
+      · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+          s s'' 0x00 "wotsAdrs" _ hexec
+      · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+          s s'' 0x00 "countOff" _ hexec
+      · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+          s s'' 0x00 "count" _ hexec
+      · exact SphincsMinusVerifiers.MemoryFrame.execStmt_mstore_preserves_memory_val
+          s s'' 0x00 (u 0x20) (v "wotsAdrs")
+          (by
+            intro ro rv hoff hval
+            have hro : ro = 0x20 := by
+              change some (wordNormalize 0x20) = some ro at hoff
+              injection hoff with h
+              rw [← h]
+              rfl
+            rw [hro]
+            decide) hexec
+      · exact SphincsMinusVerifiers.MemoryFrame.execStmt_mstore_preserves_memory_val
+          s s'' 0x00 (u 0x40) (v "currentNode")
+          (by
+            intro ro rv hoff hval
+            have hro : ro = 0x40 := by
+              change some (wordNormalize 0x40) = some ro at hoff
+              injection hoff with h
+              rw [← h]
+              rfl
+            rw [hro]
+            decide) hexec
+      · exact SphincsMinusVerifiers.MemoryFrame.execStmt_mstore_preserves_memory_val
+          s s'' 0x00 (u 0x60) (v "count")
+          (by
+            intro ro rv hoff hval
+            have hro : ro = 0x60 := by
+              change some (wordNormalize 0x60) = some ro at hoff
+              injection hoff with h
+              rw [← h]
+              rfl
+            rw [hro]
+            decide) hexec)
+    (beforeWotsDigest_eq ls)
 
 /-- The state after the straight-line prefix that sets up `"d"` and initializes
 `"digitSum"`, just before the 43-step checksum loop. -/
@@ -877,6 +933,7 @@ theorem execLayerLoop (state : RuntimeState)
 #print axioms foldLoop_digitSum_eq
 #print axioms digitSumFold_zero_eq_wotsDigitSum
 #print axioms beforeWotsDigest_eq
+#print axioms beforeWotsDigest_seed_slot_eq
 #print axioms beforeDigitSum_eq
 #print axioms beforeDigitSum_digitSum_eq_zero
 #print axioms beforeDigitSum_d_eq_keccakWords_of_beforeWotsDigest_memory

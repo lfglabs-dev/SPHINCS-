@@ -421,6 +421,7 @@ are:
   `SegmentLayer3.foldLoop_digitSum_eq`,
   `SegmentLayer3.digitSumFold_zero_eq_wotsDigitSum`,
   `SegmentLayer3.beforeWotsDigest_eq`,
+  `SegmentLayer3.beforeWotsDigest_seed_slot_eq`,
   `SegmentLayer3.beforeDigitSum_eq`,
   `SegmentLayer3.beforeDigitSum_digitSum_eq_zero`,
   `SegmentLayer3.beforeDigitSum_d_eq_keccakWords_of_beforeWotsDigest_memory`,

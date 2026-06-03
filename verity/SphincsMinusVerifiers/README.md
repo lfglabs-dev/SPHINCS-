@@ -516,7 +516,8 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     prove the executable `"d"` and post-prefix `"digitSum"` cells from a
     four-word WOTS-digest scratch frame without re-elaborating the WOTS/XMSS
     suffix.  The remaining digit-cell work is the prefix correspondence proving
-    that scratch frame from the parsed layer seed/ADRS/current-node/count; the
+    that scratch frame from the parsed layer seed/ADRS/current-node/count
+    (`beforeWotsDigest_seed_slot_eq` closes the seed-slot preservation part); the
     generic `ClimbLoopGuarded.allGuardsPass_of_rel_range` and
     `CurrentNodeFrame.afterLayer_currentNode_wordOfHash16_of_forsPk_step_range`
     provide the matching guarded-loop and final-`currentNode` range adapters, and
