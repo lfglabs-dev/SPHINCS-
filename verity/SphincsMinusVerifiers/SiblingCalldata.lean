@@ -413,6 +413,58 @@ theorem masked_sig_read_eq_wordOfHash16_gen
   rw [hsplit, land_nmask _ _ hHlt hLlt, wordOfHash16,
       ← readBE_eq_read16 sig sOff, Nat.mod_eq_of_lt hHlt]
 
+/-- The high four bytes of a frozen calldata word at a signature byte offset are
+the four-byte big-endian read at that offset.  This is the byte-layout fact used
+by the WOTS count parser (`shr 224 (calldataload ...)`). -/
+theorem shifted_sig_read_eq_readBE4
+    (pkSeed pkRoot message sig : ByteArray) (sOff : Nat) :
+    (calldataloadWord 0
+        (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+        (sigDataOffset + sOff)) >>> 224
+      = readBE sig sOff 4 := by
+  rw [read32BE_calldata]
+  rw [Nat.shiftRight_eq_div_pow]
+  rw [show (2 : Nat) ^ 224 = 256 ^ 28 by norm_num]
+  rw [show (32 : Nat) = 4 + 28 from rfl, readBE_split_div]
+
+/-- Successful C13 parsing pins the WOTS count field of layer `layer` to the
+four-byte big-endian read at that layer's count byte offset. -/
+theorem parseSignatureC13_layer_count_eq_readBE4
+    {v : SphincsMinusVerifierSpec.Variant}
+    {sig : SphincsMinusVerifierSpec.Bytes}
+    {s : SphincsMinusVerifierSpec.Signature}
+    (hparse : parseSignatureC13 v sig = some s)
+    {layer : Nat} (hlayer : layer < 2)
+    {lsig : SphincsMinusVerifierSpec.XmssLayerSig}
+    (hlsig : s.layers[layer]? = some lsig) :
+    lsig.wots.count = readBE sig (1952 + 868 * layer + 688) 4 := by
+  have hsz : sig.size = v.sigBytes := parseSignatureC13_size hparse
+  unfold parseSignatureC13 at hparse
+  simp only [hsz, ne_eq, not_true_eq_false, if_false, Option.some.injEq] at hparse
+  subst hparse
+  rw [getElem?_map_range _ hlayer] at hlsig
+  injection hlsig with hlsig
+  subst hlsig
+  simp [readBE, bAt]
+
+/-- Parser-facing count calldata correspondence: the parsed WOTS count of layer
+`layer` is the high four bytes of the frozen calldata word at that layer's count
+offset. -/
+theorem parseSignatureC13_layer_count_eq_shifted_calldata
+    (pkSeed pkRoot message sig : ByteArray)
+    {v : SphincsMinusVerifierSpec.Variant}
+    {s : SphincsMinusVerifierSpec.Signature}
+    (hparse : parseSignatureC13 v sig = some s)
+    {layer : Nat} (hlayer : layer < 2)
+    {lsig : SphincsMinusVerifierSpec.XmssLayerSig}
+    (hlsig : s.layers[layer]? = some lsig) :
+    lsig.wots.count =
+      (calldataloadWord 0
+        (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+        (sigDataOffset + (1952 + 868 * layer + 688))) >>> 224 := by
+  rw [parseSignatureC13_layer_count_eq_readBE4 hparse hlayer hlsig]
+  rw [shifted_sig_read_eq_readBE4]
+
 /-! ## 5. Axiom audit. -/
 
 #print axioms read16_eq_fold
@@ -424,5 +476,8 @@ theorem masked_sig_read_eq_wordOfHash16_gen
 #print axioms masked_sig_read_eq_wordOfHash16
 #print axioms read32BE_calldata
 #print axioms masked_sig_read_eq_wordOfHash16_gen
+#print axioms shifted_sig_read_eq_readBE4
+#print axioms parseSignatureC13_layer_count_eq_readBE4
+#print axioms parseSignatureC13_layer_count_eq_shifted_calldata
 
 end SphincsMinusVerifiers.SiblingCalldata

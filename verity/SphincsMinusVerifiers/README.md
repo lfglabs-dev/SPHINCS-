@@ -523,7 +523,9 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `beforeWotsDigestAdrsSlot_countOff_lookup_eq` and
     `beforeWotsDigestAdrsSlot_count_lookup_eq_shifted_calldata` close the local
     executable count-offset and count binding from `sigBase`/`sigOff` plus the
-    raw calldata read, and
+    raw calldata read, while `parseSignatureC13_layer_count_eq_shifted_calldata`
+    in `SiblingCalldata` identifies that frozen raw count read with
+    `lsig.wots.count`, and
     `beforeWotsDigest_wotsAdrs_slot_eq_of_lookup`,
     `beforeWotsDigest_currentNode_slot_eq_of_lookup`, and
     `beforeWotsDigest_count_slot_eq_of_lookup` close the bounded

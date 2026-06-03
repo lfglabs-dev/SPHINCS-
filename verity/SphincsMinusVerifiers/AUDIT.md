@@ -109,7 +109,10 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   `beforeWotsDigestAdrsSlot_countOff_lookup_eq` and
   `beforeWotsDigestAdrsSlot_count_lookup_eq_shifted_calldata` close the local
   executable count-offset and count binding once `sigBase`/`sigOff`, bounds, and
-  the raw calldata read are identified;
+  the raw calldata read are identified; `shifted_sig_read_eq_readBE4` and
+  `parseSignatureC13_layer_count_eq_shifted_calldata` in
+  `SphincsMinusVerifiers/SiblingCalldata.lean` provide the pure parsed-count
+  calldata read bridge for that raw word;
   `beforeWotsDigest_wotsAdrs_slot_eq_of_lookup`,
   `beforeWotsDigest_currentNode_slot_eq_of_lookup`, and
   `beforeWotsDigest_count_slot_eq_of_lookup` close the bounded
@@ -555,13 +558,16 @@ The current narrow C13 accept handoff still has real residual obligations:
   incoming split/bounds are known,
   `beforeWotsDigestAdrsSlot_count_lookup_eq_shifted_calldata` evaluates the
   local executable count binding from `sigBase`/`sigOff` and a raw calldata read,
+  `parseSignatureC13_layer_count_eq_shifted_calldata` identifies the frozen raw
+  count read with the parsed layer's `lsig.wots.count`,
   and the ADRS/current-node/count slots are written back by
   `beforeWotsDigest_wotsAdrs_slot_eq_of_lookup`,
   `beforeWotsDigest_currentNode_slot_eq_of_lookup`, and
   `beforeWotsDigest_count_slot_eq_of_lookup` once the corresponding bindings and
   bounds are available.  The remaining digit-cell gap is therefore proving the
   layer-start facts that supply the WOTS_HASH ADRS split/bounds and the
-  `sigBase`/`sigOff`/raw-read facts for parsed count, followed by concrete
+  per-layer `sigOff = 1952 + 868 * idx` fact needed to apply the parsed-count
+  calldata bridge, followed by concrete
   WOTS/XMSS success and exact `"merkleNode"` model-cell facts through the
   bounded boundary.  The older
   concrete-layer packages still quantify
