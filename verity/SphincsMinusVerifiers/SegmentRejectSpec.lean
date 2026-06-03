@@ -26,12 +26,13 @@
     2. **FORS forced-zero guard** (statement 12; `s3Guard ≠ 0`).  The MODEL side
        is fully discharged (`c13_body_reverts_on_forced_zero`): threading the
        length-guard pass-through and the S2 straight-line prefix, then reverting
-       at `segmentS3`.  The SPEC side (`verifyBytes = none` here) maps to
-       `¬ forcedZeroOk`, but connecting `s3Guard (afterS2 …) ≠ 0` to
-       `¬ forcedZeroOk … (hMsg …)` requires the deep keccak digest↔H_msg data
-       correspondence — exactly the carried Phase-3b obligation.  That link is
-       therefore surfaced as an explicit hypothesis in `c13_revert_on_forced_zero`
-       rather than discharged; see the report.
+       at `segmentS3`.  The older low-level joint theorem
+       `c13_revert_on_forced_zero` still accepts the spec-side `none` result as
+       an explicit `hCorr` premise.  The parse-shaped C13 theorem
+       `c13_revert_on_forced_zero_of_parse` removes that raw premise by deriving
+       the spec-side `forcedZeroOk = false` result from successful concrete
+       parsing plus the non-zero model guard, contraposing
+       `SegmentAcceptSpec.c13_s3Guard_of_parse_forcedZero`.
 
   These are the revert-side building blocks that, together with the accept
   theorem, let a later step prove `ByteLevel.ImplementsByteVerifier c13Primitives
@@ -42,6 +43,7 @@
 -/
 
 import SphincsMinusVerifiers.SegmentCompose
+import SphincsMinusVerifiers.SegmentAcceptSpec
 import SphincsMinusVerifiers.MkC13State
 import SphincsMinusVerifiers.Proofs
 import SphincsMinusVerifierSpec.Spec
@@ -145,12 +147,96 @@ theorem c13_revert_on_forced_zero
       ∧ ByteLevel.verifyBytes c13Primitives c13 pkSeed pkRoot message sig = none :=
   ⟨c13_body_reverts_on_forced_zero (mkC13State pkSeed pkRoot message sig) hlen hg3, hCorr⟩
 
-/-! ## 3. Axiom audit. -/
+/-! ## 3. FORS forced-zero guard reject, parse-shaped spec side.
+
+The previous theorem keeps the original low-level shape where the spec-side
+`none` fact is supplied directly.  The lemmas below close the C13 spec side once
+the concrete C13 parser has succeeded and the spec forced-zero decision is
+known to be false, then derive that false decision from the non-zero model guard
+by contraposing the existing accept-side guard correspondence. -/
+
+/-- **Spec side.**  Once C13 byte parsing reaches `verifyParsed`, a failed
+forced-zero decision makes `ByteLevel.verifyBytes` return `none`. -/
+theorem c13_verifyBytes_none_on_forced_zero_of_parse
+    (pkSeed pkRoot message sig : ByteArray)
+    (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hZero : forcedZeroOk c13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = false) :
+    ByteLevel.verifyBytes c13Primitives c13 pkSeed pkRoot message sig = none := by
+  have hLen : sig.size = c13.sigBytes :=
+    C13Concrete.parseSignatureC13_size hParse
+  have hShape : signatureShapeOk c13 sigParsed = true :=
+    C13Concrete.parseSignatureC13_shape hParse
+  have hZero' : forcedZeroOk c13
+      (C13Concrete.hMsgC13 c13
+        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = false := by
+    simpa [C13Concrete.c13PrimitivesConcrete] using hZero
+  unfold ByteLevel.verifyBytes
+  simp [hLen, C13Concrete.parsePublicKey_c13, c13Primitives,
+    C13Concrete.c13PrimitivesConcrete, hParse, verifyParsed, hShape, hZero']
+
+/-- Successful C13 parsing plus a non-zero model forced-zero guard pins the
+spec-side forced-zero decision to `false`.  This is the C13 reject-side analogue
+of the accept path's `c13_s3Guard_of_parse_forcedZero`: if the spec decision had
+been true, that theorem would force the model guard to be zero. -/
+theorem c13_forcedZero_false_of_parse_s3Guard
+    (pkSeed pkRoot message sig : ByteArray)
+    (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hg3 : SegmentS3.s3Guard (afterS2 (mkC13State pkSeed pkRoot message sig)) ≠ 0) :
+    forcedZeroOk c13
+      (C13Concrete.c13PrimitivesConcrete.hMsg c13
+        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = false := by
+  cases hZero : forcedZeroOk c13
+      (C13Concrete.c13PrimitivesConcrete.hMsg c13
+        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) with
+  | false => rfl
+  | true =>
+      have hGuard0 :=
+        SegmentAcceptSpec.c13_s3Guard_of_parse_forcedZero
+          pkSeed pkRoot message sig
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed rfl hParse hZero
+      exact False.elim (hg3 hGuard0)
+
+/-- **Forced-zero correspondence, parse-shaped.**  Under successful C13 parsing,
+a non-zero model forced-zero guard makes the compiled body revert and the byte
+spec return `none`, without taking a raw `hCorr` premise. -/
+theorem c13_revert_on_forced_zero_of_parse
+    (pkSeed pkRoot message sig : ByteArray)
+    (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hg3 : SegmentS3.s3Guard (afterS2 (mkC13State pkSeed pkRoot message sig)) ≠ 0) :
+    execStmtList [] (mkC13State pkSeed pkRoot message sig) c13VerifyBody = .revert
+      ∧ ByteLevel.verifyBytes c13Primitives c13 pkSeed pkRoot message sig = none := by
+  have hlen :
+      lookupValue (mkC13State pkSeed pkRoot message sig).bindings "sig_length"
+        = wordNormalize 3688 := by
+    rw [mkC13State_lookup_sigLength]
+    have hsz : sig.size = c13.sigBytes :=
+      C13Concrete.parseSignatureC13_size hParse
+    change sig.size = wordNormalize 3688
+    rw [hsz]
+    rfl
+  have hZeroFalse :=
+    c13_forcedZero_false_of_parse_s3Guard
+      pkSeed pkRoot message sig sigParsed hParse hg3
+  exact
+    ⟨c13_body_reverts_on_forced_zero
+        (mkC13State pkSeed pkRoot message sig) hlen hg3,
+      c13_verifyBytes_none_on_forced_zero_of_parse
+        pkSeed pkRoot message sig sigParsed hParse hZeroFalse⟩
+
+/-! ## 4. Axiom audit. -/
 
 #print axioms c13_body_reverts_on_bad_length
 #print axioms c13_verifyBytes_none_on_bad_length
 #print axioms c13_revert_on_bad_length
 #print axioms c13_body_reverts_on_forced_zero
 #print axioms c13_revert_on_forced_zero
+#print axioms c13_verifyBytes_none_on_forced_zero_of_parse
+#print axioms c13_forcedZero_false_of_parse_s3Guard
+#print axioms c13_revert_on_forced_zero_of_parse
 
 end SphincsMinusVerifiers.SegmentRejectSpec

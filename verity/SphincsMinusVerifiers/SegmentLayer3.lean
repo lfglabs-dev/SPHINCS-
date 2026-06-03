@@ -30,8 +30,8 @@ namespace SphincsMinusVerifiers.SegmentLayer3
 open Compiler.Proofs.IRGeneration.SourceSemantics
 open Compiler.CompilationModel
 open Compiler.CompilationModel (Expr Stmt)
-open SphincsMinusVerifiers.ClimbKit (N_MASK merkleClimbBody wotsChainBody stepWots wotsChainStep
-  execStmtList_cons_continue)
+open SphincsMinusVerifiers.ClimbKit (N_MASK merkleClimbBody wotsChainBody stepMerkle stepWots
+  wotsChainStep execStmtList_cons_continue)
 open SphincsMinusVerifiers.MemoryKit (execStmt_mstore_continue execStmt_letVar_continue)
 open SphincsMinusVerifiers.ClimbLoop (foldLoop execStmt_forEach_of_step execStmt_forEach_merkleClimb)
 
@@ -167,6 +167,23 @@ def suffix14 : List Stmt :=
   , .assignVar "currentNode" (v "merkleNode")
   , .assignVar "sigOff" (addE (v "authOff") (u 176)) ]
 
+/-- The straight-line part of `suffix14` before the XMSS Merkle-climb loop.
+This state carries the concrete WOTS public-key word and the initialized
+`merkleNode`/`mIdx`/`treeAdrs`/`merklePtr` cells consumed by the generic
+Merkle-climb frame lemmas. -/
+def suffixBeforeMerkle : List Stmt :=
+  [ .letVar "wotsPtr" (addE (v "sigBase") (v "sigOff"))
+  , .forEach "i" (u 43) wotsOuterBody
+  , .letVar "pkAdrs" (orE (shlE (u 224) (v "layer")) (orE (shlE (u 128) (v "idxTree")) (orE (shlE (u 96) (u 1)) (shlE (u 64) (v "idxLeaf")))))
+  , mstore 0x20 (v "pkAdrs")
+  , .forEach "i" (u 43) copyBody
+  , .letVar "wotsPk" (andE (keccak 0x00 0x5A0) (u N_MASK))
+  , .letVar "authOff" (addE (v "countOff") (u 4))
+  , .letVar "treeAdrs" (orE (shlE (u 224) (v "layer")) (orE (shlE (u 128) (v "idxTree")) (shlE (u 96) (u 2))))
+  , .letVar "merkleNode" (v "wotsPk")
+  , .letVar "mIdx" (v "idxLeaf")
+  , .letVar "merklePtr" (addE (v "sigBase") (v "authOff")) ]
+
 def layerBody : List Stmt := prefix11 ++ (.ite condE revert0 [] :: suffix14)
 
 def layerStmt : Stmt := .forEach "layer" (u 2) layerBody
@@ -221,6 +238,38 @@ payload of `suffix14` run from `afterDigit ls`. -/
 def stepLayer (ls : RuntimeState) : RuntimeState :=
   match execStmtList [] (afterDigit ls) suffix14 with | .continue s' => s' | _ => afterDigit ls
 
+/-- The state immediately before the XMSS Merkle-climb loop inside one accepting
+layer iteration. -/
+def beforeMerkle (ls : RuntimeState) : RuntimeState :=
+  match execStmtList [] (afterDigit ls) suffixBeforeMerkle with
+  | .continue s' => s'
+  | _ => afterDigit ls
+
+theorem beforeMerkle_eq (ls : RuntimeState) :
+    execStmtList [] (afterDigit ls) suffixBeforeMerkle = .continue (beforeMerkle ls) := by
+  unfold beforeMerkle suffixBeforeMerkle mstore u
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsPtr" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_forEach_of_step "i" (.literal 43) wotsOuterBody _ _ wotsOuterStep rfl wotsOuterStepLemma)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "pkAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_forEach_of_step "i" (.literal 43) copyBody _ _ copyStep rfl copyStepLemma)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsPk" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "authOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "treeAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merkleNode" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "mIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merklePtr" _ _ rfl)]
+  rfl
+
+/-- The exact folded XMSS Merkle-climb state inside one accepting layer iteration. -/
+def afterMerkle (ls : RuntimeState) : RuntimeState :=
+  foldLoop "h" (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr")
+    { beforeMerkle ls with
+      bindings := bindValue (beforeMerkle ls).bindings "h" (wordNormalize 0) }
+    0 (wordNormalize 11)
+
 set_option maxHeartbeats 4000000 in
 theorem suffix14_continues (ls : RuntimeState) :
     execStmtList [] (afterDigit ls) suffix14 = .continue (stepLayer ls) := by
@@ -243,6 +292,23 @@ theorem suffix14_continues (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "currentNode" _ _ rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "sigOff" _ _ rfl)]
   rfl
+
+/-- The final two layer assignments do not rebind `"merkleNode"`.  This is the
+cheap tail brick used by structural layer-suffix proofs without replaying the
+whole WOTS/XMSS prefix. -/
+theorem finalLayerTail_preserves_merkleNode (st : RuntimeState) :
+    lookupValue
+        (match execStmtList [] st
+            [ .assignVar "currentNode" (v "merkleNode")
+            , .assignVar "sigOff" (addE (v "authOff") (u 176)) ] with
+          | .continue s' => s'
+          | _ => st).bindings
+        "merkleNode"
+      = lookupValue st.bindings "merkleNode" := by
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "currentNode" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "sigOff" _ _ rfl)]
+  simp only [execStmtList, MemoryKit.lookupValue_bindValue_ne,
+    ne_eq, String.reduceEq, not_false_eq_true]
 
 set_option maxHeartbeats 4000000 in
 /-- **`stepLayer_currentNode_eq_merkleNode`** — structural identification of the
@@ -286,6 +352,34 @@ theorem stepLayer_currentNode_eq_merkleNode (ls : RuntimeState) :
 (`digitSum = 208`), i.e. the layer body does *not* revert. -/
 def layerGuard (ls : RuntimeState) : Bool :=
   evalExpr [] (afterDigit ls) condE == some 0
+
+/-- If the guard-free prefix's accumulated checksum binding is the C13 target
+`208`, the executable layer guard passes.  This is a small public bridge from the
+data-cell fact callers naturally prove (`"digitSum"` after `prefix11`) to the
+guard predicate consumed by the guarded loop engine. -/
+theorem layerGuard_of_afterDigit_digitSum_eq
+    (ls : RuntimeState)
+    (hDigit : lookupValue (afterDigit ls).bindings "digitSum" = 208) :
+    layerGuard ls = true := by
+  have hEq :
+      evalExpr [] (afterDigit ls) (eqE (v "digitSum") (u 208)) = some 1 := by
+    unfold eqE v u
+    show (do
+      let lhs ← some (lookupValue (afterDigit ls).bindings "digitSum")
+      let rhs ← some (wordNormalize 208)
+      pure (boolWord (decide (lhs = rhs)))) = some 1
+    rw [hDigit]
+    rfl
+  have hCond : evalExpr [] (afterDigit ls) condE = some 0 := by
+    unfold condE notE
+    show (do
+      let value ← evalExpr [] (afterDigit ls) (eqE (v "digitSum") (u 208))
+      pure (boolWord (decide (value = 0)))) = some 0
+    rw [hEq]
+    rfl
+  unfold layerGuard
+  rw [hCond]
+  rfl
 
 /-- The checksum-guard `ite` (then = `revert0`, else = `[]`): continues with the
 same state when its condition resolves to `0`, reverts otherwise. -/
@@ -342,6 +436,9 @@ theorem execLayerLoop (state : RuntimeState)
 /-! ## 7. Axiom audit. -/
 
 #print axioms layerStmt_eq_slice
+#print axioms layerGuard_of_afterDigit_digitSum_eq
+#print axioms beforeMerkle_eq
+#print axioms finalLayerTail_preserves_merkleNode
 #print axioms execLayerBody
 #print axioms execLayerLoop
 #print axioms stepLayer_currentNode_eq_merkleNode

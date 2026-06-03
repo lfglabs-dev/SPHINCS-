@@ -30,6 +30,7 @@ lean_lib SphincsMinusVerifiers where
              `SphincsMinusVerifiers.ClimbKit,
              `SphincsMinusVerifiers.ClimbLoop,
              `SphincsMinusVerifiers.BindingFrame,
+             `SphincsMinusVerifiers.StateFrame,
              `SphincsMinusVerifiers.RootFrame,
              `SphincsMinusVerifiers.ClimbStepSpec,
              `SphincsMinusVerifiers.ClimbKeccakStep,

@@ -28,6 +28,7 @@
 
 import SphincsMinusVerifiers.ClimbLoop
 import SphincsMinusVerifiers.ClimbKeccakStep
+import SphincsMinusVerifiers.InitialNodeKeccak
 import SphincsMinusVerifiers.Model
 import SphincsMinusVerifierSpec.C13Concrete
 
@@ -37,7 +38,7 @@ open Compiler.Proofs.IRGeneration.SourceSemantics
 open Compiler.CompilationModel (Expr Stmt)
 open SphincsMinusVerifiers.ClimbKit (N_MASK)
 open SphincsMinusVerifiers.ClimbLoop (foldLoop)
-open SphincsMinusVerifierSpec.C13Concrete (adrsForsRoots)
+open SphincsMinusVerifierSpec.C13Concrete (adrsForsRoots adrsForsLeaf maskN keccakWords)
 
 /-! ## 0. EDSL constructors (matching `Model.lean`'s private helpers). -/
 
@@ -87,6 +88,26 @@ private theorem addIdxShl5_lt (base idx : Nat) (hbase : base ≤ 0x80) (hidx : i
   have hle : base + idx * 2 ^ 5 ≤ 128 + 6 * 2 ^ 5 :=
     Nat.add_le_add hbase (Nat.mul_le_mul_right _ (Nat.le_of_lt_succ hidx))
   exact lt_of_le_of_lt hle (by decide)
+
+private theorem evalExpr_bitAnd_result_lt
+    {st : RuntimeState} {e : Expr} {m r : Nat}
+    (h : evalExpr [] st (.bitAnd e (.literal m)) = some r) :
+    r < Verity.Core.Uint256.modulus := by
+  change (do
+        let lhs ← evalExpr [] st e
+        let rhs ← evalExpr [] st (.literal m)
+        pure (Verity.Core.Uint256.and lhs rhs).val) = some r at h
+  cases he : evalExpr [] st e with
+  | none =>
+      simp [he] at h
+  | some lhs =>
+      cases hm : evalExpr [] st (.literal m) with
+      | none =>
+          simp [he, hm] at h
+      | some rhs =>
+          simp [he, hm] at h
+          subst r
+          exact (Verity.Core.Uint256.and lhs rhs).isLt
 
 private theorem evalCopyOffset (s : RuntimeState) (base idx : Nat)
     (hbase : base ≤ 0x80) (hidx : idx < 7) :
@@ -487,6 +508,94 @@ theorem forsFinalizePreCopyStep_adrsRoots_slot (st : RuntimeState) :
     Verity.Core.Uint256.shl, Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS]
 
 set_option maxHeartbeats 4000000 in
+/-- The pre-copy finalize prefix computes the forced-zero seventh FORS root in
+source slot `0x140`, provided the incoming seed cell and seventh secret word are
+the expected spec words.  This isolates the remaining calldata/parser work from
+the local forced-root scratch hash. -/
+theorem forsFinalizePreCopyStep_forced_root_cell
+    (st : RuntimeState) (seed sk : Nat)
+    (hmSeed : (st.world.memory 0).val = seed)
+    (hLastSecret :
+      evalExpr [] st
+        (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (u 6)))))
+          (u N_MASK)) = some sk) :
+    ((forsFinalizePreCopyStep st).world.memory 0x140).val
+      = maskN (keccakWords [seed, adrsForsLeaf 6 0, sk]) := by
+  let st1 : RuntimeState := { st with bindings := bindValue st.bindings "lastSecret" sk }
+  let st2 : RuntimeState :=
+    { st1 with world := { st1.world with
+        memory := MemoryKit.memUpdate st1.world.memory 0x20 (adrsForsLeaf 6 0) } }
+  let st3 : RuntimeState :=
+    { st2 with world := { st2.world with
+        memory := MemoryKit.memUpdate st2.world.memory 0x40 sk } }
+  let node : Nat := maskN (keccakWords [seed, adrsForsLeaf 6 0, sk])
+  let st4 : RuntimeState :=
+    { st3 with world := { st3.world with
+        memory := MemoryKit.memUpdate st3.world.memory 0x140 node } }
+  let st5 : RuntimeState :=
+    { st4 with world := { st4.world with
+        memory := MemoryKit.memUpdate st4.world.memory 0x20 adrsForsRoots } }
+  have h1 : execStmt [] st
+      (.letVar "lastSecret"
+        (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (u 6)))))
+          (u N_MASK))) = .continue st1 := by
+    unfold st1
+    exact execStmt_letVar_continue st "lastSecret" _ _ hLastSecret
+  have h2 : execStmt [] st1
+      (mstore 0x20 (orE (shlE (u 96) (u 3)) (shlE (u 64) (u 6))))
+        = .continue st2 := by
+    unfold st2 mstore u
+    convert execStmt_mstore_continue st1 (.literal 0x20)
+      (orE (shlE (.literal 96) (.literal 3)) (shlE (.literal 64) (.literal 6)))
+      0x20 (adrsForsLeaf 6 0) rfl rfl using 1
+  have h3 : execStmt [] st2 (mstore 0x40 (v "lastSecret")) = .continue st3 := by
+    unfold st3 mstore u v
+    refine execStmt_mstore_continue st2 (.literal 0x40) (.localVar "lastSecret")
+      0x40 sk rfl ?_
+    unfold st2 st1
+    show some (lookupValue (bindValue st.bindings "lastSecret" sk) "lastSecret") = some sk
+    rw [MemoryKit.lookupValue_bindValue_self]
+  have hNode :
+      evalExpr [] st3
+        (andE (keccak 0x00 0x60) (u N_MASK)) = some node := by
+    unfold node
+    have hsk_lt : sk < Verity.Core.Uint256.modulus :=
+      evalExpr_bitAnd_result_lt hLastSecret
+    unfold andE keccak u
+    refine SphincsMinusVerifiers.InitialNodeKeccak.fors_leaf_node_eq
+      _ seed (adrsForsLeaf 6 0) sk ?_ ?_ ?_
+    · simp [st3, st2, st1, MemoryKit.memUpdate, hmSeed]
+    · simp [st3, st2, MemoryKit.memUpdate]
+      exact Nat.mod_eq_of_lt (by
+        decide)
+    · simp [st3, MemoryKit.memUpdate, Nat.mod_eq_of_lt hsk_lt]
+  have h4 : execStmt [] st3
+      (mstore 0x140 (andE (keccak 0x00 0x60) (u N_MASK))) = .continue st4 := by
+    unfold st4 mstore u
+    exact execStmt_mstore_continue st3 (.literal 0x140)
+      (andE (keccak 0x00 0x60) (.literal N_MASK)) 0x140 node rfl hNode
+  have h5 : execStmt [] st4 (mstore 0x20 (shlE (u 96) (u 4))) = .continue st5 := by
+    unfold st5 mstore u
+    convert execStmt_mstore_continue st4 (.literal 0x20)
+      (shlE (.literal 96) (.literal 4)) 0x20 adrsForsRoots rfl rfl using 1
+  have hExec : execStmtList [] st forsFinalizePreCopyBody = .continue st5 := by
+    unfold forsFinalizePreCopyBody
+    rw [execStmtList_cons_continue _ _ _ _ h1]
+    rw [execStmtList_cons_continue _ _ _ _ h2]
+    rw [execStmtList_cons_continue _ _ _ _ h3]
+    rw [execStmtList_cons_continue _ _ _ _ h4]
+    rw [execStmtList_cons_continue _ _ _ _ h5]
+    rfl
+  unfold forsFinalizePreCopyStep
+  rw [hExec]
+  have hnode_lt : node < Verity.Core.Uint256.modulus :=
+    evalExpr_bitAnd_result_lt hNode
+  unfold st5 st4
+  simp [MemoryKit.memUpdate]
+  unfold node at hnode_lt ⊢
+  exact Nat.mod_eq_of_lt hnode_lt
+
+set_option maxHeartbeats 4000000 in
 /-- Running the finalize prefix continues to `forsFinalizePrePkStep st`. -/
 theorem execForsFinalizePrePk (st : RuntimeState) :
     execStmtList [] st forsFinalizePrePkBody = .continue (forsFinalizePrePkStep st) := by
@@ -620,6 +729,7 @@ theorem forsFinalizeStep_forsPk
 #print axioms forsFinalizePreCopyStep_seed_slot
 #print axioms forsFinalizePreCopyStep_preserves_root_source_slot
 #print axioms forsFinalizePreCopyStep_adrsRoots_slot
+#print axioms forsFinalizePreCopyStep_forced_root_cell
 #print axioms execForsFinalizePrePk
 #print axioms forsFinalizePrePkStep_copy_slot
 #print axioms forsFinalizePrePkStep_preserves_low_slot

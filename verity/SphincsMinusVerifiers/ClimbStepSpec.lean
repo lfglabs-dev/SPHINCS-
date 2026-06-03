@@ -87,11 +87,41 @@ theorem forsClimb_zero (seed i : Word) (h pathIdx : Nat)
     forsClimb seed i 0 h pathIdx node auth = node := by
   simp only [forsClimb]
 
-/-! ## 3. Axiom audit. -/
+/-! ## 3. FORS climb as an XMSS-shaped climb.
+
+The interpreter-side Merkle loop is generic in an address base.  FORS supplies the
+base `(3 <<< 96) ||| (i <<< 64)` and then uses the same level/index suffix as the
+XMSS climb.  These lemmas expose that spec-side correspondence without mentioning
+the interpreter. -/
+
+/-- The generic Merkle address built from the FORS tree base is definitionally the
+FORS node address, up to `Nat.lor` associativity. -/
+theorem forsTreeBase_node_address (i h parentIdx : Nat) :
+    (((3 <<< 96) ||| (i <<< 64)) ||| ((h + 1) <<< 32)) ||| parentIdx
+      = adrsForsNode i h parentIdx := by
+  simp only [adrsForsNode]
+
+/-- FORS climb is the generic XMSS-shaped climb instantiated with the FORS tree
+base `(3 <<< 96) ||| (i <<< 64)`. -/
+theorem forsClimb_eq_xmssClimb (seed i : Word) (fuel h pathIdx : Nat)
+    (node : Word) (auth : List Bytes) :
+    forsClimb seed i fuel h pathIdx node auth
+      = xmssClimb seed ((3 <<< 96) ||| (i <<< 64)) fuel h pathIdx node auth := by
+  induction fuel generalizing h pathIdx node with
+  | zero =>
+      simp only [forsClimb, xmssClimb]
+  | succ fuel ih =>
+      simp only [forsClimb, xmssClimb]
+      rw [forsTreeBase_node_address]
+      exact ih (h + 1) (pathIdx / 2) _
+
+/-! ## 4. Axiom audit. -/
 
 #print axioms xmssClimb_succ
 #print axioms xmssClimb_zero
 #print axioms forsClimb_succ
 #print axioms forsClimb_zero
+#print axioms forsTreeBase_node_address
+#print axioms forsClimb_eq_xmssClimb
 
 end SphincsMinusVerifiers.ClimbStepSpec

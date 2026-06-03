@@ -1,6 +1,6 @@
 # Axiom Inventory
 
-Status date: 2026-06-01
+Status date: 2026-06-02
 
 This file records the axiom status relevant to the C13/C12
 MODEL-EXEC-BRIDGE work.  The target state is defined by
@@ -43,6 +43,12 @@ are:
 - `C13Concrete.parseSignatureC13_shape`:
   `[propext, Classical.choice, Quot.sound]`.
 
+- `C13Concrete.parseSignatureC13_fors_sk_getElem?`:
+  `[propext]`.
+
+- `C13Concrete.parseSignatureC13_fors_authPath_getD_getElem?`:
+  `[propext]`.
+
 - `C13Concrete.publicKeyOk_c13` and `C13Concrete.parsePublicKey_c13`:
   `[propext]`.
 
@@ -50,6 +56,12 @@ are:
   `[propext, Quot.sound]`.
 
 - `C13Concrete.hMsgC13_forsIndex_six`:
+  `[propext, Quot.sound]`.
+
+- `C13Concrete.hMsgC13_forsIndex_getD_eq`,
+  `C13Concrete.hMsgC13_forsIndex_getD_lt`,
+  `C13Concrete.adrsForsLeaf_lt_of_normal_idx_lt`, and
+  `C13Concrete.adrsForsLeaf_hMsgC13_normal_lt`:
   `[propext, Quot.sound]`.
 
 - `C13Concrete.hash16OfWord_size`:
@@ -78,14 +90,110 @@ are:
 - `SegmentS3.nat_land_low19` and `SegmentS3.s3Guard_eq_forsIndex6`:
   `[propext, Classical.choice, Quot.sound]`.
 
-- `CurrentNodeFrame` seed/FORS-compression frame adapters:
+- `StateFrame` selector/calldata statement/list/loop frame lemmas:
+  `[propext, Classical.choice, Quot.sound]` for statement/list adapters, and
+  `[propext]` for the pure `foldLoop` adapter.
+
+- `ClimbLoop.foldLoop_append`:
+  `[propext, Quot.sound]`.
+
+- `ClimbStepSpec.forsTreeBase_node_address`:
+  `[propext]`.
+
+- `ClimbStepSpec.forsClimb_eq_xmssClimb`:
+  `[propext, Quot.sound]`.
+
+- `ClimbMemFrameMerkle.forsClimb_model_node` and
+  `ClimbMemFrameMerkle.forsClimbFrame_model_node`:
   `[propext, Classical.choice, Quot.sound]`.
+
+- `ClimbMemFrameMerkle.MerkleClimbRawRel` projection/welding facts:
+  `.intro`, `.idx`, `.node`, `.node_norm`, and `.toRel` are `[propext]`;
+  `MerkleClimbRawRel_of_pair` is `[propext, Quot.sound]`.
+
+- `ClimbMemFrameMerkle.merkleClimbRaw_foldLoop_correspondence` and
+  `ClimbMemFrameMerkle.xmssClimbRaw_model_node`:
+  `[propext, Classical.choice, Quot.sound]`.
+
+- `ClimbMemFrameMerkle.fors_climb_data_range_getD`:
+  `[propext, Classical.choice, Quot.sound]`.
+
+- `CurrentNodeFrame` seed/static-frame/FORS-compression frame adapters, including
+  `s2Step_preserves_sig_data_offset`, `afterS2_sig_data_offset_mkC13State`,
+  `afterS3_sigBase_mkC13State`, `afterFors_sigBase_mkC13State`,
+  `s2Step_preserves_selector_calldata`,
+  `afterS2_selector_calldata_mkC13State`,
+  `afterS3_selector_calldata_mkC13State`,
+  `afterFors_selector_calldata_mkC13State`,
+  `forsOuterPrefixState`,
+  `forsOuterLeafState`,
+  `forsOuterPrefix_sigBase_mkC13State`,
+  `forsOuterPrefix_selector_calldata_mkC13State`,
+  `forsOuterPrefix_leafSetupFacts_mkC13State`,
+  `forsOuterLeafState_setupFacts_mkC13State`,
+  `forsLeafStep_preserves_seed_slot_of_mkC13State_prefix`,
+  `forsLeafStep_preserves_root_cell_ne_of_mkC13State_prefix`,
+  `forsOuterPrefix_root_cell_succ_ne_mkC13State`,
+  `forsOuterPrefix_root_cell_suffix_mkC13State`,
+  `forsOuterPrefix_root_cell_iteration_node_mkC13State`,
+  `afterFors_eq_forsOuterPrefixState_mkC13State`,
+  `forsOuterPrefix_seed_slot_mkC13State`,
+  `afterFors_seed_slot_mkC13State`,
+  `normalRootCell_eq_of_outer_iteration_node`,
+  `normalRootCells_eq_forsAllRootsC13_of_iteration_nodes`,
+  `normalRootCell_eq_of_fors_frozen_calldata_node`,
+  `normalRootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes`,
+  `normalRootCell_eq_of_mkC13State_iteration_node`,
+  `normalRootCells_eq_forsAllRootsC13_of_mkC13State_iteration_nodes`,
+  `forsAuthCdAt`,
+  `forsOuterLeafState_node_eq_forsAllRootsC13_of_eval_parse`,
+  `forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_eval_parse`,
+  `forsLeafAddress_eval_eq_adrsForsLeaf`,
+  `forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_eval_parse`,
+  `afterS3_dVal_mkC13State`,
+  `forsOuterPrefix_dVal_mkC13State`,
+  `forsOuterLeafState_dVal_mkC13State`,
+  `forsOuterLeafState_treeIdx_eval_eq_hMsg_parse`,
+  `forsSecret_eval_eq_wordOfHash16_parse`,
+  `forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_secret_parse`,
+  `forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_tree_secret_parse`,
+  `forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_tree_secret_parse_concrete`,
+  `SegmentS4ForsMerkleFrame.forsLeafSetupStep_fors_frozen_calldata_site`,
+  `SegmentS4ForsMerkleFrame.forsLeafSetupStep_forsFrozenSite`,
+  `SegmentS4ForsMerkleFrame.forsLeafSetupStep_initial_forsClimbRel_of_eval`,
+  `SegmentS4ForsMerkleFrame.forsLeafSetupStep_initial_forsClimbFrame_of_eval_site`,
+  `SegmentS4ForsMerkleFrame.forsLeafInnerStep_node_eq_forsClimb_of_eval`,
+  `SegmentS4ForsMerkleFrame.forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site`,
+  `SegmentS4ForsMerkleFrame.forsLeafInnerStep_node_eq_forsAllRootsC13_getElem_of_eval`,
+  `SegmentS4ForsMerkleFrame.stepMerkle_preserves_forsFrozenSite`,
+  `SegmentS4ForsMerkleFrame.foldLoop_preserves_forsFrozenSite_range`,
+  `SegmentS4ForsMerkleFrame.foldLoop_preserves_seed_slot_of_forsFrozenSite_range`,
+  `SegmentS4ForsMerkleFrame.foldLoop_preserves_root_cell_of_forsFrozenSite_range`,
+  `SegmentS4ForsMerkleFrame.forsLeafInnerStep_preserves_seed_slot_of_forsFrozenSite`,
+  `SegmentS4ForsMerkleFrame.forsLeafInnerStep_preserves_root_cell_of_forsFrozenSite`,
+  `SegmentS4ForsMerkleFrame.forsLeafStep_preserves_seed_slot_of_forsFrozenSetup`,
+  `SegmentS4ForsMerkleFrame.forsLeafStep_preserves_root_cell_ne_of_forsFrozenSetup`,
+	  `finalSecret_eval_eq_wordOfHash16`,
+	  `forcedRootCell_eq_forsAllRootsC13_of_parse`, and
+	  `forcedRootCell_eq_forsAllRootsC13_of_parse_calldata`,
+	  `forcedRootCell_eq_forsAllRootsC13_of_parse_static`, and
+	  `forcedRootCell_eq_forsAllRootsC13_of_parse_range_seed`,
+	  `forcedRootCell_eq_forsAllRootsC13_of_parse_concrete`,
+	  `rootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes_and_parse_range_seed`,
+	  `rootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes_and_parse`,
+	  `rootCells_eq_forsAllRootsC13_of_mkC13State_iteration_nodes_and_parse`,
+	  `rootCells_eq_forsAllRootsC13_of_hMsg_parse_concrete`,
+	  `forsPkCompressWord_eq_of_afterFors_concrete_mkC13State_six_plus_last`:
+	  `[propext, Classical.choice, Quot.sound]`.
 
 - `SegmentAcceptSpec` final accept adapters and
   `C13SeedNamedAcceptObligations` / `C13SeedNamedAcceptDataObligations` /
   `C13SeedNamedAcceptParsedObligations` /
   `C13SeedNamedAcceptGuardedLayerObligations` /
-  `C13SeedNamedAcceptGuardedObligations`:
+  `C13SeedNamedAcceptGuardedObligations` /
+  `C13SeedNamedAcceptConcreteLayerObligations` /
+  `seed_named_pk_root_size_obligations_of_concrete_layer_obligations` /
+  `accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of_bytes`:
   `[propext, Classical.choice, Quot.sound]`.
 
 - `SegmentAcceptSpec.hash16OfWord_beq_eq_decide`,
@@ -131,9 +239,12 @@ are:
   `SegmentRejectSpec.c13_body_reverts_on_bad_length`,
   `SegmentRejectSpec.c13_verifyBytes_none_on_bad_length`,
   `SegmentRejectSpec.c13_revert_on_bad_length`,
-  `SegmentRejectSpec.c13_body_reverts_on_forced_zero`, and
-  `SegmentRejectSpec.c13_revert_on_forced_zero` (the last takes the spec-side
-  forced-zero connection as a surfaced hypothesis):
+  `SegmentRejectSpec.c13_body_reverts_on_forced_zero`,
+  `SegmentRejectSpec.c13_revert_on_forced_zero` (the low-level form takes the
+  spec-side forced-zero connection as a surfaced hypothesis),
+  `SegmentRejectSpec.c13_verifyBytes_none_on_forced_zero_of_parse`,
+  `SegmentRejectSpec.c13_forcedZero_false_of_parse_s3Guard`, and
+  `SegmentRejectSpec.c13_revert_on_forced_zero_of_parse`:
   `[propext, Classical.choice, Quot.sound]`.
 
 - `ClimbLoopGuarded.allGuardsPass_of_rel`:
@@ -150,20 +261,51 @@ are:
   `ClimbMemFrameMerkle.execStmt_forEach_h_merkleClimb_preserves_memory_val_range`:
   `[propext, Classical.choice, Quot.sound]`.
 
-- `ClimbMemFrameMerkle.stepMerkle_mem_zero_of_parity` and
+- `ClimbMemFrameMerkle.stepMerkle_mem_val_of_ne`,
+  `ClimbMemFrameMerkle.stepMerkle_mem_zero_of_parity`, and
   `ClimbMemFrameMerkle.stepMerkle_mem_zero_val_of_parity`:
   `[propext, Classical.choice, Quot.sound]`.
 
 - `SegmentS4ForsMerkleFrame.stepMerkle_preserves_seed_slot_of_s4_eval`,
+  `SegmentS4ForsMerkleFrame.stepMerkle_forsFrame_hstep_of_s4_data`,
+  `SegmentS4ForsMerkleFrame.stepMerkle_forsFrame_hstep_of_fors_frozen_calldata`,
   `SegmentS4ForsMerkleFrame.forsLeafInner_preserves_seed_slot_bound_of_s4_eval`,
   `SegmentS4ForsMerkleFrame.s4_address_assembly_eval_exists`,
+  `SegmentS4ForsMerkleFrame.s4_eval_site_of_frozen_calldata`,
+  `SegmentS4ForsMerkleFrame.s4_eval_site_of_fors_frozen_calldata`,
+  `SegmentS4ForsMerkleFrame.forsLeafSetupStep_initial_forsClimbFrame_of_eval_site`,
+  `SegmentS4ForsMerkleFrame.forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site`,
+  `SegmentS4ForsMerkleFrame.forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site_range`,
+  `SegmentS4ForsMerkleFrame.forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site_range_path_bound`,
+  `SegmentS4ForsMerkleFrame.forsLeafInnerStep_node_eq_forsClimbFrame_of_fors_frozen_calldata`,
+  `SegmentS4ForsMerkleFrame.stepMerkle_preserves_seed_slot_of_fors_frozen_calldata`,
+  `SegmentS4ForsMerkleFrame.stepMerkle_preserves_root_cell_of_fors_frozen_calldata`,
   `SegmentS4ForsMerkleFrame.forsLeafInner_preserves_seed_slot_bound_of_step`,
+  `SegmentS4ForsMerkleFrame.forsLeafInner_preserves_memory_val_bound_of_step`,
+  `SegmentS4ForsMerkleFrame.forsLeafStep_preserves_root_cell_range_ne_of_inner_step`,
+  `SegmentS4ForsMerkleFrame.stepMerkle_preserves_root_cell_of_s4_eval`,
+  `SegmentS4ForsMerkleFrame.forsLeafStep_preserves_root_cell_range_ne_of_s4_eval`,
+  `SegmentS4ForsMerkleFrame.forsOuter_root_cell_eq_iteration_node_of_s4_eval`,
   `SegmentS4ForsMerkleFrame.forsLeafInner_preserves_seed_slot_range_of_step`,
+  `SegmentS4ForsMerkleFrame.foldLoop_preserves_forsFrozenSite_range`,
+  `SegmentS4ForsMerkleFrame.foldLoop_preserves_seed_slot_of_forsFrozenSite_range`,
+  `SegmentS4ForsMerkleFrame.foldLoop_preserves_root_cell_of_forsFrozenSite_range`,
+  `SegmentS4ForsMerkleFrame.forsLeafInnerStep_preserves_seed_slot_of_forsFrozenSite`,
+  `SegmentS4ForsMerkleFrame.forsLeafInnerStep_preserves_root_cell_of_forsFrozenSite`,
+  `SegmentS4ForsMerkleFrame.forsLeafStep_preserves_seed_slot_of_forsFrozenSetup`,
+  `SegmentS4ForsMerkleFrame.forsLeafStep_preserves_root_cell_ne_of_forsFrozenSetup`,
   `SegmentS4ForsMerkleFrame.forsLeafStep_preserves_seed_slot_range_of_merkle_step_bound`, and
   `SegmentS4ForsMerkleFrame.forsLeafStep_preserves_seed_slot_range_of_merkle_step_range`,
   `SegmentS4ForsMerkleFrame.execForsOuter_preserves_seed_slot_range_of_merkle_step_bound`, and
   `SegmentS4ForsMerkleFrame.execForsOuter_preserves_seed_slot_range_of_merkle_step_range`, and
-  `SegmentS4ForsMerkleFrame.execForsOuter_preserves_seed_slot_range_of_s4_eval`:
+  `SegmentS4ForsMerkleFrame.execForsOuter_preserves_seed_slot_range_of_s4_eval`,
+  `SegmentS4ForsMerkleFrame.forsLeafStep_preserves_root_cell_range_ne_of_fors_frozen_calldata`,
+  `SegmentS4ForsMerkleFrame.forsOuter_root_cell_eq_iteration_node_of_fors_frozen_calldata`,
+  `SegmentS4ForsMerkleFrame.forsLeafStep_preserves_seed_slot_range_of_fors_frozen_calldata`, and
+  `SegmentS4ForsMerkleFrame.execForsOuter_preserves_seed_slot_range_of_fors_frozen_calldata`:
+  `[propext, Classical.choice, Quot.sound]`.
+
+- `SegmentS4Finalize.forsFinalizePreCopyStep_forced_root_cell`:
   `[propext, Classical.choice, Quot.sound]`.
 
 - `MemoryFrame.execStmt_letVar_preserves_memory_val`,
@@ -188,14 +330,32 @@ are:
   `MemoryFrame.execStmt_forEach_preserves_memory_val_range`:
   `[propext, Classical.choice, Quot.sound]`.
 
+- `ClimbLoop.foldLoop_memory_val_eq_step_at_of_suffix_preserves`:
+  `[propext, Quot.sound]`.
+
 - `SegmentS4Fors.forsLeafBody_eq_segments`:
   no axioms.
 
 - `SegmentS4Fors.execForsLeafSetup`,
   `SegmentS4Fors.forsLeafSetup_preserves_seed_slot`,
+  `SegmentS4Fors.forsLeafSetup_preserves_root_cell_range`,
   `SegmentS4Fors.forsLeafSetup_preserves_i`,
   `SegmentS4Fors.forsLeafSetupStep_preserves_seed_slot`,
+  `SegmentS4Fors.forsLeafSetupStep_preserves_root_cell_range`,
   `SegmentS4Fors.forsLeafSetupStep_preserves_i`,
+  `SegmentS4Fors.forsLeafSetup_preserves_sigBase`,
+  `SegmentS4Fors.forsLeafSetupStep_preserves_sigBase`,
+  `SegmentS4Fors.forsLeafSetup_preserves_dVal`,
+  `SegmentS4Fors.forsLeafSetupStep_preserves_dVal`,
+  `SegmentS4Fors.forsLeafStep_preserves_dVal`,
+	  `SegmentS4Fors.forsLeafSetupStep_authPtr_eq_sigDataOffset`,
+	  `SegmentS4Fors.forsLeafSetupStep_pathIdx_lt`,
+	  `SegmentS4Fors.forsLeafSetupStep_pathIdx_eq_of_eval`,
+	  `SegmentS4Fors.forsTreeAdrsBase_eval_eq`,
+	  `SegmentS4Fors.forsLeafSetupStep_treeAdrsBase_exists_lt`,
+	  `SegmentS4Fors.forsLeafSetupStep_treeAdrsBase_eq_of_i`,
+	  `SegmentS4Fors.forsLeafSetupStep_node_eq_spec_of_eval`,
+	  `SegmentS4Fors.forsLeafSetupStep_preserves_selector_calldata`,
   `SegmentS4Fors.execForsLeafInner`,
   `SegmentS4Fors.forsLeafInner_preserves_i`,
   `SegmentS4Fors.execForsLeafStore`,
@@ -208,17 +368,41 @@ are:
   `SegmentS4Fors.eval_forsLeafStore_offset`,
   `SegmentS4Fors.forsLeafStore_offset_ne_zero`,
   `SegmentS4Fors.forsLeafStore_preserves_seed_slot_range`,
+  `SegmentS4Fors.forsLeafStore_root_cell_range`,
+  `SegmentS4Fors.forsLeafStore_preserves_root_cell_range_ne`,
+  `SegmentS4Fors.forsLeafStep_root_cell_range`,
+  `SegmentS4Fors.forsLeafBody_preserves_root_cell_range_ne_of_inner`,
+  `SegmentS4Fors.forsLeafStep_preserves_root_cell_range_ne_of_inner`,
+  `SegmentS4Fors.forsOuter_root_cell_eq_iteration_node_of_suffix_preserves`,
   `SegmentS4Fors.execForsOuter_preserves_seed_slot_range`,
   `SegmentS4Fors.execForsOuter_preserves_seed_slot_range_six`:
   `[propext, Classical.choice, Quot.sound]`.
 
 - `SegmentAcceptSpec.LayerGuardedStep`,
+  `SegmentLayer3.layerGuard_of_afterDigit_digitSum_eq`,
+  `SegmentLayer3.beforeMerkle_eq`,
+  `SegmentLayer3.finalLayerTail_preserves_merkleNode`,
   `SegmentAcceptSpec.c13HypertreeSpecStep_eq_root_of_success`,
   `SegmentAcceptSpec.layerGuardedStep_c13HypertreeSpecStep_of_merkleNode`,
   `SegmentAcceptSpec.stepLayer_currentNodeRel_c13HypertreeSpecStep_of_success`,
+  `SegmentAcceptSpec.layerGuardedStep_c13HypertreeSpecStep_of_success`,
+  `SegmentAcceptSpec.layerGuardedStep_c13HypertreeSpecStep_of_digitSum_success`,
+  `SegmentAcceptSpec.afterMerkle_model_node_of_xmss_frame`,
+  `SegmentAcceptSpec.afterMerkle_model_node_of_xmss_frame_c13`,
+  `SegmentAcceptSpec.afterMerkle_model_node_raw`,
+  `SegmentAcceptSpec.afterMerkle_model_node_raw_c13`,
+  `SegmentAcceptSpec.xmssClimb_roundtrip_of_node_roundtrip`,
+  `SegmentAcceptSpec.xmssClimb_roundtrip_of_wots_success`,
+  `SegmentAcceptSpec.xmssRootFromSigC13_some_eq_hash16OfWord_xmssClimb`,
+  `SegmentAcceptSpec.stepLayer_merkleNode_eq_wordOfHash16_root_of_xmssClimb`,
+  `SegmentAcceptSpec.stepLayer_merkleNode_eq_wordOfHash16_root_of_xmssClimb_wots_success`,
+  `SegmentAcceptSpec.stepLayer_merkleNode_eq_wordOfHash16_root_of_normalized_xmssClimb_wots_success`,
+  `SegmentAcceptSpec.stepLayer_merkleNode_norm_eq_wordOfHash16_root_of_xmssClimb_wots_success`,
   `SegmentAcceptSpec.specFold_c13HypertreeSpecStep_eq_of_foldHypertree_ok`,
   `SegmentAcceptSpec.layerGuardsPass_of_guarded_step`, and
-  `SegmentAcceptSpec.layerStep_of_guarded_step`:
+  `SegmentAcceptSpec.layerStep_of_guarded_step`,
+  `SegmentAcceptSpec.layerGuardsPass_of_c13HypertreeSpecStep_success`, and
+  `SegmentAcceptSpec.layerStep_of_c13HypertreeSpecStep_success`:
   `[propext, Classical.choice, Quot.sound]`.
 
 - `SegmentAcceptSpec.layerStart_of_seed_named_fors_roots_roundtrip` and
@@ -249,6 +433,24 @@ are:
 
 - `SegmentAcceptSpec.C13SeedNamedAcceptGuardedPkRootSizeLeafObligations` and
   `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_leaf_obligations_of_bytes`:
+  `[propext, Classical.choice, Quot.sound]`.
+
+- `SegmentAcceptSpec.C13SeedNamedAcceptGuardedPkRootSizeLeafRootObligations`,
+  `SegmentAcceptSpec.seed_named_leaf_obligations_of_leaf_root_obligations`, and
+  `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_leaf_root_obligations_of_bytes`:
+  `[propext, Classical.choice, Quot.sound]`.
+
+- `SegmentAcceptSpec.C13SeedNamedAcceptGuardedPkRootSizeSiteRootObligations`,
+  `SegmentAcceptSpec.seed_named_leaf_root_obligations_of_site_root_obligations`,
+  `SegmentAcceptSpec.seed_named_pk_root_size_obligations_of_site_root_obligations`,
+  and
+  `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_site_root_obligations_of_bytes`:
+  `[propext, Classical.choice, Quot.sound]`.
+
+- `SegmentAcceptSpec.C13SeedNamedAcceptConcreteLayerSiteRootObligations`,
+  `SegmentAcceptSpec.site_root_obligations_of_concrete_layer_site_root_obligations`,
+  and
+  `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_concrete_layer_site_root_obligations_of_bytes`:
   `[propext, Classical.choice, Quot.sound]`.
 
 These are ordinary Lean/meta foundations for the existing development.  The

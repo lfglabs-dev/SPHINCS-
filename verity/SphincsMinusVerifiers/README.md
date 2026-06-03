@@ -194,8 +194,9 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `SegmentS3.nat_land_low19` and `SegmentS3.s3Guard_eq_forsIndex6` give the
     matching arithmetic presentation of the guard: for a bounded concrete digest
     binding, the interpreter's `Uint256.and` mask is exactly
-    `(digest >>> 114) % 2^19`, the C13 FORS-index-6 value.  This is the
-    interpreter-side half of the remaining S3 forced-zero bridge.  Axiom-clean
+    `(digest >>> 114) % 2^19`, the C13 FORS-index-6 value.  Together with the
+    parse-shaped reject theorem in `SegmentRejectSpec`, this now supplies the C13
+    forced-zero reject bridge without a raw spec-side `hCorr` premise.  Axiom-clean
     (`[propext, Classical.choice, Quot.sound]`).
   - `SegmentS4Fors.execForsOuter` — FORS tree-root `forEach "i" 6`, stmt 14,
     `→ .continue (foldLoop "i" forsLeafStep ·)` via the generic `ClimbLoop` engine.
@@ -426,7 +427,8 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     The parse/spec facts (`hShape`, `hZero`, `hFors`, `hFold`) stay explicit,
     while the remaining model/spec correspondence surface is one named contract:
     length and loop guards, the direct `afterFors` seed cell, the six named FORS
-    root cells plus forced root cell, the `hash16OfWord`/`wordOfHash16`
+    root cells plus the forced-root accept-boundary handoff, the
+    `hash16OfWord`/`wordOfHash16`
     roundtrip for `forsPkWordC13`, the layer-step/fold bridge, and the final
     word-comparison bridge.  `c13_sig_length_of_parseSignatureC13` derives the
     model `sig_length = 3688` fact from a successful concrete C13 parse, and
@@ -445,8 +447,53 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `c13HypertreeSpecStep`, `c13HypertreeSpecStep_eq_root_of_success`,
     `layerGuardedStep_c13HypertreeSpecStep_of_merkleNode`, and
     `stepLayer_currentNodeRel_c13HypertreeSpecStep_of_success` instantiate that
-    hook with the concrete C13 WOTS/XMSS one-layer transition, leaving only
-    explicit guard and post-step `"merkleNode"` data-cell facts for callers.
+    hook with the concrete C13 WOTS/XMSS one-layer transition.
+    `layerGuardedStep_c13HypertreeSpecStep_of_success` packages the explicit
+    guard fact, successful WOTS/XMSS spec facts, and post-step `"merkleNode"`
+    data-cell equality into `LayerGuardedStep` for callers.
+    `SegmentLayer3.layerGuard_of_afterDigit_digitSum_eq` and
+    `layerGuardedStep_c13HypertreeSpecStep_of_digitSum_success` narrow the
+    guard premise to the concrete model data-cell fact that `"digitSum"` after
+    `afterDigit` is `208`, rather than requiring callers to prove
+    `layerGuard = true` directly.
+    `SegmentLayer3.suffixBeforeMerkle`, `beforeMerkle`, `afterMerkle`, and
+    `beforeMerkle_eq` split the accepting layer suffix at the XMSS Merkle climb,
+    exposing the exact pre-climb state and folded `"h"` climb state consumed by
+    the generic Merkle frame lemmas; this is structural plumbing for the
+    remaining post-step `"merkleNode"` correspondence, not the correspondence
+    proof itself.  `finalLayerTail_preserves_merkleNode` records the cheap tail
+    fact that `currentNode := merkleNode` and `sigOff := authOff + 176` do not
+    rebind the post-climb `"merkleNode"` cell.
+    `afterMerkle_model_node_of_xmss_frame` applies the existing frame-threaded
+    XMSS theorem to that split, deriving the normalized model `"merkleNode"` as
+    the C13 `xmssClimb` word once callers materialize the frame at the
+    `"h" = 0` state.  The C13-height specialization
+    `afterMerkle_model_node_of_xmss_frame_c13` removes the normalized height
+    noise by restating the data premise and conclusion at literal XMSS height
+    `11`.  `afterMerkle_model_node_raw` and
+    `afterMerkle_model_node_raw_c13` are the exact-cell companions: with a raw
+    Merkle climb relation and raw per-step advance, they prove the post-climb
+    `"merkleNode"` lookup itself equals the C13 `xmssClimb` word.  They avoid
+    rebuilding the broad layer suffix proof while leaving the raw relation
+    materialization as the next local model-side obligation.
+    `xmssRootFromSigC13_some_eq_hash16OfWord_xmssClimb` exposes the exact
+    C13 `xmssClimb` word returned through `hash16OfWord` by a successful concrete
+    XMSS spec call, `xmssClimb_roundtrip_of_node_roundtrip` and
+    `xmssClimb_roundtrip_of_wots_success` discharge the byte/word roundtrip for
+    canonical starting nodes and successful WOTS starts, and
+    `stepLayer_merkleNode_eq_wordOfHash16_root_of_xmssClimb` packages the
+    remaining exact post-step `"merkleNode"` equality once callers supply the
+    exact model climb word and its byte/word roundtrip.  The
+    `_wots_success` variant consumes the WOTS success fact directly, leaving
+    only the exact model climb-word equality; the normalized variant further
+    splits that model obligation into normalized climb equality plus raw-cell
+    normalization.  `stepLayer_merkleNode_norm_eq_wordOfHash16_root_of_xmssClimb_wots_success`
+    packages the normalized cell equality shape currently produced by the
+    Merkle frame theorem.
+    `layerGuardsPass_of_c13HypertreeSpecStep_success` and
+    `layerStep_of_c13HypertreeSpecStep_success` project those same concrete
+    success facts into the guard trace and per-step relation used by the
+    accept-path layer fold.
     `specFold_c13HypertreeSpecStep_eq_of_foldHypertree_ok` closes the pure
     two-layer spec-fold side for that concrete step from a successful
     `foldHypertree` result, so the remaining layer work is model data-cell
@@ -496,10 +543,35 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     ordinary public-key-root size premise rather than a raw roundtrip equality.
     `C13SeedNamedAcceptGuardedPkRootSizeLeafObligations` and
     `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_leaf_obligations_of_bytes`
-    are the current narrowest byte-shaped handoff: they also derive the
+    are the compatibility handoff for callers that still expose a range-gated
+    leaf frame: they derive the
     `afterFors` seed-cell fact from a range-gated `forsLeafStep` seed-preservation
     premise using
     `CurrentNodeFrame.afterFors_seed_slot_mkC13State_of_forsLeafStep_range_preserves`.
+    `C13SeedNamedAcceptGuardedPkRootSizeLeafRootObligations`,
+    `seed_named_leaf_obligations_of_leaf_root_obligations`, and
+    `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_leaf_root_obligations_of_bytes`
+    additionally derive the explicit `hmRlo`/`hmRlast` root-cell facts from the
+    frozen calldata/auth-path site package, six post-inner `"node"` equalities,
+    parsing, and the same range-gated seed-frame premise.
+    `C13SeedNamedAcceptGuardedPkRootSizeSiteRootObligations`,
+    `seed_named_pk_root_size_obligations_of_site_root_obligations`, and
+    `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_site_root_obligations_of_bytes`
+    now use the concrete `afterFors_seed_slot_mkC13State` and
+    `rootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes_and_parse`
+    wrappers directly, so this accept boundary no longer carries or constructs a
+    separate `hLeaf` field.
+    `C13SeedNamedAcceptConcreteLayerSiteRootObligations`,
+    `site_root_obligations_of_concrete_layer_site_root_obligations`, and
+    `accept_path_returns_verifyParsed_bool_from_concrete_layer_site_root_obligations_of_bytes`
+    also fix the layer hook to `c13HypertreeSpecStep`, deriving the abstract
+    `LayerGuardedStep` and `hSpecFold` fields from concrete guard/success facts
+    and the successful `foldHypertree`.  The slimmer
+    `C13SeedNamedAcceptConcreteLayerObligations`,
+    `seed_named_pk_root_size_obligations_of_concrete_layer_obligations`, and
+    `accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of_bytes`
+    path drops the FORS site facts and post-inner normal-root node
+    correspondences from that concrete accept boundary.
     `SegmentS4Fors` now proves the straight-line setup and final-store frame
     pieces needed by that premise, including the in-range final-store offset
     non-aliasing arithmetic, and a statement-level outer-loop seed-cell handoff
@@ -517,9 +589,18 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     shape through the inner Merkle climb and full FORS outer loop.
     `s4_address_assembly_eval_exists` now supplies the address-assembly eval
     witness from the ordinary `treeAdrsBase` binding, `treeAdrsBase` bound,
-    `pathIdx` bound, and `idx < 19` facts.  The remaining live connection point
-    is the site-specific masked sibling calldata read, plus those ordinary
-    binding/bounds inputs where callers use the address witness.
+    `pathIdx` bound, and `idx < 19` facts.  `s4_eval_site_of_frozen_calldata`
+    packages that address witness with the frozen-calldata masked sibling read.
+    `s4_eval_site_of_fors_frozen_calldata` specializes the same package to the
+    C13 FORS auth-path layout `sigDataOffset + (128 + 304*t + 16*h)`, discharging
+    the fixed offset and bound arithmetic.  The direct
+    `stepMerkle_preserves_seed_slot_of_fors_frozen_calldata` wrapper consumes
+    those C13 FORS setup facts for a single Merkle step.
+    `forsLeafStep_preserves_seed_slot_range_of_fors_frozen_calldata` and
+    `execForsOuter_preserves_seed_slot_range_of_fors_frozen_calldata` lift that
+    wrapper through one leaf iteration and the full outer FORS loop.  The
+    remaining live connection point is supplying setup bindings/bounds to that
+    FORS frozen-calldata site bridge for the threaded inner states.
     These are only
     bundles/adapters for real residual obligations; they do not define `execC13`
     and do not discharge the bridge axiom.  Axiom-clean
@@ -551,7 +632,9 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `forcedZeroOk_c13_forsIndex_six` extracts the spec-side
     seventh-FORS-index-is-zero fact from a successful C13 forced-zero check, and
     `hMsgC13_forsIndex_six` exposes that index as the concrete H_msg digest's
-    `((digest >>> 114) % 2^19)` value.  Together with
+    `((digest >>> 114) % 2^19)` value.  `hMsgC13_forsIndex_getD_eq` gives the
+    same digest-slice equation for every C13 FORS index in the `getD` form used
+    by the concrete setup evals.  Together with
     `SegmentS3.s3Guard_eq_forsIndex6`, these feed the parsed S3-guard adapter.
     The result-shape facts `hash16OfWord_size`, `forsPkFromSigC13_size`,
     `wotsPkFromSigC13_size`, `xmssRootFromSigC13_size`,
@@ -574,25 +657,218 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     closes the public-key-root byte roundtrip from `pkRoot.size = 16`; the size
     itself remains a boundary premise because the C13 public-key parser does not
     check low-byte canonicality.  The latest accept adapter separately reduces
-    the S4 seed-cell boundary to a range-gated `forsLeafStep` preservation fact;
-    the six normal FORS root cells and forced-root cell remain the S4 root
-    correspondence boundary.
+    the S4 seed-cell boundary to a range-gated `forsLeafStep` preservation fact.
+    `SegmentS4Finalize.forsFinalizePreCopyStep_forced_root_cell` isolates the
+    local forced-root scratch hash at slot `0x140` from the seed cell and seventh
+    masked secret word, while `C13Concrete.parseSignatureC13_fors_sk_getElem?`
+    exposes the parser-side seventh secret word and
+    `C13Concrete.parseSignatureC13_fors_authPath_getD_getElem?` exposes
+    parser-side FORS auth-path words in the `getD` shape used by the concrete
+    outer-loop states.
+    `CurrentNodeFrame.finalSecret_eval_eq_wordOfHash16` proves the statement-15
+    calldata read equals `wordOfHash16 (read16 sig 112)` from frozen calldata,
+    and `forcedRootCell_eq_forsAllRootsC13_of_parse_calldata` composes that with
+    the local scratch proof to produce the named `forsAllRootsC13[6]` cell.  The
+    six normal FORS root cells remain the substantive S4 root correspondence
+    boundary; the forced-root side's static `afterFors` frame is closed by
+    `CurrentNodeFrame.afterFors_sigBase_mkC13State`,
+	    `afterFors_selector_mkC13State`, and `afterFors_calldata_mkC13State`, with
+	    `afterFors_seed_slot_mkC13State` proving the seed-cell side from the actual
+	    six C13 outer-loop prefixes.  `forcedRootCell_eq_forsAllRootsC13_of_parse_concrete`
+	    therefore closes the forced-root cell without an external seed-frame premise.
+	    `CurrentNodeFrame.forsOuterPrefixState`,
+	    `forsOuterLeafState`,
+	    `forsOuterPrefix_sigBase_mkC13State`,
+	    `forsOuterPrefix_selector_calldata_mkC13State`, and
+	    `forsOuterPrefix_leafSetupFacts_mkC13State` now package the actual
+	    six-iteration FORS outer-loop prefix states with the rebound `"i"`, S3
+	    `"sigBase"`, selector, and frozen calldata image.  The named-state
+	    projection `forsOuterLeafState_setupFacts_mkC13State` feeds
+	    `forsLeafStep_preserves_seed_slot_of_mkC13State_prefix`, which proves the
+	    next concrete leaf step preserves the seed slot for those real prefix
+	    states.  `SegmentS4Fors.forsLeafSetupStep_node_eq_spec_of_eval`
+	    also identifies the setup `"node"` binding with the concrete spec FORS leaf
+	    hash word once the tree index, secret word, and leaf address eval facts are
+	    supplied, and
+	    `SegmentS4Fors.forsTreeAdrsBase_eval_eq` /
+	    `forsLeafSetupStep_treeAdrsBase_eq_of_i` range-gate the setup
+	    `treeAdrsBase` binding to the exact C13 ADRS base
+	    `(3 <<< 96) ||| (i <<< 64)` for the six FORS iterations.
+	    `SegmentS4ForsMerkleFrame.forsLeafSetupStep_initial_forsClimbRel_of_eval`
+	    packages that node fact with `pathIdx = treeIdx` as the initial
+	    `MerkleClimbRel`; the sibling
+	    `forsLeafSetupStep_initial_forsClimbFrame_of_eval_site` adds the
+	    frozen-site selector/calldata, seed cell, `treeAdrsBase`, and `authPtr`
+	    fields needed by the frame-carrying climb invariant.
+	    `SegmentS4ForsMerkleFrame.stepMerkle_forsFrame_hstep_of_s4_data`
+	    packages one local frame step from the S4 sibling/address eval facts,
+	    calldata word load, bounds, and `MerkleClimbData`.
+	    `stepMerkle_forsFrame_hstep_of_fors_frozen_calldata` specializes that
+	    package to the concrete C13 FORS auth-path calldata layout.
+	    `SegmentS4ForsMerkleFrame.forsLeafInnerStep_node_eq_forsClimb_of_eval`
+	    lifts that initial relation through the 19-step inner fold to the named
+	    C13 `forsClimb` root once the per-height `MerkleClimbData` and relation
+	    step facts are supplied.  The frame-shaped sibling
+	    `forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site` consumes the
+	    exact setup `treeAdrsBase` fact and the initial frame package, so callers
+	    can use `MerkleClimbFrame` step facts directly; the companion
+	    range/path-bound variants carry the concrete `h < 19` and moving
+	    `pathIdx < 2^256` facts, and
+	    `forsLeafInnerStep_node_eq_forsClimbFrame_of_fors_frozen_calldata`
+	    discharges the frame-step side from the C13 FORS auth-path calldata
+	    layout; the companion
+	    `forsLeafInnerStep_node_eq_forsAllRootsC13_getElem_of_eval` rewrites that
+	    result to the exact `forsAllRootsC13[j]` normal-root shape, and
+	    `forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_tree_secret_parse_concrete`
+	    packages the actual C13 outer-leaf calldata/setup facts without a
+	    per-height relation-step callback.  `forsOuterPrefix_seed_slot_mkC13State` and
+	    `afterFors_seed_slot_mkC13State` lift that to all six prefixes and the final
+	    `afterFors` state.  The same concrete-prefix path now proves
+	    `forsLeafStep_preserves_root_cell_ne_of_mkC13State_prefix`,
+	    `forsOuterPrefix_root_cell_succ_ne_mkC13State`,
+	    `forsOuterPrefix_root_cell_suffix_mkC13State`, and
+	    `forsOuterPrefix_root_cell_iteration_node_mkC13State`, so the ordinary
+	    root memory-cell producer side is closed for the concrete frozen entry.
+	    The remaining ordinary-root work is the post-inner node/root
+	    correspondence.
+	    `rootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes_and_parse_range_seed`
+	    combines the six normal roots and forced root into the final
+	    `hmRlo`/`hmRlast` pair for the older range-seed path; the direct
+	    `rootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes_and_parse`
+	    wrapper removes that seed-frame premise, while
+	    `rootCells_eq_forsAllRootsC13_of_mkC13State_iteration_nodes_and_parse`
+	    removes the frozen-site/root-cell producer premise for the concrete
+	    frozen entry, and
+	    `rootCells_eq_forsAllRootsC13_of_hMsg_parse_concrete` fixes the digest to
+	    the parsed C13 `H_msg` and discharges all seven FORS root cells directly.
+    `SegmentS4Fors.forsLeafStep_root_cell_range` now proves the local ordinary
+    root store for one iteration: the post-inner `"node"` is written to
+    `0x80 + 32*i`.  The local non-alias carry side is also split out by
+    `SegmentS4Fors.forsLeafSetupStep_preserves_selector_calldata` now carries
+    the frozen selector/calldata image across the straight-line setup prefix,
+    while `forsLeafSetupStep_preserves_sigBase` and
+    `forsLeafSetupStep_preserves_dVal` carry the auth-base and digest inputs;
+    `forsLeafStep_preserves_dVal` carries the S3 digest alias through the full
+    leaf iteration for actual outer prefixes.
+	    The setup side now includes the concrete `authPtr`, `pathIdx`,
+	    and `treeAdrsBase` binding/bound equations, while the initial `"node"`
+	    equality is packaged separately with `pathIdx = treeIdx` by
+	    `forsLeafSetupStep_initial_forsClimbRel_of_eval`.
+	    `SegmentS4Fors.forsLeafStore_preserves_root_cell_range_ne`,
+    `forsLeafStep_preserves_root_cell_range_ne_of_inner`, and
+    `SegmentS4ForsMerkleFrame.forsLeafStep_preserves_root_cell_range_ne_of_inner_step`.
+    `ClimbLoop.foldLoop_memory_val_eq_step_at_of_suffix_preserves` and
+    `SegmentS4Fors.forsOuter_root_cell_eq_iteration_node_of_suffix_preserves`
+    now close the outer-loop carry once the later-iteration non-alias premise is
+    supplied.  `SegmentS4ForsMerkleFrame.stepMerkle_preserves_root_cell_of_s4_eval`,
+    `stepMerkle_preserves_root_cell_of_fors_frozen_calldata`,
+    `forsLeafStep_preserves_root_cell_range_ne_of_s4_eval`, and
+    `forsOuter_root_cell_eq_iteration_node_of_s4_eval` reduce that non-alias
+    premise to the same C13 FORS frozen-calldata setup/bound facts used by the
+    seed path.  `forsLeafStep_preserves_root_cell_range_ne_of_fors_frozen_calldata`
+    and `forsOuter_root_cell_eq_iteration_node_of_fors_frozen_calldata` lift
+    that frozen-calldata package through one leaf iteration and the outer carry.
+    `CurrentNodeFrame.normalRootCell_eq_of_outer_iteration_node` and
+    `normalRootCells_eq_forsAllRootsC13_of_iteration_nodes` now package the
+    outer-loop carry plus finalize pre-copy preservation into the accept-path
+	    `hmRlo` shape, while
+	    `normalRootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes` plugs the
+	    frozen-calldata carry directly into that shape.  The concrete
+	    `normalRootCell_eq_of_mkC13State_iteration_node` and
+	    `normalRootCells_eq_forsAllRootsC13_of_mkC13State_iteration_nodes`
+	    adapters discharge the same ordinary root memory cells from the actual
+	    six-iteration `mkC13State` prefix states, leaving only the six post-inner
+	    `"node"` equalities.
+	    `forsOuterLeafState_node_eq_forsAllRootsC13_of_eval_parse` now supplies
+	    one concrete post-inner equality after discharging the actual seed slot
+	    and parser-auth-path `MerkleClimbData` range.  The `hMsg` setup adapter
+	    also discharges the normal-root address bound, leaf-address setup eval,
+	    actual tree-index setup eval from the carried S2/S3 `"dVal"` digest, and
+	    parsed secret-key calldata eval from the frozen C13 calldata image,
+	    leaving relation-step preservation; the concrete sibling
+	    `forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_tree_secret_parse_concrete`
+	    discharges that final frame step from the actual C13 FORS auth-path
+	    calldata.  The fully concrete
+	    `rootCells_eq_forsAllRootsC13_of_hMsg_parse_concrete` wrapper now
+	    combines that normal-root result with the concrete forced-root bridge,
+	    and `seed_named_pk_root_size_obligations_of_site_root_obligations`
+	    consumes it directly for `hmRlo`/`hmRlast`.  The combined
+	    `rootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes_and_parse_range_seed`
+	    theorem pairs this normal-root side with the forced-root range-seed bridge.
+	    `SegmentAcceptSpec.seed_named_leaf_obligations_of_leaf_root_obligations`
+	    and
+	    `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_leaf_root_obligations_of_bytes`
+	    expose that pairing directly at the current byte-shaped accept boundary.
+	    `seed_named_pk_root_size_obligations_of_site_root_obligations` and the
+	    corresponding site-root byte theorem consume the direct concrete seed/root
+	    wrapper, so the active site-root accept boundary does not construct a
+	    range-gated seed-frame field.
+	    `site_root_obligations_of_concrete_layer_site_root_obligations` and
+	    `accept_path_returns_verifyParsed_bool_from_concrete_layer_site_root_obligations_of_bytes`
+	    then consume concrete layer guard/success facts directly instead of an
+	    abstract `LayerGuardedStep`/`specStep`; the newer
+	    `seed_named_pk_root_size_obligations_of_concrete_layer_obligations` and
+	    `accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of_bytes`
+	    use the concrete root-cell theorem to remove the FORS site/node fields
+	    from this boundary.
+	    The remaining ordinary-root
+    work is to prove the post-inner node/spec-root correspondence; the local
+	    setup side now covers post-setup `authPtr`, bounded `pathIdx`, and a
+	    bounded `treeAdrsBase` witness, packaged for the frozen-calldata site
+	    shape by
+    `SegmentS4ForsMerkleFrame.forsLeafSetupStep_fors_frozen_calldata_site` from
+    `SegmentS4Fors.forsLeafSetupStep_authPtr_eq_sigDataOffset`,
+    `forsLeafSetupStep_pathIdx_lt`, and
+    `forsLeafSetupStep_treeAdrsBase_exists_lt`, with
+    `forsTreeAdrsBase_eval_eq` and `forsLeafSetupStep_treeAdrsBase_eq_of_i`
+    providing the range-gated exact C13 base address; the initial climb relation is
+    separately packaged by `forsLeafSetupStep_initial_forsClimbRel_of_eval` from
+    `forsLeafSetupStep_pathIdx_eq_of_eval` and
+    `forsLeafSetupStep_node_eq_spec_of_eval`, while
+    `forsLeafSetupStep_initial_forsClimbFrame_of_eval_site` combines the same
+    relation with the frozen-site frame fields, then lifted to the post-inner
+    named C13 `forsClimb` root by
+    `forsLeafInnerStep_node_eq_forsClimb_of_eval` under the existing per-height
+    data and relation-step obligations.  The frame-carrying sibling
+    `forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site` now performs the
+    same lift from `MerkleClimbFrame` premises after rewriting setup
+    `treeAdrsBase` to the exact C13 base; the `forsAllRootsC13[j]` wrapper is
+    `forsLeafInnerStep_node_eq_forsAllRootsC13_getElem_of_eval`, and
+    `forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_tree_secret_parse_concrete`
+    specializes that route to the actual C13 outer leaf state.  `ForsFrozenSite` plus
+    `stepMerkle_preserves_forsFrozenSite` now isolates the one-step invariant
+    needed to carry those setup facts through actual inner Merkle states, and
+    `foldLoop_preserves_forsFrozenSite_range` plus
+    `foldLoop_preserves_seed_slot_of_forsFrozenSite_range` lift the site and
+    seed-cell frames through the pure inner fold; the companion
+    `foldLoop_preserves_root_cell_of_forsFrozenSite_range` does the same for
+    ordinary root slots `0x80 + 32*j`.  The exact
+    `forsLeafInnerStep_preserves_*_of_forsFrozenSite` adapters specialize those
+    pure facts to the inner transformer, and
+    `forsLeafStep_preserves_seed_slot_of_forsFrozenSetup` plus
+    `forsLeafStep_preserves_root_cell_ne_of_forsFrozenSetup` compose setup,
+    inner, and store frames for one concrete leaf; `CurrentNodeFrame` now applies
+    that one-leaf seed frame to actual C13 outer-loop prefix states.  The full
+    outer-loop handoff is still open.
     `SegmentAcceptSpec.hash16OfWord_beq_eq_decide`,
     `byteRoot_beq_eq_decide_of_wordOfHash16_roundtrip`, and
     `wordCmp_of_wordOfHash16_roundtrip` now reduce the final `hWordCmp` handoff
     to canonical `hash16OfWord (wordOfHash16 root) = root` roundtrips for the
     two compared roots, without assuming a global `LawfulBEq ByteArray`
     instance.
-    Axiom-clean (`parseSignatureC13_R`: `[propext]`;
+    Axiom-clean (`parseSignatureC13_R` and
+    `parseSignatureC13_fors_sk_getElem?`: `[propext]`;
     `parseSignatureC13_shape`: `[propext, Classical.choice, Quot.sound]`; the
     public-key parse facts and `hash16OfWord_size`: `[propext]`; the
     `CanonicalHash16` facts: `[propext]`; the other C13Concrete facts listed
-    here: `[propext, Quot.sound]`; the SegmentS3
+    here: `[propext, Quot.sound]`; the CurrentNodeFrame final-secret/forced-root
+    adapters: `[propext, Classical.choice, Quot.sound]`; the SegmentS3
     guard arithmetic, the final roundtrip comparison adapters, and the base-256
     roundtrip arithmetic lemmas are recorded above as
     `[propext, Classical.choice, Quot.sound]`).
 
-  - `ClimbStepSpec.{xmssClimb_succ, xmssClimb_zero, forsClimb_succ, forsClimb_zero}`
+  - `ClimbStepSpec.{xmssClimb_succ, xmssClimb_zero, forsClimb_succ, forsClimb_zero,
+    forsTreeBase_node_address, forsClimb_eq_xmssClimb}`
     — the **spec-side induction anchors** for that open correspondence.  Each names
     the per-iteration combine the fuel-bounded climb applies
     (`xmssClimbStep`/`forsClimbStep`: `maskN (keccakWords [seed, adrs, node, sibling])`
@@ -602,8 +878,20 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     over the `0x40^s`/`0x60^s`-swapped scratch); the remaining work is to match *one*
     interpreter `stepMerkle`/`forsLeafStep` to *one* `xmssClimbStep`/`forsClimbStep`
     (forcing the keccak over the swapped memory) and fold by induction on fuel through
-    these `_succ` equations.  Spec-only, asserts nothing about the interpreter.
-    Axiom-clean (`[propext, Quot.sound]`).
+    these `_succ` equations.  The FORS tree-base lemmas additionally expose the
+    equality between the generic `xmssClimb` address base `(3 <<< 96) ||| (i <<< 64)`
+    and the named C13 `forsClimb` address, so generic Merkle-loop results can be
+    rewritten to the exact FORS root expression.  Spec-only, asserts nothing about the
+    interpreter.  Axiom-clean (`forsTreeBase_node_address`: `[propext]`; the other
+    listed facts: `[propext, Quot.sound]`).
+
+  - `ClimbMemFrameMerkle.{forsClimb_model_node, forsClimbFrame_model_node}`
+    specialize the generic `xmssClimb_model_node` / frame-threaded
+    `xmssClimbFrame_model_node` results to the FORS tree base and rewrite the result
+    to the named C13 `forsClimb`.  These are conditional wrappers: callers still
+    discharge the existing Merkle per-step frame/data hypotheses and initial relation,
+    but no longer need to carry an ad hoc `xmssClimb` expression for FORS roots.
+    Axiom-clean (`[propext, Classical.choice, Quot.sound]`).
 
   - `ClimbKeccakStep.{evalExpr_bitAnd_literal, evalExpr_maskedKeccak_eq_maskN}`
     — the **masking glue** that closes the gap between the interpreter's
@@ -734,7 +1022,9 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     usual `stepMerkle` eval facts, they prove the `0x00` seed word is preserved
     across one Merkle step, with both word and `.val` projections.  This reduces
     the S4 per-step seed-frame premise to parity-offset resolution plus the
-    already-local Merkle eval facts.  Axiom-clean
+    already-local Merkle eval facts.  The corresponding generic memory-cell
+    non-alias frame for ordinary root slots is
+    `ClimbMemFrameMerkle.stepMerkle_mem_val_of_ne`.  Axiom-clean
     (`[propext, Classical.choice, Quot.sound]`).
     `SegmentS4ForsMerkleFrame.stepMerkle_preserves_seed_slot_of_s4_eval`
     specializes that wrapper to the FORS inner-climb variable names and composes
@@ -743,12 +1033,27 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     the masked sibling calldata read and address-assembly eval.
     `SegmentS4ForsMerkleFrame.s4_address_assembly_eval_exists` supplies the
     address eval from `treeAdrsBase`/`pathIdx` binding and bounds plus `idx < 19`,
-    so the S4-shaped proof surface is now the sibling read plus those ordinary
-    binding/bound facts.  The companion
-    `forsLeafInner_preserves_seed_slot_bound_of_s4_eval` and
-    `execForsOuter_preserves_seed_slot_range_of_s4_eval` adapters lift that
-    existential site-fact package through the inner climb and the full S4 FORS
-    loop.  Axiom-clean
+    and `s4_eval_site_of_frozen_calldata` combines that with the frozen-calldata
+    masked sibling read when callers provide the `authPtr` binding, bounds, and
+    auth-path offset equation.  `s4_eval_site_of_fors_frozen_calldata`
+    specializes this to the FORS auth-path layout, so callers only provide the
+    setup bindings/bounds for `t < 6`, `idx < 19`; the direct
+    `stepMerkle_preserves_seed_slot_of_fors_frozen_calldata` and
+    `stepMerkle_preserves_root_cell_of_fors_frozen_calldata` wrappers consume
+    that package for one Merkle step.  The companion
+    `forsLeafInner_preserves_seed_slot_bound_of_s4_eval`,
+    `execForsOuter_preserves_seed_slot_range_of_s4_eval`,
+    `forsLeafStep_preserves_root_cell_range_ne_of_fors_frozen_calldata`, and
+    `forsOuter_root_cell_eq_iteration_node_of_fors_frozen_calldata` adapters lift
+    that existential site-fact package through the inner climb, one leaf
+    iteration, and the full S4 FORS loop/carry.  The pure
+    `foldLoop_preserves_forsFrozenSite_range` and
+    `foldLoop_preserves_seed_slot_of_forsFrozenSite_range` lemmas now carry the
+    C13 frozen-site and seed-cell facts through the inner fold itself, with
+    `foldLoop_preserves_root_cell_of_forsFrozenSite_range` covering ordinary root
+    slots; the `forsLeafInnerStep_preserves_*_of_forsFrozenSite` and
+    `forsLeafStep_preserves_*_of_forsFrozenSetup` adapters specialize that work
+    to the exact inner and one-leaf concrete shapes.  Axiom-clean
     (`[propext, Classical.choice, Quot.sound]`).
     `ClimbMemFrameMerkle.{merkle_hmem_even, merkle_hmem_odd}` then resolve that
     parity, reading the triple-write memory back in the
@@ -934,7 +1239,9 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     climb's data surface as this single `Nat`-indexed family is what lets the conditional
     engine collapse blocker #20 for the entire loop into one *range* hypothesis
     `∀ i ∈ [0, h), MerkleClimbData auth cdAt i` — precisely what the calldata model must
-    eventually supply, and nothing more.  `MerkleClimbData_iff` unfolds it to the masked-word
+    eventually supply, and nothing more.  `fors_climb_data_range_getD` supplies
+    that range directly for C13 parser auth-path projections and frozen calldata
+    word reads.  `MerkleClimbData_iff` unfolds it to the masked-word
     ↦ `wordOfHash16` equality at one height.  Axiom-clean (`[propext, Quot.sound]`).
   - `ClimbMemFrameMerkle.merkleClimbData_to_sib` is the state-dependent seam joining the
     index-indexed family `MerkleClimbData auth cdAt h` to the state-side sibling component of
@@ -995,6 +1302,15 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     (all bookkeeping plus the single open per-step data bundle `hseed/hadr/hsib`, the last
     bottoming out at one `SiblingBytesCorrespondence`).  Pure repackaging, no interpreter
     re-evaluation.  Axiom-clean (`[propext, Quot.sound]`).
+  - `ClimbMemFrameMerkle.MerkleClimbRawRel` is the exact-node companion to
+    `MerkleClimbRel`: it carries raw `lookupValue … nodeVar = node` plus
+    `wordNormalize node = node`, and `.toRel` forgets it back to the normalized
+    relation.  `MerkleClimbRawRel_of_pair`, `merkleClimbRaw_foldLoop_correspondence`,
+    and `xmssClimbRaw_model_node` lift the same per-step pair equality through the
+    whole Merkle fold while preserving exact `nodeVar` equality, avoiding a broad
+    layer-suffix proof when C13 needs the post-XMSS `"merkleNode"` data cell itself.
+    Footprints: projections/`.toRel` `[propext]`, pair welding `[propext, Quot.sound]`,
+    fold/XMSS raw projection `[propext, Classical.choice, Quot.sound]`.
   - `ClimbMemFrameMerkle.merkleSpecStep_snd_normalized` is the spec-side bridge that lifts
     the *raw* per-step node equality `stepMerkle_node_eq_specStep_even/odd`
     (`lookupValue (stepMerkle …).bindings nodeVar = merkleSpecStep.2`) into the
@@ -1101,11 +1417,13 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
   - **FORS forced-zero guard** (statement 12) — model side fully discharged
     (`c13_body_reverts_on_forced_zero`): under the length-guard pass-through it
     threads the S2 straight-line prefix to `afterS2` then reverts at `segmentS3`
-    when `s3Guard ≠ 0` (branchless, no data correspondence).  The spec connection
-    (`verifyBytes = none ↔ ¬forcedZeroOk`) needs the deep keccak digest↔H_msg
-    correspondence, so `c13_revert_on_forced_zero` *surfaces* that as an explicit
-    hypothesis (`hCorr`) rather than discharging it — mirroring how
-    `SegmentAcceptSpec` surfaces `hCmp`.
+    when `s3Guard ≠ 0` (branchless, no data correspondence).  The older
+    low-level `c13_revert_on_forced_zero` theorem still accepts the spec-side
+    `none` result as an explicit `hCorr` premise, but the parse-shaped
+    `c13_revert_on_forced_zero_of_parse` now derives that C13 byte-spec `none`
+    result from successful concrete parsing plus the non-zero model guard, via
+    `c13_verifyBytes_none_on_forced_zero_of_parse` and
+    `c13_forcedZero_false_of_parse_s3Guard`.
   All discharged theorems show `#print axioms` =
   `[propext, Classical.choice, Quot.sound]`; the file touches neither `execC13` nor
   the bridge axiom, with no `sorry`, no new axiom, no `native_decide`.

@@ -58,6 +58,24 @@ theorem foldLoop_succ
         (step { state with bindings := bindValue state.bindings varName (wordNormalize index) })
         (index + 1) remaining := rfl
 
+/-- Splits a pure loop fold after `left` iterations. -/
+theorem foldLoop_append
+    (varName : String) (step : RuntimeState → RuntimeState)
+    (state : RuntimeState) (index left right : Nat) :
+    foldLoop varName step state index (left + right)
+      = foldLoop varName step
+          (foldLoop varName step state index left) (index + left) right := by
+  induction left generalizing state index with
+  | zero =>
+      simp [foldLoop_zero]
+  | succ left ih =>
+      rw [show left + 1 + right = left + right + 1 by omega]
+      rw [foldLoop_succ, foldLoop_succ]
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+        ih
+          (step { state with bindings := bindValue state.bindings varName (wordNormalize index) })
+          (index + 1)
+
 /-- **`foldLoop_preserves_lookup`** — the Phase-3b *frame* engine.  If `step`
 preserves a given binding `key` and the loop variable `varName` differs from
 `key`, then the whole `foldLoop` carries that binding's value through every
@@ -131,8 +149,47 @@ theorem foldLoop_preserves_memory_val_range
       rw [foldLoop_succ,
         foldLoop_preserves_memory_val_range varName step addr D hstep
           _ (index + 1) remaining
-          (fun i hi1 hi2 => hD i (by omega) (by omega)),
+        (fun i hi1 hi2 => hD i (by omega) (by omega)),
         hstep _ index (hD index (by omega) (by omega))]
+
+/-- If a loop iteration `target` writes a memory cell and every later iteration
+preserves that cell, then the final `foldLoop` cell value equals the post-step
+value produced at `target`.  This is the write-once/suffix-carry form used for
+the six FORS root-array cells: earlier iterations may do anything to the cell;
+the target iteration overwrites it, and the suffix must be non-aliasing. -/
+theorem foldLoop_memory_val_eq_step_at_of_suffix_preserves
+    (varName : String) (step : RuntimeState → RuntimeState) (addr : Nat) :
+    ∀ (state : RuntimeState) (index remaining target : Nat),
+      target < remaining →
+      (∀ (s : RuntimeState) (idx : Nat), index + target < idx →
+        idx < index + remaining →
+        ((step { s with bindings := bindValue s.bindings varName (wordNormalize idx) }).world.memory addr).val
+          = (s.world.memory addr).val) →
+      ((foldLoop varName step state index remaining).world.memory addr).val =
+        ((step { (foldLoop varName step state index target) with
+            bindings := bindValue (foldLoop varName step state index target).bindings
+              varName (wordNormalize (index + target)) }).world.memory addr).val
+  | _, _, 0, target, htarget, _ => by
+      exact False.elim (Nat.not_lt_zero target htarget)
+  | state, index, remaining + 1, 0, _, hPres => by
+      rw [foldLoop_succ]
+      rw [foldLoop_preserves_memory_val_range varName step addr
+        (fun idx => index < idx ∧ idx < index + (remaining + 1))
+        (fun s idx hidx => hPres s idx hidx.1 hidx.2)
+        (step { state with bindings := bindValue state.bindings varName (wordNormalize index) })
+        (index + 1) remaining
+        (fun i hi1 hi2 => by
+          constructor <;> omega)]
+      simp [foldLoop_zero]
+  | state, index, remaining + 1, target + 1, htarget, hPres => by
+      rw [foldLoop_succ]
+      have htarget' : target < remaining := by omega
+      have hrec :=
+        foldLoop_memory_val_eq_step_at_of_suffix_preserves varName step addr
+          (step { state with bindings := bindValue state.bindings varName (wordNormalize index) })
+          (index + 1) remaining target htarget'
+          (fun s idx hgt hlt => hPres s idx (by omega) (by omega))
+      simpa [foldLoop_succ, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hrec
 
 /-! ## 1b. The relational climb-induction engine.
 
@@ -329,9 +386,11 @@ theorem execStmt_forEach_merkleClimb
 /-! ## 6. Axiom audit. -/
 
 #print axioms foldLoop_invariant
+#print axioms foldLoop_append
 #print axioms foldLoop_preserves_memory_val
 #print axioms foldLoop_preserves_memory_val_bound
 #print axioms foldLoop_preserves_memory_val_range
+#print axioms foldLoop_memory_val_eq_step_at_of_suffix_preserves
 #print axioms foldLoop_invariant_cond
 #print axioms execForEachLoop_of_step
 #print axioms execStmt_forEach_of_step

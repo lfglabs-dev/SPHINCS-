@@ -19,10 +19,15 @@
 import SphincsMinusVerifiers.SegmentCompose
 import SphincsMinusVerifiers.MkC13State
 import SphincsMinusVerifiers.SegmentS2
+import SphincsMinusVerifiers.SegmentS2R
+import SphincsMinusVerifiers.SegmentS4Fors
+import SphincsMinusVerifiers.SegmentS4ForsMerkleFrame
 import SphincsMinusVerifiers.SegmentS4Finalize
 import SphincsMinusVerifiers.SegmentSeed
 import SphincsMinusVerifiers.SegmentLayer3
 import SphincsMinusVerifiers.KeccakBridge
+import SphincsMinusVerifiers.SiblingCalldata
+import SphincsMinusVerifiers.StateFrame
 import SphincsMinusVerifierSpec.C13Concrete
 
 namespace SphincsMinusVerifiers.CurrentNodeFrame
@@ -34,6 +39,18 @@ open SphincsMinusVerifiers.MkC13State
 open SphincsMinusVerifiers.ClimbKit (N_MASK)
 open SphincsMinusVerifierSpec
 open SphincsMinusVerifierSpec.C13Concrete (adrsForsRoots keccakWords maskN nMask wordOfHash16)
+
+private theorem calldataloadWord_lt_of_ge4 (sel : Nat) (cd : List Nat) (off : Nat)
+    (hoff : 4 ≤ off) :
+    Compiler.Proofs.YulGeneration.calldataloadWord sel cd off < 2 ^ 256 := by
+  have hmod : (0 : Nat) < Compiler.Constants.evmModulus := by
+    show 0 < 2 ^ 256; positivity
+  unfold Compiler.Proofs.YulGeneration.calldataloadWord
+  rw [if_neg (by omega : ¬ off = 0), if_neg (by omega : ¬ off < 4)]
+  show (if _ then _ else _) < Compiler.Constants.evmModulus
+  split
+  · exact Nat.mod_lt _ hmod
+  · exact Nat.mod_lt _ hmod
 
 /-! ## Seed boundary. -/
 
@@ -51,6 +68,474 @@ theorem afterS3_seed_slot_mkC13State (pkSeed pkRoot message sig : ByteArray) :
       = wordOfHash16 pkSeed := by
   unfold afterS3 SegmentS3.stepS3
   exact afterS2_seed_slot_mkC13State pkSeed pkRoot message sig
+
+/-! ## Static calldata-frame bindings. -/
+
+/-- S2 reads `"sig_data_offset"` to load `R`, but does not rebind the ABI-local
+itself. -/
+theorem s2Step_preserves_sig_data_offset (st : RuntimeState) :
+    lookupValue (SegmentS2.s2Step st).bindings "sig_data_offset"
+      = lookupValue st.bindings "sig_data_offset" := by
+  refine SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    "sig_data_offset" SegmentS2.s2Body st (SegmentS2.s2Step st) ?_ (SegmentS2.execS2 st)
+  intro s s'' stmt hmem hexec
+  simp [SegmentS2.s2Body] at hmem
+  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "seed" "sig_data_offset" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "root" "sig_data_offset" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "sig_data_offset" _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "R" "sig_data_offset" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "sig_data_offset" _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "sig_data_offset" _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "sig_data_offset" _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "sig_data_offset" _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "digest" "sig_data_offset" _ (by decide) hexec
+
+/-- S2 may read calldata and write memory/bindings, but it preserves the static
+selector and calldata image. -/
+theorem s2Step_preserves_selector_calldata (st : RuntimeState) :
+    StateFrame.PreservesSelectorCalldata st (SegmentS2.s2Step st) := by
+  refine SphincsMinusVerifiers.StateFrame.execStmtList_preserves_selector_calldata
+    SegmentS2.s2Body st (SegmentS2.s2Step st) ?_ (SegmentS2.execS2 st)
+  intro s s'' stmt hmem hexec
+  simp [SegmentS2.s2Body] at hmem
+  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "seed" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "root" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "R" _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' _ _ hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "digest" _ hexec
+
+/-- Frozen-entry S2 keeps the ABI signature-data offset at `164`. -/
+theorem afterS2_sig_data_offset_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) :
+    lookupValue (afterS2 (mkC13State pkSeed pkRoot message sig)).bindings
+        "sig_data_offset" = sigDataOffset := by
+  unfold afterS2
+  rw [s2Step_preserves_sig_data_offset]
+  rfl
+
+/-- S3 binds `"sigBase"` from the preserved ABI signature-data offset. -/
+theorem afterS3_sigBase_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) :
+    lookupValue (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+        "sigBase" = sigDataOffset := by
+  unfold afterS3 SegmentS3.stepS3
+  rw [MemoryKit.lookupValue_bindValue_self]
+  exact afterS2_sig_data_offset_mkC13State pkSeed pkRoot message sig
+
+/-- Frozen-entry S2 preserves the static selector and calldata image installed by
+`mkC13State`. -/
+theorem afterS2_selector_calldata_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) :
+    (afterS2 (mkC13State pkSeed pkRoot message sig)).selector = 0
+      ∧ (afterS2 (mkC13State pkSeed pkRoot message sig)).world.calldata
+        = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig := by
+  unfold afterS2
+  have h := s2Step_preserves_selector_calldata (mkC13State pkSeed pkRoot message sig)
+  exact ⟨by rw [h.1]; rfl, by rw [h.2]; rfl⟩
+
+/-- S3 only updates bindings, so it preserves the static selector/calldata frame
+from S2. -/
+theorem afterS3_selector_calldata_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) :
+    (afterS3 (mkC13State pkSeed pkRoot message sig)).selector = 0
+      ∧ (afterS3 (mkC13State pkSeed pkRoot message sig)).world.calldata
+        = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig := by
+  unfold afterS3 SegmentS3.stepS3
+  exact afterS2_selector_calldata_mkC13State pkSeed pkRoot message sig
+
+/-- Concrete C13 FORS outer-loop prefix state, with the same initial `"i"` bind
+used by `afterFors`. -/
+def forsOuterPrefixState
+    (pkSeed pkRoot message sig : ByteArray) (n : Nat) : RuntimeState :=
+  ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+    { (afterS3 (mkC13State pkSeed pkRoot message sig)) with
+      bindings :=
+        bindValue (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+          "i" (wordNormalize 0) }
+    0 n
+
+/-- The actual state handed to the next concrete FORS leaf step after the outer
+loop has reached prefix length `t`.  Naming this state keeps the prefix-local
+lemmas from repeatedly expanding the rebound record expression. -/
+def forsOuterLeafState
+    (pkSeed pkRoot message sig : ByteArray) (t : Nat) : RuntimeState :=
+  { (forsOuterPrefixState pkSeed pkRoot message sig t) with
+    bindings :=
+      bindValue (forsOuterPrefixState pkSeed pkRoot message sig t).bindings
+        "i" (wordNormalize t) }
+
+/-- The C13 FORS auth-path calldata word reader for tree `t` and climb height
+`h`, in the same `Nat → Nat` shape used by `MerkleClimbData`. -/
+def forsAuthCdAt
+    (pkSeed pkRoot message sig : ByteArray) (t h : Nat) : Nat :=
+  Compiler.Proofs.YulGeneration.calldataloadWord 0
+    (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+    (sigDataOffset + (128 + 304 * t) + 16 * h)
+
+/-- Every concrete prefix of the C13 FORS outer loop carries the signature-base
+binding installed by S3.  This is the local frame needed to apply the concrete
+FORS setup theorem at an actual outer-loop state, rather than at an arbitrary
+`RuntimeState`. -/
+theorem forsOuterPrefix_sigBase_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) (n : Nat) :
+    lookupValue (forsOuterPrefixState pkSeed pkRoot message sig n).bindings
+        "sigBase" = sigDataOffset := by
+  unfold forsOuterPrefixState
+  rw [ClimbLoop.foldLoop_preserves_lookup "i" "sigBase"
+        SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+        (by decide) SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep_preserves_sigBase
+        _ 0 n]
+  rw [MemoryKit.lookupValue_bindValue_ne
+        (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+        "i" "sigBase" (wordNormalize 0) (by decide)]
+  exact afterS3_sigBase_mkC13State pkSeed pkRoot message sig
+
+/-- Every concrete prefix of the C13 FORS outer loop carries the frozen selector
+and calldata image from the byte-facing `mkC13State`. -/
+theorem forsOuterPrefix_selector_calldata_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) (n : Nat) :
+    (forsOuterPrefixState pkSeed pkRoot message sig n).selector = 0
+      ∧ (forsOuterPrefixState pkSeed pkRoot message sig n).world.calldata
+        = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig := by
+  unfold forsOuterPrefixState
+  have hfold := SphincsMinusVerifiers.StateFrame.foldLoop_preserves_selector_calldata
+    "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+    SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep_preserves_selector_calldata
+    { (afterS3 (mkC13State pkSeed pkRoot message sig)) with
+        bindings :=
+          bindValue (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+            "i" (wordNormalize 0) }
+    0 n
+  have hS3 := afterS3_selector_calldata_mkC13State pkSeed pkRoot message sig
+  exact ⟨by rw [hfold.1]; exact hS3.1, by rw [hfold.2]; exact hS3.2⟩
+
+/-- At every actual C13 FORS outer-loop prefix in the six-iteration range, the
+state about to enter the next concrete leaf step has the local setup facts needed
+by the FORS frozen-site lemmas: the rebound loop index, the S3 `sigBase`, and the
+frozen selector/calldata image from `mkC13State`. -/
+theorem forsOuterPrefix_leafSetupFacts_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) (t : Nat) (ht : t < 6) :
+    let st :=
+      { (forsOuterPrefixState pkSeed pkRoot message sig t) with
+        bindings :=
+          bindValue (forsOuterPrefixState pkSeed pkRoot message sig t).bindings
+            "i" (wordNormalize t) }
+    lookupValue st.bindings "i" = t
+      ∧ lookupValue st.bindings "sigBase" = sigDataOffset
+      ∧ st.selector = 0
+      ∧ st.world.calldata = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig := by
+  intro st
+  let pref := forsOuterPrefixState pkSeed pkRoot message sig t
+  have hi :
+      lookupValue (bindValue pref.bindings "i" (wordNormalize t)) "i" = t := by
+    rw [MemoryKit.lookupValue_bindValue_self]
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (lt_trans ht (by decide))]
+  have hsigBase :
+      lookupValue pref.bindings "sigBase" = sigDataOffset := by
+    dsimp [pref]
+    exact forsOuterPrefix_sigBase_mkC13State pkSeed pkRoot message sig t
+  have hsc := forsOuterPrefix_selector_calldata_mkC13State pkSeed pkRoot message sig t
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · dsimp [st, pref]
+    exact hi
+  · dsimp [st, pref]
+    rw [MemoryKit.lookupValue_bindValue_ne
+      (forsOuterPrefixState pkSeed pkRoot message sig t).bindings
+      "i" "sigBase" (wordNormalize t) (by decide)]
+    exact hsigBase
+  · dsimp [st, pref] at hsc ⊢
+    exact hsc.1
+  · dsimp [st, pref] at hsc ⊢
+    exact hsc.2
+
+/-- Named-state projection of `forsOuterPrefix_leafSetupFacts_mkC13State`. -/
+theorem forsOuterLeafState_setupFacts_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) (t : Nat) (ht : t < 6) :
+    lookupValue (forsOuterLeafState pkSeed pkRoot message sig t).bindings "i" = t
+      ∧ lookupValue (forsOuterLeafState pkSeed pkRoot message sig t).bindings
+          "sigBase" = sigDataOffset
+      ∧ (forsOuterLeafState pkSeed pkRoot message sig t).selector = 0
+      ∧ (forsOuterLeafState pkSeed pkRoot message sig t).world.calldata
+        = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig := by
+  simpa [forsOuterLeafState] using
+    forsOuterPrefix_leafSetupFacts_mkC13State pkSeed pkRoot message sig t ht
+
+/-- One actual C13 FORS outer-loop prefix preserves the seed scratch slot through
+the next concrete leaf step. -/
+theorem forsLeafStep_preserves_seed_slot_of_mkC13State_prefix
+    (pkSeed pkRoot message sig : ByteArray) (t : Nat) (ht : t < 6) :
+    ((SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+        (forsOuterLeafState pkSeed pkRoot message sig t)).world.memory 0).val
+      = ((forsOuterLeafState pkSeed pkRoot message sig t).world.memory 0).val := by
+  rcases forsOuterLeafState_setupFacts_mkC13State pkSeed pkRoot message sig t ht with
+    ⟨hi, hsigBase, hsel, hcd⟩
+  exact
+    SphincsMinusVerifiers.SegmentS4ForsMerkleFrame.forsLeafStep_preserves_seed_slot_of_forsFrozenSetup
+      (forsOuterLeafState pkSeed pkRoot message sig t)
+      t pkSeed pkRoot message sig hi ht hsigBase hsel hcd
+
+/-- One actual C13 FORS outer-loop prefix preserves a different ordinary root
+slot through the next concrete leaf step. -/
+theorem forsLeafStep_preserves_root_cell_ne_of_mkC13State_prefix
+    (pkSeed pkRoot message sig : ByteArray) (j t : Nat) (ht : t < 6) (hne : j ≠ t) :
+    ((SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+        (forsOuterLeafState pkSeed pkRoot message sig t)).world.memory
+        (0x80 + 32 * j)).val
+      = ((forsOuterLeafState pkSeed pkRoot message sig t).world.memory
+          (0x80 + 32 * j)).val := by
+  rcases forsOuterLeafState_setupFacts_mkC13State pkSeed pkRoot message sig t ht with
+    ⟨hi, hsigBase, hsel, hcd⟩
+  exact
+    SphincsMinusVerifiers.SegmentS4ForsMerkleFrame.forsLeafStep_preserves_root_cell_ne_of_forsFrozenSetup
+      (forsOuterLeafState pkSeed pkRoot message sig t)
+      j t pkSeed pkRoot message sig hi ht hne hsigBase hsel hcd
+
+/-- Concrete one-step carry for an ordinary FORS root slot across a non-writing
+outer iteration. -/
+theorem forsOuterPrefix_root_cell_succ_ne_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) (j t : Nat) (ht : t < 6) (hne : j ≠ t) :
+    ((forsOuterPrefixState pkSeed pkRoot message sig (t + 1)).world.memory
+        (0x80 + 32 * j)).val
+      = ((forsOuterPrefixState pkSeed pkRoot message sig t).world.memory
+          (0x80 + 32 * j)).val := by
+  let start :=
+    { (afterS3 (mkC13State pkSeed pkRoot message sig)) with
+      bindings :=
+        bindValue (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+          "i" (wordNormalize 0) }
+  have hsplit :=
+    ClimbLoop.foldLoop_append "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+      start 0 t 1
+  calc
+    ((forsOuterPrefixState pkSeed pkRoot message sig (t + 1)).world.memory
+        (0x80 + 32 * j)).val
+        =
+      ((SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+          (forsOuterLeafState pkSeed pkRoot message sig t)).world.memory
+          (0x80 + 32 * j)).val := by
+        simpa [forsOuterPrefixState, forsOuterLeafState, start,
+          ClimbLoop.foldLoop_succ, ClimbLoop.foldLoop_zero, Nat.zero_add] using
+          congrArg (fun st => ((st.world.memory (0x80 + 32 * j)).val)) hsplit
+    _ = ((forsOuterLeafState pkSeed pkRoot message sig t).world.memory
+          (0x80 + 32 * j)).val :=
+        forsLeafStep_preserves_root_cell_ne_of_mkC13State_prefix
+          pkSeed pkRoot message sig j t ht hne
+    _ = ((forsOuterPrefixState pkSeed pkRoot message sig t).world.memory
+          (0x80 + 32 * j)).val := rfl
+
+/-- After concrete FORS iteration `j` has written root slot `j`, every later
+concrete outer prefix up to the six-iteration endpoint preserves that slot. -/
+theorem forsOuterPrefix_root_cell_suffix_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) (j k : Nat)
+    (hk : j + 1 + k ≤ 6) :
+    ((forsOuterPrefixState pkSeed pkRoot message sig (j + 1 + k)).world.memory
+        (0x80 + 32 * j)).val
+      = ((forsOuterPrefixState pkSeed pkRoot message sig (j + 1)).world.memory
+          (0x80 + 32 * j)).val := by
+  induction k with
+  | zero =>
+      simp
+  | succ k ih =>
+      have ht : j + 1 + k < 6 := by omega
+      have hne : j ≠ j + 1 + k := by omega
+      have hidx : j + 1 + (k + 1) = (j + 1 + k) + 1 := by omega
+      calc
+        ((forsOuterPrefixState pkSeed pkRoot message sig (j + 1 + (k + 1))).world.memory
+            (0x80 + 32 * j)).val
+            =
+          ((forsOuterPrefixState pkSeed pkRoot message sig ((j + 1 + k) + 1)).world.memory
+            (0x80 + 32 * j)).val := by rw [hidx]
+        _ = ((forsOuterPrefixState pkSeed pkRoot message sig (j + 1 + k)).world.memory
+              (0x80 + 32 * j)).val :=
+            forsOuterPrefix_root_cell_succ_ne_mkC13State
+              pkSeed pkRoot message sig j (j + 1 + k) ht hne
+        _ = ((forsOuterPrefixState pkSeed pkRoot message sig (j + 1)).world.memory
+              (0x80 + 32 * j)).val :=
+            ih (by omega)
+
+/-- The concrete prefix immediately after FORS iteration `j` has root slot `j`
+equal to the post-inner-climb `"node"` word from that iteration. -/
+theorem forsOuterPrefix_root_cell_iteration_node_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) (j : Nat) (hj : j < 6) :
+    ((forsOuterPrefixState pkSeed pkRoot message sig (j + 1)).world.memory
+        (0x80 + 32 * j)).val
+      =
+    wordNormalize
+      (lookupValue
+        (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+            (forsOuterLeafState pkSeed pkRoot message sig j))).bindings "node") := by
+  let start :=
+    { (afterS3 (mkC13State pkSeed pkRoot message sig)) with
+      bindings :=
+        bindValue (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+          "i" (wordNormalize 0) }
+  have hsplit :=
+    ClimbLoop.foldLoop_append "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+      start 0 j 1
+  rcases forsOuterLeafState_setupFacts_mkC13State pkSeed pkRoot message sig j hj with
+    ⟨hi, _, _, _⟩
+  calc
+    ((forsOuterPrefixState pkSeed pkRoot message sig (j + 1)).world.memory
+        (0x80 + 32 * j)).val
+        =
+      ((SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+          (forsOuterLeafState pkSeed pkRoot message sig j)).world.memory
+          (0x80 + 32 * j)).val := by
+        simpa [forsOuterPrefixState, forsOuterLeafState, start,
+          ClimbLoop.foldLoop_succ, ClimbLoop.foldLoop_zero, Nat.zero_add] using
+          congrArg (fun st => ((st.world.memory (0x80 + 32 * j)).val)) hsplit
+    _ =
+      wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              (forsOuterLeafState pkSeed pkRoot message sig j))).bindings "node") :=
+        SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep_root_cell_range
+          (forsOuterLeafState pkSeed pkRoot message sig j) j hj hi
+
+/-- `afterFors` over the byte-facing C13 entry state is exactly the six-step
+concrete outer prefix. -/
+theorem afterFors_eq_forsOuterPrefixState_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) :
+    afterFors (mkC13State pkSeed pkRoot message sig)
+      = forsOuterPrefixState pkSeed pkRoot message sig 6 := by
+  unfold afterFors forsOuterPrefixState
+  have h6 : wordNormalize 6 = 6 := by
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  rw [h6]
+
+/-- Every in-range concrete C13 FORS outer-loop prefix preserves the seed
+scratch slot installed by S2/S3. -/
+theorem forsOuterPrefix_seed_slot_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) (n : Nat) (hn : n ≤ 6) :
+    ((forsOuterPrefixState pkSeed pkRoot message sig n).world.memory 0).val
+      = wordOfHash16 pkSeed := by
+  let start :=
+    { (afterS3 (mkC13State pkSeed pkRoot message sig)) with
+      bindings :=
+        bindValue (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+          "i" (wordNormalize 0) }
+  induction n with
+  | zero =>
+      dsimp [forsOuterPrefixState, start]
+      exact afterS3_seed_slot_mkC13State pkSeed pkRoot message sig
+  | succ n ih =>
+      have hnlt : n < 6 := by omega
+      have hsplit :=
+        ClimbLoop.foldLoop_append "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+          start 0 n 1
+      calc
+        ((forsOuterPrefixState pkSeed pkRoot message sig (n + 1)).world.memory 0).val
+            =
+          ((SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+              (forsOuterLeafState pkSeed pkRoot message sig n)).world.memory 0).val := by
+            simpa [forsOuterPrefixState, forsOuterLeafState, start,
+              ClimbLoop.foldLoop_succ, ClimbLoop.foldLoop_zero, Nat.zero_add] using
+              congrArg (fun st => ((st.world.memory 0).val)) hsplit
+        _ = ((forsOuterLeafState pkSeed pkRoot message sig n).world.memory 0).val :=
+          forsLeafStep_preserves_seed_slot_of_mkC13State_prefix
+            pkSeed pkRoot message sig n hnlt
+        _ = ((forsOuterPrefixState pkSeed pkRoot message sig n).world.memory 0).val := rfl
+        _ = wordOfHash16 pkSeed := ih (by omega)
+
+/-- Concrete frozen-entry FORS seed-cell preservation, with the range-gated leaf
+premise discharged for the actual six C13 outer-loop prefix states. -/
+theorem afterFors_seed_slot_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) :
+    ((afterFors (mkC13State pkSeed pkRoot message sig)).world.memory 0).val
+      = wordOfHash16 pkSeed := by
+  rw [afterFors_eq_forsOuterPrefixState_mkC13State]
+  exact forsOuterPrefix_seed_slot_mkC13State pkSeed pkRoot message sig 6 (by omega)
+
+/-- The FORS outer loop carries the signature base binding unchanged. -/
+theorem afterFors_sigBase_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) :
+    lookupValue (afterFors (mkC13State pkSeed pkRoot message sig)).bindings
+        "sigBase" = sigDataOffset := by
+  unfold afterFors
+  rw [ClimbLoop.foldLoop_preserves_lookup "i" "sigBase"
+        SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+        (by decide) SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep_preserves_sigBase
+        _ 0 (wordNormalize 6)]
+  rw [MemoryKit.lookupValue_bindValue_ne
+        (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+        "i" "sigBase" (wordNormalize 0) (by decide)]
+  exact afterS3_sigBase_mkC13State pkSeed pkRoot message sig
+
+/-- The FORS outer loop carries the frozen selector and calldata image unchanged. -/
+theorem afterFors_selector_calldata_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) :
+    (afterFors (mkC13State pkSeed pkRoot message sig)).selector = 0
+      ∧ (afterFors (mkC13State pkSeed pkRoot message sig)).world.calldata
+        = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig := by
+  unfold afterFors
+  have hfold := SphincsMinusVerifiers.StateFrame.foldLoop_preserves_selector_calldata
+    "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+    SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep_preserves_selector_calldata
+    { (afterS3 (mkC13State pkSeed pkRoot message sig)) with
+        bindings := bindValue (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+          "i" (wordNormalize 0) }
+    0 (wordNormalize 6)
+  have hS3 := afterS3_selector_calldata_mkC13State pkSeed pkRoot message sig
+  exact ⟨by rw [hfold.1]; exact hS3.1, by rw [hfold.2]; exact hS3.2⟩
+
+/-- Selector projection of `afterFors_selector_calldata_mkC13State`. -/
+theorem afterFors_selector_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) :
+    (afterFors (mkC13State pkSeed pkRoot message sig)).selector = 0 :=
+  (afterFors_selector_calldata_mkC13State pkSeed pkRoot message sig).1
+
+/-- Calldata-image projection of `afterFors_selector_calldata_mkC13State`. -/
+theorem afterFors_calldata_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) :
+    (afterFors (mkC13State pkSeed pkRoot message sig)).world.calldata
+      = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig :=
+  (afterFors_selector_calldata_mkC13State pkSeed pkRoot message sig).2
 
 /-- Loop-plumbing adapter for the FORS outer loop: once the per-iteration
 `forsLeafStep` memory-frame fact is available for a seed cell, the whole
@@ -140,6 +625,671 @@ theorem afterFors_seed_slot_mkC13State_of_forsLeafStep_range_preserves
       = wordOfHash16 pkSeed := by
   rw [afterFors_seed_slot_of_forsLeafStep_range_preserves _ hLeaf]
   exact afterS3_seed_slot_mkC13State pkSeed pkRoot message sig
+
+/-! ## FORS root cells. -/
+
+/-- Normal FORS root-cell adapter for the six non-forced roots.  The outer FORS
+loop and finalize pre-copy prefix are discharged here; callers only need the
+substantive per-iteration data fact identifying the post-inner-climb `"node"`
+with the intended root word, plus the local suffix-preservation frame for later
+outer iterations. -/
+theorem normalRootCell_eq_of_outer_iteration_node
+    (st : RuntimeState) (j root : Nat) (hj : j < 6)
+    (hPres : ∀ (s : RuntimeState) (idx : Nat), j < idx → idx < 6 →
+      ((SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+          { s with bindings := bindValue s.bindings "i" (wordNormalize idx) }).world.memory
+          (0x80 + 32 * j)).val =
+        (s.world.memory (0x80 + 32 * j)).val)
+    (hNode :
+      wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              { (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+                  { (afterS3 st) with
+                    bindings := bindValue (afterS3 st).bindings "i" (wordNormalize 0) }
+                  0 j) with
+                bindings :=
+                  bindValue
+                    (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+                      { (afterS3 st) with
+                        bindings := bindValue (afterS3 st).bindings "i" (wordNormalize 0) }
+                      0 j).bindings "i" (wordNormalize j) })).bindings "node") = root) :
+    ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+        (afterFors st)).world.memory (0x80 + 32 * j)).val = root := by
+  rw [SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep_preserves_root_source_slot
+    (afterFors st) j hj]
+  unfold afterFors
+  rw [SphincsMinusVerifiers.SegmentS4Fors.forsOuter_root_cell_eq_iteration_node_of_suffix_preserves
+    (afterS3 st) j hj hPres]
+  exact hNode
+
+/-- Quantified C13-shaped version of
+`normalRootCell_eq_of_outer_iteration_node`.  This packages the six ordinary
+FORS root slots exactly as the accept-path `hmRlo` premise expects: the only
+remaining content is a per-index post-inner-climb node equality against
+`forsAllRootsC13`. -/
+theorem normalRootCells_eq_forsAllRootsC13_of_iteration_nodes
+    (st : RuntimeState) (pk : PublicKey) (digest : HMsg) (fors : ForsSig)
+    (hPres : ∀ j, j < 6 → ∀ (s : RuntimeState) (idx : Nat), j < idx → idx < 6 →
+      ((SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+          { s with bindings := bindValue s.bindings "i" (wordNormalize idx) }).world.memory
+          (0x80 + 32 * j)).val =
+        (s.world.memory (0x80 + 32 * j)).val)
+    (hNode : ∀ j, (hj : j < 6) →
+      wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              { (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+                  { (afterS3 st) with
+                    bindings := bindValue (afterS3 st).bindings "i" (wordNormalize 0) }
+                  0 j) with
+                bindings :=
+                  bindValue
+                    (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+                      { (afterS3 st) with
+                        bindings := bindValue (afterS3 st).bindings "i" (wordNormalize 0) }
+                      0 j).bindings "i" (wordNormalize j) })).bindings "node") =
+        (C13Concrete.forsAllRootsC13 pk digest fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega)) :
+    ∀ j, (hj : j < 6) →
+      ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+          (afterFors st)).world.memory (0x80 + 32 * j)).val =
+        (C13Concrete.forsAllRootsC13 pk digest fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega) := by
+  intro j hj
+  exact normalRootCell_eq_of_outer_iteration_node st j
+    ((C13Concrete.forsAllRootsC13 pk digest fors)[j]'(by
+      rw [C13Concrete.forsAllRootsC13_length]
+      omega))
+    hj (hPres j hj) (hNode j hj)
+
+/-- Frozen-calldata normal-root adapter for one of the six non-forced FORS root
+slots.  This version discharges the later-iteration root-cell frame from the
+C13 calldata/auth-path shape, so callers only provide the threaded setup-site
+facts and the data equality for iteration `j`'s post-inner `"node"`. -/
+theorem normalRootCell_eq_of_fors_frozen_calldata_node
+    (st : RuntimeState) (j root : Nat) (hj : j < 6)
+    (pkSeed pkRoot message sig : ByteArray)
+    (hsite : ∀ (s : RuntimeState) (t idx : Nat), t < 6 → idx < 19 →
+      ∃ base,
+        s.selector = 0 ∧
+        s.world.calldata
+          = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig ∧
+        lookupValue s.bindings "authPtr" = sigDataOffset + (128 + 304 * t) ∧
+        lookupValue s.bindings "treeAdrsBase" = base ∧
+        base < 2 ^ 256 ∧
+        lookupValue s.bindings "pathIdx" < 2 ^ 256)
+    (hNode :
+      wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              { (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+                  { (afterS3 st) with
+                    bindings := bindValue (afterS3 st).bindings "i" (wordNormalize 0) }
+                  0 j) with
+                bindings :=
+                  bindValue
+                    (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+                      { (afterS3 st) with
+                        bindings := bindValue (afterS3 st).bindings "i" (wordNormalize 0) }
+                      0 j).bindings "i" (wordNormalize j) })).bindings "node") = root) :
+    ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+        (afterFors st)).world.memory (0x80 + 32 * j)).val = root := by
+  rw [SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep_preserves_root_source_slot
+    (afterFors st) j hj]
+  unfold afterFors
+  rw [SphincsMinusVerifiers.SegmentS4ForsMerkleFrame.forsOuter_root_cell_eq_iteration_node_of_fors_frozen_calldata
+      (afterS3 st) j hj pkSeed pkRoot message sig hsite]
+  exact hNode
+
+/-- Quantified C13-shaped normal-root adapter with the ordinary-root frame
+discharged from frozen calldata/auth-path facts.  This is the `hmRlo` shape
+needed by the accept path for the first six FORS roots. -/
+theorem normalRootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes
+    (st : RuntimeState) (pk : PublicKey) (digest : HMsg) (fors : ForsSig)
+    (pkSeed pkRoot message sig : ByteArray)
+    (hsite : ∀ (s : RuntimeState) (t idx : Nat), t < 6 → idx < 19 →
+      ∃ base,
+        s.selector = 0 ∧
+        s.world.calldata
+          = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig ∧
+        lookupValue s.bindings "authPtr" = sigDataOffset + (128 + 304 * t) ∧
+        lookupValue s.bindings "treeAdrsBase" = base ∧
+        base < 2 ^ 256 ∧
+        lookupValue s.bindings "pathIdx" < 2 ^ 256)
+    (hNode : ∀ j, (hj : j < 6) →
+      wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              { (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+                  { (afterS3 st) with
+                    bindings := bindValue (afterS3 st).bindings "i" (wordNormalize 0) }
+                  0 j) with
+                bindings :=
+                  bindValue
+                    (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+                      { (afterS3 st) with
+                        bindings := bindValue (afterS3 st).bindings "i" (wordNormalize 0) }
+                      0 j).bindings "i" (wordNormalize j) })).bindings "node") =
+        (C13Concrete.forsAllRootsC13 pk digest fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega)) :
+    ∀ j, (hj : j < 6) →
+      ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+          (afterFors st)).world.memory (0x80 + 32 * j)).val =
+        (C13Concrete.forsAllRootsC13 pk digest fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega) := by
+  intro j hj
+  exact normalRootCell_eq_of_fors_frozen_calldata_node st j
+    ((C13Concrete.forsAllRootsC13 pk digest fors)[j]'(by
+      rw [C13Concrete.forsAllRootsC13_length]
+      omega))
+    hj pkSeed pkRoot message sig hsite (hNode j hj)
+
+/-- Concrete frozen-entry normal-root adapter for one of the six non-forced
+FORS root slots.  The suffix carry is discharged from the actual C13 outer-loop
+prefix states, so callers only identify iteration `j`'s post-inner `"node"`. -/
+theorem normalRootCell_eq_of_mkC13State_iteration_node
+    (pkSeed pkRoot message sig : ByteArray) (j root : Nat) (hj : j < 6)
+    (hNode :
+      wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              (forsOuterLeafState pkSeed pkRoot message sig j))).bindings "node") = root) :
+    ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+        (afterFors (mkC13State pkSeed pkRoot message sig))).world.memory
+        (0x80 + 32 * j)).val = root := by
+  rw [SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep_preserves_root_source_slot
+    (afterFors (mkC13State pkSeed pkRoot message sig)) j hj]
+  rw [afterFors_eq_forsOuterPrefixState_mkC13State]
+  have hsplit :=
+    forsOuterPrefix_root_cell_suffix_mkC13State
+      pkSeed pkRoot message sig j (5 - j) (by omega)
+  have hwrite :=
+    forsOuterPrefix_root_cell_iteration_node_mkC13State
+      pkSeed pkRoot message sig j hj
+  have hidx : j + 1 + (5 - j) = 6 := by omega
+  calc
+    ((forsOuterPrefixState pkSeed pkRoot message sig 6).world.memory
+        (0x80 + 32 * j)).val
+        =
+      ((forsOuterPrefixState pkSeed pkRoot message sig (j + 1 + (5 - j))).world.memory
+        (0x80 + 32 * j)).val := by rw [hidx]
+    _ = ((forsOuterPrefixState pkSeed pkRoot message sig (j + 1)).world.memory
+          (0x80 + 32 * j)).val := hsplit
+    _ =
+      wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              (forsOuterLeafState pkSeed pkRoot message sig j))).bindings "node") := hwrite
+    _ = root := hNode
+
+/-- Quantified concrete frozen-entry adapter for the six non-forced FORS root
+slots.  This is the normal-root half of the C13 root-cell handoff with all
+outer-loop memory framing discharged from `mkC13State`. -/
+theorem normalRootCells_eq_forsAllRootsC13_of_mkC13State_iteration_nodes
+    (pk : PublicKey) (digest : HMsg) (message sig : ByteArray) (fors : ForsSig)
+    (hNode : ∀ j, (hj : j < 6) →
+      wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j))).bindings "node") =
+        (C13Concrete.forsAllRootsC13 pk digest fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega)) :
+    ∀ j, (hj : j < 6) →
+      ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+          (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))).world.memory
+          (0x80 + 32 * j)).val =
+        (C13Concrete.forsAllRootsC13 pk digest fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega) := by
+  intro j hj
+  exact normalRootCell_eq_of_mkC13State_iteration_node
+    pk.pkSeed pk.pkRoot message sig j
+    ((C13Concrete.forsAllRootsC13 pk digest fors)[j]'(by
+      rw [C13Concrete.forsAllRootsC13_length]
+      omega))
+    hj (hNode j hj)
+
+/-- Concrete C13 node correspondence for one normal FORS leaf iteration.  This
+adapter discharges the actual `mkC13State` seed slot and the parsed auth-path
+`MerkleClimbData` range; callers still supply the setup-eval facts and the
+per-step `MerkleClimbRel` preservation fact. -/
+theorem forsOuterLeafState_node_eq_forsAllRootsC13_of_eval_parse
+    {v : Variant} (pk : PublicKey) (digest : HMsg)
+    (message sig : ByteArray) {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 v sig = some sigParsed)
+    (j : Nat) (hj : j < 6)
+    (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData
+          ((sigParsed.fors.authPath[j]?).getD [])
+          (forsAuthCdAt pk.pkSeed pk.pkRoot message sig j) idx →
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx" s a →
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx"
+          (SphincsMinusVerifiers.ClimbKit.stepMerkle
+            "node" "pathIdx" "treeAdrsBase" "authPtr"
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+          (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
+            (wordOfHash16 pk.pkSeed) ((3 <<< 96) ||| (j <<< 64))
+            ((sigParsed.fors.authPath[j]?).getD []) idx a))
+    (hAdrLt : C13Concrete.adrsForsLeaf j ((digest.forsIndex[j]?).getD 0) < 2 ^ 256)
+    (hTree : evalExpr [] (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j)
+        (.bitAnd
+          (.shr (.mul (.localVar "i") (.literal 19)) (.localVar "dVal"))
+          (.literal 0x7FFFF)) = some ((digest.forsIndex[j]?).getD 0))
+    (hSecret : evalExpr []
+        { (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j) with
+          bindings :=
+            bindValue
+              (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j).bindings
+              "treeIdx" ((digest.forsIndex[j]?).getD 0) }
+        (.bitAnd
+          (.calldataload
+            (.add (.localVar "sigBase")
+              (.add (.literal 16) (.shl (.literal 4) (.localVar "i")))))
+          (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+          = some (wordOfHash16 ((sigParsed.fors.sk[j]?).getD ⟨#[]⟩)))
+    (hLeaf : evalExpr []
+        { (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j) with
+          bindings :=
+            (bindValue
+              (bindValue
+                (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j).bindings
+                "treeIdx" ((digest.forsIndex[j]?).getD 0))
+              "secretVal" (wordOfHash16 ((sigParsed.fors.sk[j]?).getD ⟨#[]⟩))) }
+        (.bitOr
+          (.shl (.literal 96) (.literal 3))
+          (.bitOr (.shl (.literal 64) (.localVar "i")) (.localVar "treeIdx")))
+          = some (C13Concrete.adrsForsLeaf j ((digest.forsIndex[j]?).getD 0))) :
+    wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j))).bindings "node")
+      =
+        (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega) := by
+  let cdAt : Nat → Nat := forsAuthCdAt pk.pkSeed pk.pkRoot message sig j
+  have hD0 :=
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.fors_climb_data_range_getD
+      pk.pkSeed pk.pkRoot message sig v sigParsed j
+      (sigDataOffset + (128 + 304 * j)) hparse hj rfl
+  have hD : ∀ idx, 0 ≤ idx → idx < 0 + 19 →
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData
+        ((sigParsed.fors.authPath[j]?).getD []) cdAt idx := by
+    intro idx _ hidx
+    simpa [cdAt, forsAuthCdAt] using hD0 idx (by omega)
+  have hm0 :
+      ((forsOuterLeafState pk.pkSeed pk.pkRoot message sig j).world.memory 0).val
+        = wordOfHash16 pk.pkSeed := by
+    simpa [forsOuterLeafState] using
+      forsOuterPrefix_seed_slot_mkC13State pk.pkSeed pk.pkRoot message sig j (by omega)
+  have hSkLt :
+      wordOfHash16 ((sigParsed.fors.sk[j]?).getD ⟨#[]⟩) < 2 ^ 256 :=
+    SphincsMinusVerifiers.SegmentS2.wordOfHash16_lt _
+  exact
+    SphincsMinusVerifiers.SegmentS4ForsMerkleFrame.forsLeafInnerStep_node_eq_forsAllRootsC13_getElem_of_eval
+      (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j)
+      pk digest sigParsed.fors j hj cdAt hstep hD hm0 hAdrLt hSkLt
+      hTree hSecret hLeaf
+
+/-- Concrete C13 `H_msg` specialization of
+`forsOuterLeafState_node_eq_forsAllRootsC13_of_eval_parse`.  The FORS leaf
+address bound is discharged from the 19-bit concrete digest index, so callers
+only supply the setup eval facts and the per-step relation preservation. -/
+theorem forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_eval_parse
+    {v : Variant} (pk : PublicKey)
+    (message sig : ByteArray) {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 v sig = some sigParsed)
+    (j : Nat) (hj : j < 6)
+    (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData
+          ((sigParsed.fors.authPath[j]?).getD [])
+          (forsAuthCdAt pk.pkSeed pk.pkRoot message sig j) idx →
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx" s a →
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx"
+          (SphincsMinusVerifiers.ClimbKit.stepMerkle
+            "node" "pathIdx" "treeAdrsBase" "authPtr"
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+          (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
+            (wordOfHash16 pk.pkSeed) ((3 <<< 96) ||| (j <<< 64))
+            ((sigParsed.fors.authPath[j]?).getD []) idx a))
+    (hTree : evalExpr [] (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j)
+        (.bitAnd
+          (.shr (.mul (.localVar "i") (.literal 19))
+            (.localVar "dVal"))
+          (.literal 0x7FFFF))
+          = some (((C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message).forsIndex[j]?).getD 0))
+    (hSecret : evalExpr []
+        { (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j) with
+          bindings :=
+            bindValue
+              (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j).bindings
+              "treeIdx"
+              (((C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message).forsIndex[j]?).getD 0) }
+        (.bitAnd
+          (.calldataload
+            (.add (.localVar "sigBase")
+              (.add (.literal 16) (.shl (.literal 4) (.localVar "i")))))
+          (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+          = some (wordOfHash16 ((sigParsed.fors.sk[j]?).getD ⟨#[]⟩)))
+    (hLeaf : evalExpr []
+        { (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j) with
+          bindings :=
+            (bindValue
+              (bindValue
+                (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j).bindings
+                "treeIdx"
+                (((C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message).forsIndex[j]?).getD 0))
+              "secretVal" (wordOfHash16 ((sigParsed.fors.sk[j]?).getD ⟨#[]⟩))) }
+        (.bitOr
+          (.shl (.literal 96) (.literal 3))
+          (.bitOr (.shl (.literal 64) (.localVar "i")) (.localVar "treeIdx")))
+          = some (C13Concrete.adrsForsLeaf j
+            (((C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message).forsIndex[j]?).getD 0))) :
+    wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j))).bindings "node")
+      =
+        (C13Concrete.forsAllRootsC13 pk
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message)
+          sigParsed.fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega) :=
+  forsOuterLeafState_node_eq_forsAllRootsC13_of_eval_parse
+    pk (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message)
+    message sig hparse j hj hstep
+    (C13Concrete.adrsForsLeaf_hMsgC13_normal_lt pk sigParsed.R message hj)
+    hTree hSecret hLeaf
+
+/-- The concrete FORS leaf-address expression evaluates to the spec leaf ADRS
+word once the outer-loop index and decoded `treeIdx` binding are known. -/
+theorem forsLeafAddress_eval_eq_adrsForsLeaf
+    (st : RuntimeState) {i treeIdx secretVal : Nat}
+    (hi : lookupValue st.bindings "i" = i)
+    (hiLt : i < 6)
+    (hTreeIdxLt : treeIdx < 2 ^ 256) :
+    evalExpr []
+        { st with
+          bindings :=
+            bindValue (bindValue st.bindings "treeIdx" treeIdx)
+              "secretVal" secretVal }
+        (.bitOr
+          (.shl (.literal 96) (.literal 3))
+          (.bitOr (.shl (.literal 64) (.localVar "i")) (.localVar "treeIdx")))
+      = some (C13Concrete.adrsForsLeaf i treeIdx) := by
+  let st' : RuntimeState :=
+    { st with
+      bindings :=
+        bindValue (bindValue st.bindings "treeIdx" treeIdx)
+          "secretVal" secretVal }
+  have h96 :
+      evalExpr [] st' (.shl (.literal 96) (.literal 3)) = some (3 <<< 96) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st' (.literal 96) (.literal 3) 96 3 rfl rfl
+      (by decide) (by decide) (by decide)
+  have hiEval : evalExpr [] st' (.localVar "i") = some i := by
+    dsimp [st']
+    change some (lookupValue (bindValue (bindValue st.bindings "treeIdx" treeIdx)
+      "secretVal" secretVal) "i") = some i
+    rw [MemoryKit.lookupValue_bindValue_ne _ "secretVal" "i" _ (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "treeIdx" "i" _ (by decide)]
+    exact congrArg some hi
+  have h64 :
+      evalExpr [] st' (.shl (.literal 64) (.localVar "i")) = some (i <<< 64) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st' (.literal 64) (.localVar "i") 64 i rfl hiEval
+      (by decide)
+      (lt_trans hiLt (by decide : 6 < 2 ^ 256))
+      (by
+        rw [Nat.shiftLeft_eq]
+        calc
+          i * 2 ^ 64 ≤ 5 * 2 ^ 64 :=
+            Nat.mul_le_mul_right _ (Nat.le_of_lt_succ hiLt)
+          _ < 2 ^ 256 := by decide)
+  have hTreeEval : evalExpr [] st' (.localVar "treeIdx") = some treeIdx := by
+    dsimp [st']
+    change some (lookupValue (bindValue (bindValue st.bindings "treeIdx" treeIdx)
+      "secretVal" secretVal) "treeIdx") = some treeIdx
+    rw [MemoryKit.lookupValue_bindValue_ne _ "secretVal" "treeIdx" _ (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_self]
+  have h64lt : i <<< 64 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      i * 2 ^ 64 ≤ 5 * 2 ^ 64 :=
+        Nat.mul_le_mul_right _ (Nat.le_of_lt_succ hiLt)
+      _ < 2 ^ 256 := by decide
+  have hinner :
+      evalExpr [] st'
+        (.bitOr (.shl (.literal 64) (.localVar "i")) (.localVar "treeIdx"))
+        = some ((i <<< 64) ||| treeIdx) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+      st' (.shl (.literal 64) (.localVar "i")) (.localVar "treeIdx")
+      (i <<< 64) treeIdx h64 hTreeEval h64lt hTreeIdxLt
+  have h96lt : 3 <<< 96 < 2 ^ 256 := by decide
+  have hinnerLt : (i <<< 64) ||| treeIdx < 2 ^ 256 :=
+    Nat.bitwise_lt_two_pow h64lt hTreeIdxLt
+  have hfull :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+      st' (.shl (.literal 96) (.literal 3))
+      (.bitOr (.shl (.literal 64) (.localVar "i")) (.localVar "treeIdx"))
+      (3 <<< 96) ((i <<< 64) ||| treeIdx) h96 hinner h96lt hinnerLt
+  simpa [st', C13Concrete.adrsForsLeaf, Nat.lor_assoc] using hfull
+
+/-- Concrete C13 `H_msg` specialization that additionally discharges the
+FORS leaf-address setup eval from the actual outer-loop `"i"` binding and the
+19-bit digest index. -/
+theorem forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_eval_parse
+    {v : Variant} (pk : PublicKey)
+    (message sig : ByteArray) {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 v sig = some sigParsed)
+    (j : Nat) (hj : j < 6)
+    (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData
+          ((sigParsed.fors.authPath[j]?).getD [])
+          (forsAuthCdAt pk.pkSeed pk.pkRoot message sig j) idx →
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx" s a →
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx"
+          (SphincsMinusVerifiers.ClimbKit.stepMerkle
+            "node" "pathIdx" "treeAdrsBase" "authPtr"
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+          (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
+            (wordOfHash16 pk.pkSeed) ((3 <<< 96) ||| (j <<< 64))
+            ((sigParsed.fors.authPath[j]?).getD []) idx a))
+    (hTree : evalExpr [] (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j)
+        (.bitAnd
+          (.shr (.mul (.localVar "i") (.literal 19))
+            (.localVar "dVal"))
+          (.literal 0x7FFFF))
+          = some (((C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message).forsIndex[j]?).getD 0))
+    (hSecret : evalExpr []
+        { (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j) with
+          bindings :=
+            bindValue
+              (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j).bindings
+              "treeIdx"
+              (((C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message).forsIndex[j]?).getD 0) }
+        (.bitAnd
+          (.calldataload
+            (.add (.localVar "sigBase")
+              (.add (.literal 16) (.shl (.literal 4) (.localVar "i")))))
+          (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+          = some (wordOfHash16 ((sigParsed.fors.sk[j]?).getD ⟨#[]⟩))) :
+    wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j))).bindings "node")
+      =
+        (C13Concrete.forsAllRootsC13 pk
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message)
+          sigParsed.fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega) := by
+  have hi :
+      lookupValue (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j).bindings "i" = j :=
+    (forsOuterLeafState_setupFacts_mkC13State pk.pkSeed pk.pkRoot message sig j hj).1
+  have hTreeIdxLt :
+      ((C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message).forsIndex[j]?).getD 0
+        < 2 ^ 256 :=
+    lt_trans
+      (C13Concrete.hMsgC13_forsIndex_getD_lt pk sigParsed.R message
+        (lt_trans hj (by decide : 6 < 7)))
+      (by decide : 2 ^ 19 < 2 ^ 256)
+  have hLeaf :=
+    forsLeafAddress_eval_eq_adrsForsLeaf
+      (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j)
+      hi hj hTreeIdxLt
+      (secretVal := wordOfHash16 ((sigParsed.fors.sk[j]?).getD ⟨#[]⟩))
+  exact
+    forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_eval_parse
+      pk message sig hparse j hj hstep hTree hSecret hLeaf
+
+/-- S3 binds `"dVal"` to the digest word produced by S2, and the frozen C13 S2
+digest is the concrete `H_msg` keccak preimage word over the byte-level inputs. -/
+theorem afterS3_dVal_mkC13State (pkSeed pkRoot message sig : ByteArray) :
+    lookupValue (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings "dVal"
+      = keccakWords [ wordOfHash16 pkSeed, wordOfHash16 pkRoot,
+          wordOfHash16 (C13Concrete.read16 sig 0), C13Concrete.baToNatBE message % C13Concrete.wordMod,
+          C13Concrete.hMsgPad ] := by
+  unfold afterS3 SegmentS3.stepS3 afterS2
+  rw [MemoryKit.lookupValue_bindValue_ne _ "sigBase" "dVal" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_self]
+  exact SphincsMinusVerifiers.SegmentS2R.s2_digest_mkC13State_final
+    pkSeed pkRoot message sig
+
+/-- Every actual C13 FORS outer-loop prefix carries the S3 `"dVal"` digest alias. -/
+theorem forsOuterPrefix_dVal_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) (n : Nat) :
+    lookupValue (forsOuterPrefixState pkSeed pkRoot message sig n).bindings "dVal"
+      = keccakWords [ wordOfHash16 pkSeed, wordOfHash16 pkRoot,
+          wordOfHash16 (C13Concrete.read16 sig 0), C13Concrete.baToNatBE message % C13Concrete.wordMod,
+          C13Concrete.hMsgPad ] := by
+  unfold forsOuterPrefixState
+  rw [ClimbLoop.foldLoop_preserves_lookup "i" "dVal"
+        SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+        (by decide) SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep_preserves_dVal
+        _ 0 n]
+  rw [MemoryKit.lookupValue_bindValue_ne
+        (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+        "i" "dVal" (wordNormalize 0) (by decide)]
+  exact afterS3_dVal_mkC13State pkSeed pkRoot message sig
+
+/-- Named-state projection of the C13 FORS-prefix `"dVal"` frame. -/
+theorem forsOuterLeafState_dVal_mkC13State
+    (pkSeed pkRoot message sig : ByteArray) (t : Nat) :
+    lookupValue (forsOuterLeafState pkSeed pkRoot message sig t).bindings "dVal"
+      = keccakWords [ wordOfHash16 pkSeed, wordOfHash16 pkRoot,
+          wordOfHash16 (C13Concrete.read16 sig 0), C13Concrete.baToNatBE message % C13Concrete.wordMod,
+          C13Concrete.hMsgPad ] := by
+  unfold forsOuterLeafState
+  rw [MemoryKit.lookupValue_bindValue_ne
+        (forsOuterPrefixState pkSeed pkRoot message sig t).bindings
+        "i" "dVal" (wordNormalize t) (by decide)]
+  exact forsOuterPrefix_dVal_mkC13State pkSeed pkRoot message sig t
+
+/-- The concrete FORS setup expression for `"treeIdx"` evaluates, at the actual
+C13 outer-loop leaf state, to the matching concrete `H_msg` FORS index. -/
+theorem forsOuterLeafState_treeIdx_eval_eq_hMsg_parse
+    (pk : PublicKey) (message sig : ByteArray) {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (j : Nat) (hj : j < 6) :
+    evalExpr [] (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j)
+        (.bitAnd
+          (.shr (.mul (.localVar "i") (.literal 19))
+            (.localVar "dVal"))
+          (.literal 0x7FFFF))
+      = some (((C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message).forsIndex[j]?).getD 0) := by
+  let st := forsOuterLeafState pk.pkSeed pk.pkRoot message sig j
+  let digest :=
+    keccakWords [ wordOfHash16 pk.pkSeed, wordOfHash16 pk.pkRoot,
+      wordOfHash16 (C13Concrete.read16 sig 0), C13Concrete.baToNatBE message % C13Concrete.wordMod,
+      C13Concrete.hMsgPad ]
+  have hi : lookupValue st.bindings "i" = j := by
+    dsimp [st]
+    exact (forsOuterLeafState_setupFacts_mkC13State pk.pkSeed pk.pkRoot message sig j hj).1
+  have hdVal : lookupValue st.bindings "dVal" = digest := by
+    dsimp [st, digest]
+    exact forsOuterLeafState_dVal_mkC13State pk.pkSeed pk.pkRoot message sig j
+  have hiEval : evalExpr [] st (.localVar "i") = some j := by
+    exact congrArg some hi
+  have hdValEval : evalExpr [] st (.localVar "dVal") = some digest := by
+    exact congrArg some hdVal
+  have hmul :
+      evalExpr [] st (.mul (.localVar "i") (.literal 19)) = some (19 * j) := by
+    show (do
+      let lhs : Verity.Core.Uint256 := ← evalExpr [] st (.localVar "i")
+      let rhs : Verity.Core.Uint256 := ← evalExpr [] st (.literal 19)
+      pure (lhs * rhs).val) = some (19 * j)
+    rw [hiEval]
+    show some ((Verity.Core.Uint256.ofNat j * Verity.Core.Uint256.ofNat 19).val)
+      = some (19 * j)
+    show some (((Verity.Core.Uint256.ofNat j).val * (Verity.Core.Uint256.ofNat 19).val)
+          % Verity.Core.Uint256.modulus) = some (19 * j)
+    have hjv : (Verity.Core.Uint256.ofNat j).val = j :=
+      Nat.mod_eq_of_lt (lt_trans hj (by decide : 6 < 2 ^ 256))
+    have h19v : (Verity.Core.Uint256.ofNat 19).val = 19 :=
+      Nat.mod_eq_of_lt (by decide : 19 < 2 ^ 256)
+    have hmod : Verity.Core.Uint256.modulus = 2 ^ 256 := rfl
+    rw [hjv, h19v, hmod, Nat.mul_comm,
+      Nat.mod_eq_of_lt (by
+        calc
+          19 * j ≤ 19 * 5 := Nat.mul_le_mul_left 19 (Nat.le_of_lt_succ hj)
+          _ < 2 ^ 256 := by decide)]
+  have hshiftLt : 19 * j < 2 ^ 256 := by
+    calc
+      19 * j ≤ 19 * 5 := Nat.mul_le_mul_left 19 (Nat.le_of_lt_succ hj)
+      _ < 2 ^ 256 := by decide
+  have hdigestLt : digest < 2 ^ 256 := by
+    dsimp [digest]
+    simpa [Compiler.Constants.evmModulus] using
+      KeccakBridge.keccakWords_lt
+        [ wordOfHash16 pk.pkSeed, wordOfHash16 pk.pkRoot,
+          wordOfHash16 (C13Concrete.read16 sig 0),
+          C13Concrete.baToNatBE message % C13Concrete.wordMod, C13Concrete.hMsgPad ]
+  have hshr :
+      evalExpr [] st
+        (.shr (.mul (.localVar "i") (.literal 19)) (.localVar "dVal"))
+        = some (digest >>> (19 * j)) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shr_bounded
+      st (.mul (.localVar "i") (.literal 19)) (.localVar "dVal")
+      (19 * j) digest hmul hdValEval hshiftLt hdigestLt
+  have hland :
+      evalExpr [] st
+        (.bitAnd
+          (.shr (.mul (.localVar "i") (.literal 19)) (.localVar "dVal"))
+          (.literal 0x7FFFF))
+        = some ((digest >>> (19 * j)) % (2 ^ 19)) := by
+    rw [SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitAnd_literal
+      st (.shr (.mul (.localVar "i") (.literal 19)) (.localVar "dVal"))
+      (digest >>> (19 * j)) 0x7FFFF hshr
+      (by
+        rw [Nat.shiftRight_eq_div_pow]
+        exact Nat.lt_of_le_of_lt (Nat.div_le_self digest (2 ^ (19 * j))) hdigestLt)
+      (by decide : 0x7FFFF < 2 ^ 256)]
+    rw [SegmentS3.nat_land_low19]
+  have hidx :=
+    C13Concrete.hMsgC13_forsIndex_getD_eq pk sigParsed.R message
+      (lt_trans hj (by decide : 6 < 7))
+  rw [hland]
+  change some (digest >>> (19 * j) % 2 ^ 19) =
+    some (((C13Concrete.hMsgC13 c13 pk sigParsed.R message).forsIndex[j]?).getD 0)
+  rw [hidx]
+  rw [C13Concrete.parseSignatureC13_R hparse]
 
 /-- `afterSeed` starts the hypertree climb at the FORS public-key word. -/
 theorem afterSeed_currentNode (st : RuntimeState) :
@@ -380,6 +1530,760 @@ theorem forsPkCompressWord_eq_of_afterFors_seed_mkC13State_six_plus_last
     (afterFors (mkC13State pkSeed pkRoot message sig)) (wordOfHash16 pkSeed) roots hlen
     hmSeed hmRlo hmRlast
 
+/-- Concrete frozen-entry FORS-compression adapter with the seed-cell fact
+discharged internally from the actual six C13 outer-loop prefixes. -/
+theorem forsPkCompressWord_eq_of_afterFors_concrete_mkC13State_six_plus_last
+    (pkSeed pkRoot message sig : ByteArray) (roots : List Nat)
+    (hlen : roots.length = 7)
+    (hmRlo : ∀ j, (h : j < 6) →
+      ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+          (afterFors (mkC13State pkSeed pkRoot message sig))).world.memory
+          (0x80 + 32 * j)).val = roots[j]'(by omega))
+    (hmRlast :
+      ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+          (afterFors (mkC13State pkSeed pkRoot message sig))).world.memory
+          0x140).val = roots[6]'(by omega)) :
+    forsPkCompressWord (afterFors (mkC13State pkSeed pkRoot message sig))
+      = maskN (keccakWords (wordOfHash16 pkSeed :: adrsForsRoots :: roots)) :=
+  forsPkCompressWord_eq_of_afterFors_seed_mkC13State_six_plus_last
+    pkSeed pkRoot message sig roots hlen
+    (afterFors_seed_slot_mkC13State pkSeed pkRoot message sig)
+    hmRlo hmRlast
+
+/-- Normal FORS secret-key calldata read resolves against the frozen C13 calldata
+image and the parsed signature's `fors.sk[j]` projection. -/
+theorem forsSecret_eval_eq_wordOfHash16_parse
+    (st : RuntimeState) (pkSeed pkRoot message sig : ByteArray)
+    {v : Variant} {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 v sig = some sigParsed)
+    {j treeIdx : Nat} (hj : j < 6)
+    (hi : lookupValue st.bindings "i" = j)
+    (hbase : lookupValue st.bindings "sigBase" = sigDataOffset)
+    (hsel : st.selector = 0)
+    (hcd : st.world.calldata = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig) :
+    evalExpr []
+        { st with bindings := bindValue st.bindings "treeIdx" treeIdx }
+        (.bitAnd
+          (.calldataload
+            (.add (.localVar "sigBase")
+              (.add (.literal 16) (.shl (.literal 4) (.localVar "i")))))
+          (.literal N_MASK))
+      = some (wordOfHash16 ((sigParsed.fors.sk[j]?).getD ⟨#[]⟩)) := by
+  let st' : RuntimeState := { st with bindings := bindValue st.bindings "treeIdx" treeIdx }
+  let image := headWords pkSeed pkRoot message sig.size ++ bytesToWords sig
+  let sOff : Nat := 16 + 16 * j
+  have hiEval : evalExpr [] st' (.localVar "i") = some j := by
+    dsimp [st']
+    change some (lookupValue (bindValue st.bindings "treeIdx" treeIdx) "i") = some j
+    rw [MemoryKit.lookupValue_bindValue_ne _ "treeIdx" "i" _ (by decide)]
+    exact congrArg some hi
+  have hsh :
+      evalExpr [] st' (.shl (.literal 4) (.localVar "i")) = some (j <<< 4) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st' (.literal 4) (.localVar "i") 4 j rfl hiEval
+      (by decide)
+      (lt_trans hj (by decide : 6 < 2 ^ 256))
+      (by
+        rw [Nat.shiftLeft_eq]
+        calc
+          j * 2 ^ 4 ≤ 5 * 2 ^ 4 :=
+            Nat.mul_le_mul_right _ (Nat.le_of_lt_succ hj)
+          _ < 2 ^ 256 := by decide)
+  have hshLt : j <<< 4 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      j * 2 ^ 4 ≤ 5 * 2 ^ 4 :=
+        Nat.mul_le_mul_right _ (Nat.le_of_lt_succ hj)
+      _ < 2 ^ 256 := by decide
+  have hinnerLt : 16 + (j <<< 4) < 2 ^ 256 := by
+    calc
+      16 + (j <<< 4) ≤ 16 + (5 * 2 ^ 4) := by
+        rw [Nat.shiftLeft_eq]
+        exact Nat.add_le_add_left (Nat.mul_le_mul_right _ (Nat.le_of_lt_succ hj)) 16
+      _ < 2 ^ 256 := by decide
+  have hinner :
+      evalExpr [] st' (.add (.literal 16) (.shl (.literal 4) (.localVar "i")))
+        = some (16 + (j <<< 4)) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      st' (.literal 16) (.shl (.literal 4) (.localVar "i"))
+      16 (j <<< 4) rfl hsh (by decide) hshLt hinnerLt
+  have hbaseEval : evalExpr [] st' (.localVar "sigBase") = some sigDataOffset := by
+    dsimp [st']
+    change some (lookupValue (bindValue st.bindings "treeIdx" treeIdx) "sigBase")
+      = some sigDataOffset
+    rw [MemoryKit.lookupValue_bindValue_ne _ "treeIdx" "sigBase" _ (by decide)]
+    exact congrArg some hbase
+  have hoff :
+      evalExpr [] st'
+        (.add (.localVar "sigBase")
+          (.add (.literal 16) (.shl (.literal 4) (.localVar "i"))))
+        = some (sigDataOffset + sOff) := by
+    have hadd :=
+      SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+        st' (.localVar "sigBase") (.add (.literal 16) (.shl (.literal 4) (.localVar "i")))
+        sigDataOffset (16 + (j <<< 4)) hbaseEval hinner
+        (by decide) hinnerLt (by
+          calc
+            sigDataOffset + (16 + (j <<< 4)) ≤ sigDataOffset + (16 + (5 * 2 ^ 4)) := by
+              rw [Nat.shiftLeft_eq]
+              exact Nat.add_le_add_left
+                (Nat.add_le_add_left (Nat.mul_le_mul_right _ (Nat.le_of_lt_succ hj)) 16)
+                sigDataOffset
+            _ < 2 ^ 256 := by decide)
+    simpa [sOff, Nat.shiftLeft_eq, Nat.mul_comm, Nat.mul_left_comm, Nat.mul_assoc]
+      using hadd
+  have hraw :
+      evalExpr [] st'
+        (.calldataload
+          (.add (.localVar "sigBase")
+            (.add (.literal 16) (.shl (.literal 4) (.localVar "i")))))
+        = some (Compiler.Proofs.YulGeneration.calldataloadWord 0 image
+          (sigDataOffset + sOff)) := by
+    show (do
+      let resolvedOffset ← evalExpr [] st'
+        (.add (.localVar "sigBase")
+          (.add (.literal 16) (.shl (.literal 4) (.localVar "i"))))
+      some (Compiler.Proofs.YulGeneration.calldataloadWord st'.selector st'.world.calldata
+        resolvedOffset)) = some (Compiler.Proofs.YulGeneration.calldataloadWord 0 image
+          (sigDataOffset + sOff))
+    rw [hoff]
+    dsimp [st', image]
+    rw [hsel, hcd]
+  have hword_lt :
+      Compiler.Proofs.YulGeneration.calldataloadWord 0 image (sigDataOffset + sOff)
+        < 2 ^ 256 :=
+    calldataloadWord_lt_of_ge4 0 image (sigDataOffset + sOff) (by omega)
+  have hmask :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitAnd_literal
+      st'
+      (.calldataload
+        (.add (.localVar "sigBase")
+          (.add (.literal 16) (.shl (.literal 4) (.localVar "i")))))
+      (Compiler.Proofs.YulGeneration.calldataloadWord 0 image (sigDataOffset + sOff))
+      N_MASK hraw hword_lt (by decide)
+  rw [hmask]
+  have hsig :=
+    SphincsMinusVerifiers.SiblingCalldata.masked_sig_read_eq_wordOfHash16_gen
+      pkSeed pkRoot message sig sOff
+  have hsk :
+      (sigParsed.fors.sk[j]?).getD ⟨#[]⟩ = C13Concrete.read16 sig sOff := by
+    have hsome :=
+      C13Concrete.parseSignatureC13_fors_sk_getElem? hparse
+        (lt_trans hj (by decide : 6 < 7))
+    simpa [sOff] using congrArg (fun o => o.getD ⟨#[]⟩) hsome
+  simpa [image, hsk] using congrArg some hsig
+
+/-- Concrete C13 `H_msg` normal-root adapter with the local leaf-address and
+secret-key calldata setup evals discharged from the actual outer-loop state. -/
+theorem forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_secret_parse
+    {v : Variant} (pk : PublicKey)
+    (message sig : ByteArray) {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 v sig = some sigParsed)
+    (j : Nat) (hj : j < 6)
+    (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData
+          ((sigParsed.fors.authPath[j]?).getD [])
+          (forsAuthCdAt pk.pkSeed pk.pkRoot message sig j) idx →
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx" s a →
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx"
+          (SphincsMinusVerifiers.ClimbKit.stepMerkle
+            "node" "pathIdx" "treeAdrsBase" "authPtr"
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+          (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
+            (wordOfHash16 pk.pkSeed) ((3 <<< 96) ||| (j <<< 64))
+            ((sigParsed.fors.authPath[j]?).getD []) idx a))
+    (hTree : evalExpr [] (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j)
+        (.bitAnd
+          (.shr (.mul (.localVar "i") (.literal 19))
+            (.localVar "dVal"))
+          (.literal 0x7FFFF))
+          = some (((C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message).forsIndex[j]?).getD 0)) :
+    wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j))).bindings "node")
+      =
+        (C13Concrete.forsAllRootsC13 pk
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message)
+          sigParsed.fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega) := by
+  rcases forsOuterLeafState_setupFacts_mkC13State
+      pk.pkSeed pk.pkRoot message sig j hj with
+    ⟨hi, hbase, hsel, hcd⟩
+  let treeIdx :=
+    ((C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message).forsIndex[j]?).getD 0
+  have hSecret :
+      evalExpr []
+        { (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j) with
+          bindings :=
+            bindValue
+              (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j).bindings
+              "treeIdx" treeIdx }
+        (.bitAnd
+          (.calldataload
+            (.add (.localVar "sigBase")
+              (.add (.literal 16) (.shl (.literal 4) (.localVar "i")))))
+          (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+          = some (wordOfHash16 ((sigParsed.fors.sk[j]?).getD ⟨#[]⟩)) := by
+    simpa [treeIdx] using
+      forsSecret_eval_eq_wordOfHash16_parse
+        (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j)
+        pk.pkSeed pk.pkRoot message sig hparse hj hi hbase hsel hcd
+        (treeIdx := treeIdx)
+  exact
+    forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_eval_parse
+      pk message sig hparse j hj hstep hTree hSecret
+
+/-- Concrete C13 `H_msg` normal-root adapter with the actual outer-loop tree-index
+setup eval discharged from the S2/S3 digest binding and the parser's `R` field,
+in addition to the local leaf-address and secret-key calldata setup evals.  The
+remaining caller obligation is the per-height Merkle-climb step preservation. -/
+theorem forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_tree_secret_parse
+    (pk : PublicKey) (message sig : ByteArray) {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (j : Nat) (hj : j < 6)
+    (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData
+          ((sigParsed.fors.authPath[j]?).getD [])
+          (forsAuthCdAt pk.pkSeed pk.pkRoot message sig j) idx →
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx" s a →
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx"
+          (SphincsMinusVerifiers.ClimbKit.stepMerkle
+            "node" "pathIdx" "treeAdrsBase" "authPtr"
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+          (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
+            (wordOfHash16 pk.pkSeed) ((3 <<< 96) ||| (j <<< 64))
+            ((sigParsed.fors.authPath[j]?).getD []) idx a)) :
+    wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j))).bindings "node")
+      =
+        (C13Concrete.forsAllRootsC13 pk
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message)
+          sigParsed.fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega) := by
+  have hTree :=
+    forsOuterLeafState_treeIdx_eval_eq_hMsg_parse pk message sig hparse j hj
+  exact
+    forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_secret_parse
+      pk message sig hparse j hj hstep hTree
+
+/-- Concrete C13 normal-root adapter with the actual frozen calldata Merkle-step
+frame discharged.  This removes the remaining per-height `MerkleClimbRel`
+callback from the outer leaf node correspondence by using the C13 auth-path
+calldata layout and the range/path-index bounded inner FORS frame theorem. -/
+theorem forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_tree_secret_parse_concrete
+    (pk : PublicKey) (message sig : ByteArray) {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (j : Nat) (hj : j < 6) :
+    wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j))).bindings "node")
+      =
+        (C13Concrete.forsAllRootsC13 pk
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message)
+          sigParsed.fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega) := by
+  let st := forsOuterLeafState pk.pkSeed pk.pkRoot message sig j
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  let treeIdx := (digest.forsIndex[j]?).getD 0
+  rcases forsOuterLeafState_setupFacts_mkC13State
+      pk.pkSeed pk.pkRoot message sig j hj with
+    ⟨hi, hbase, hsel, hcd⟩
+  have hsite :
+      SphincsMinusVerifiers.SegmentS4ForsMerkleFrame.ForsFrozenSite j
+        pk.pkSeed pk.pkRoot message sig
+        (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep st) := by
+    exact
+      SphincsMinusVerifiers.SegmentS4ForsMerkleFrame.forsLeafSetupStep_forsFrozenSite
+        st j pk.pkSeed pk.pkRoot message sig hi hj hbase hsel hcd
+  have hD0 :=
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.fors_climb_data_range_getD
+      pk.pkSeed pk.pkRoot message sig c13 sigParsed j
+      (sigDataOffset + (128 + 304 * j)) hparse hj rfl
+  have hD : ∀ idx, 0 ≤ idx → idx < 0 + 19 →
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData
+        ((sigParsed.fors.authPath[j]?).getD [])
+        (fun h =>
+          Compiler.Proofs.YulGeneration.calldataloadWord 0
+            (SphincsMinusVerifiers.MkC13State.headWords
+              pk.pkSeed pk.pkRoot message sig.size
+                ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
+            (SphincsMinusVerifiers.MkC13State.sigDataOffset
+              + (128 + 304 * j) + 16 * h)) idx := by
+    intro idx _ hidx
+    simpa [SphincsMinusVerifiers.MkC13State.sigDataOffset] using hD0 idx (by omega)
+  have hm0 : (st.world.memory 0).val = wordOfHash16 pk.pkSeed := by
+    dsimp [st]
+    simpa [forsOuterLeafState] using
+      forsOuterPrefix_seed_slot_mkC13State pk.pkSeed pk.pkRoot message sig j (by omega)
+  have hTreeIdxLt : treeIdx < 2 ^ 256 := by
+    dsimp [treeIdx, digest]
+    exact lt_trans
+      (C13Concrete.hMsgC13_forsIndex_getD_lt pk sigParsed.R message
+        (lt_trans hj (by decide : 6 < 7)))
+      (by decide : 2 ^ 19 < 2 ^ 256)
+  have hAdrLt : C13Concrete.adrsForsLeaf j treeIdx < 2 ^ 256 := by
+    dsimp [treeIdx, digest]
+    exact C13Concrete.adrsForsLeaf_hMsgC13_normal_lt pk sigParsed.R message hj
+  have hSkLt :
+      wordOfHash16 ((sigParsed.fors.sk[j]?).getD ⟨#[]⟩) < 2 ^ 256 :=
+    SphincsMinusVerifiers.SegmentS2.wordOfHash16_lt _
+  have hTree :
+      evalExpr [] st
+        (.bitAnd
+          (.shr (.mul (.localVar "i") (.literal 19))
+            (.localVar "dVal"))
+          (.literal 0x7FFFF)) = some treeIdx := by
+    dsimp [st, treeIdx, digest]
+    exact forsOuterLeafState_treeIdx_eval_eq_hMsg_parse pk message sig hparse j hj
+  have hSecret :
+      evalExpr []
+        { st with bindings := bindValue st.bindings "treeIdx" treeIdx }
+        (.bitAnd
+          (.calldataload
+            (.add (.localVar "sigBase")
+              (.add (.literal 16) (.shl (.literal 4) (.localVar "i")))))
+          (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+          = some (wordOfHash16 ((sigParsed.fors.sk[j]?).getD ⟨#[]⟩)) := by
+    exact
+      forsSecret_eval_eq_wordOfHash16_parse
+        st pk.pkSeed pk.pkRoot message sig hparse hj hi hbase hsel hcd
+        (treeIdx := treeIdx)
+  have hLeaf :
+      evalExpr []
+        { st with bindings :=
+            (bindValue
+              (bindValue st.bindings "treeIdx" treeIdx)
+              "secretVal" (wordOfHash16 ((sigParsed.fors.sk[j]?).getD ⟨#[]⟩))) }
+        (.bitOr
+          (.shl (.literal 96) (.literal 3))
+          (.bitOr (.shl (.literal 64) (.localVar "i")) (.localVar "treeIdx")))
+          = some (C13Concrete.adrsForsLeaf j treeIdx) := by
+    exact
+      forsLeafAddress_eval_eq_adrsForsLeaf st hi hj hTreeIdxLt
+        (secretVal := wordOfHash16 ((sigParsed.fors.sk[j]?).getD ⟨#[]⟩))
+  rw [C13Concrete.forsAllRootsC13_getElem_normal
+    (pk := pk) (digest := digest) (fors := sigParsed.fors) hj]
+  exact
+    SphincsMinusVerifiers.SegmentS4ForsMerkleFrame.forsLeafInnerStep_node_eq_forsClimbFrame_of_fors_frozen_calldata
+      st (wordOfHash16 pk.pkSeed) j treeIdx
+      ((sigParsed.fors.sk[j]?).getD ⟨#[]⟩)
+      pk.pkSeed pk.pkRoot message sig
+      ((sigParsed.fors.authPath[j]?).getD [])
+      hi hj hTreeIdxLt hsite hD hm0 hAdrLt hSkLt hTree hSecret hLeaf
+
+/-- The final forced-root secret-key read resolves against the frozen C13 calldata
+image.  This is the calldata half of statement 15's `lastSecret` binding:
+`and(calldataload(sigBase + 16 + (4 << 6)), N_MASK)` is the spec word
+`wordOfHash16 (read16 sig 112)`. -/
+theorem finalSecret_eval_eq_wordOfHash16
+    (st : RuntimeState) (pkSeed pkRoot message sig : ByteArray)
+    (hbase : lookupValue st.bindings "sigBase" = sigDataOffset)
+    (hsel : st.selector = 0)
+    (hcd : st.world.calldata = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig) :
+    evalExpr [] st
+      (.bitAnd
+        (.calldataload
+          (.add (.localVar "sigBase")
+            (.add (.literal 16) (.shl (.literal 4) (.literal 6)))))
+        (.literal N_MASK))
+      = some (wordOfHash16 (C13Concrete.read16 sig (16 + 16 * 6))) := by
+  let image := headWords pkSeed pkRoot message sig.size ++ bytesToWords sig
+  let sOff : Nat := 16 + 16 * 6
+  have hsh :
+      evalExpr [] st (.shl (.literal 4) (.literal 6)) = some (6 <<< 4) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st (.literal 4) (.literal 6) 4 6 rfl rfl (by decide) (by decide) (by decide)
+  have hinner :
+      evalExpr [] st (.add (.literal 16) (.shl (.literal 4) (.literal 6)))
+        = some (16 + (6 <<< 4)) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      st (.literal 16) (.shl (.literal 4) (.literal 6))
+      16 (6 <<< 4) rfl hsh (by decide) (by decide) (by decide)
+  have hbaseEval : evalExpr [] st (.localVar "sigBase") = some sigDataOffset := by
+    show some (lookupValue st.bindings "sigBase") = some sigDataOffset
+    rw [hbase]
+  have hoff :
+      evalExpr [] st
+        (.add (.localVar "sigBase")
+          (.add (.literal 16) (.shl (.literal 4) (.literal 6))))
+        = some (sigDataOffset + sOff) := by
+    have hadd :=
+      SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+        st (.localVar "sigBase") (.add (.literal 16) (.shl (.literal 4) (.literal 6)))
+        sigDataOffset (16 + (6 <<< 4)) hbaseEval hinner
+        (by decide) (by decide) (by decide)
+    simpa [sOff, Nat.shiftLeft_eq, Nat.mul_comm, Nat.mul_left_comm, Nat.mul_assoc]
+      using hadd
+  have hraw :
+      evalExpr [] st
+        (.calldataload
+          (.add (.localVar "sigBase")
+            (.add (.literal 16) (.shl (.literal 4) (.literal 6)))))
+        = some (Compiler.Proofs.YulGeneration.calldataloadWord 0 image
+          (sigDataOffset + sOff)) := by
+    show (do
+      let resolvedOffset ← evalExpr [] st
+        (.add (.localVar "sigBase")
+          (.add (.literal 16) (.shl (.literal 4) (.literal 6))))
+      some (Compiler.Proofs.YulGeneration.calldataloadWord st.selector st.world.calldata
+        resolvedOffset)) = some (Compiler.Proofs.YulGeneration.calldataloadWord 0 image
+          (sigDataOffset + sOff))
+    rw [hoff, hsel, hcd]
+    rfl
+  have hword_lt :
+      Compiler.Proofs.YulGeneration.calldataloadWord 0 image (sigDataOffset + sOff)
+        < 2 ^ 256 :=
+    calldataloadWord_lt_of_ge4 0 image (sigDataOffset + sOff) (by decide)
+  have hmask :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitAnd_literal
+      st
+      (.calldataload
+        (.add (.localVar "sigBase")
+          (.add (.literal 16) (.shl (.literal 4) (.literal 6)))))
+      (Compiler.Proofs.YulGeneration.calldataloadWord 0 image (sigDataOffset + sOff))
+      N_MASK hraw hword_lt (by decide)
+  rw [hmask]
+  have hsig :=
+    SphincsMinusVerifiers.SiblingCalldata.masked_sig_read_eq_wordOfHash16_gen
+      pkSeed pkRoot message sig sOff
+  simpa [image, sOff] using congrArg some hsig
+
+/-- Forced-root cell bridge at the accept boundary.  Once the caller supplies the
+`afterFors` seed cell and the final masked secret-key calldata read, the local
+finalize proof identifies slot `0x140` with the named seventh root in
+`forsAllRootsC13`.  The parse premise turns the raw signature byte offset
+`16 + 16*6` into the parsed `fors.sk[6]` field. -/
+theorem forcedRootCell_eq_forsAllRootsC13_of_parse
+    {v : Variant} (pk : PublicKey) (digest : HMsg)
+    (message sig : ByteArray) {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 v sig = some sigParsed)
+    (hmSeed :
+      ((afterFors (mkC13State pk.pkSeed pk.pkRoot message sig)).world.memory 0).val
+        = wordOfHash16 pk.pkSeed)
+    (hLastSecret :
+      evalExpr [] (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))
+        (.bitAnd
+          (.calldataload
+            (.add (.localVar "sigBase")
+              (.add (.literal 16) (.shl (.literal 4) (.literal 6)))))
+          (.literal N_MASK))
+        = some (wordOfHash16 (C13Concrete.read16 sig (16 + 16 * 6)))) :
+    ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+        (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))).world.memory
+        0x140).val =
+      (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)[6]'(by
+        rw [C13Concrete.forsAllRootsC13_length]
+        decide) := by
+  have hSk := C13Concrete.parseSignatureC13_fors_sk_getElem?
+    (v := v) (sig := sig) (s := sigParsed) hparse (i := 6) (by decide)
+  have hSkGetD :
+      (sigParsed.fors.sk[6]?).getD ⟨#[]⟩
+        = C13Concrete.read16 sig (16 + 16 * 6) := by
+    rw [hSk]
+    rfl
+  have hcell :=
+    SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep_forced_root_cell
+      (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))
+      (wordOfHash16 pk.pkSeed)
+      (wordOfHash16 (C13Concrete.read16 sig (16 + 16 * 6)))
+      hmSeed hLastSecret
+  rw [hcell]
+  rw [C13Concrete.forsAllRootsC13_getElem_forced]
+  unfold C13Concrete.forsForcedRootC13
+  rw [hSkGetD]
+
+/-- Calldata-framed forced-root cell bridge.  This composes
+`finalSecret_eval_eq_wordOfHash16` with
+`forcedRootCell_eq_forsAllRootsC13_of_parse`, so callers only need to show that
+`afterFors` still carries the frozen calldata image and `sigBase` binding. -/
+theorem forcedRootCell_eq_forsAllRootsC13_of_parse_calldata
+    {v : Variant} (pk : PublicKey) (digest : HMsg)
+    (message sig : ByteArray) {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 v sig = some sigParsed)
+    (hmSeed :
+      ((afterFors (mkC13State pk.pkSeed pk.pkRoot message sig)).world.memory 0).val
+        = wordOfHash16 pk.pkSeed)
+    (hbase :
+      lookupValue (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig)).bindings
+        "sigBase" = sigDataOffset)
+    (hsel : (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig)).selector = 0)
+    (hcd :
+      (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig)).world.calldata
+        = headWords pk.pkSeed pk.pkRoot message sig.size ++ bytesToWords sig) :
+    ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+        (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))).world.memory
+        0x140).val =
+      (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)[6]'(by
+        rw [C13Concrete.forsAllRootsC13_length]
+        decide) := by
+  exact forcedRootCell_eq_forsAllRootsC13_of_parse pk digest message sig hparse hmSeed
+    (finalSecret_eval_eq_wordOfHash16
+      (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))
+      pk.pkSeed pk.pkRoot message sig hbase hsel hcd)
+
+/-- Static-frame forced-root cell bridge.  The only remaining premise is the
+`afterFors` seed cell; the signature base, selector, and calldata image are
+supplied by the frozen `mkC13State` frame lemmas above. -/
+theorem forcedRootCell_eq_forsAllRootsC13_of_parse_static
+    {v : Variant} (pk : PublicKey) (digest : HMsg)
+    (message sig : ByteArray) {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 v sig = some sigParsed)
+    (hmSeed :
+      ((afterFors (mkC13State pk.pkSeed pk.pkRoot message sig)).world.memory 0).val
+        = wordOfHash16 pk.pkSeed) :
+    ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+        (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))).world.memory
+        0x140).val =
+      (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)[6]'(by
+        rw [C13Concrete.forsAllRootsC13_length]
+        decide) :=
+  forcedRootCell_eq_forsAllRootsC13_of_parse_calldata pk digest message sig hparse hmSeed
+    (afterFors_sigBase_mkC13State pk.pkSeed pk.pkRoot message sig)
+    (afterFors_selector_mkC13State pk.pkSeed pk.pkRoot message sig)
+    (afterFors_calldata_mkC13State pk.pkSeed pk.pkRoot message sig)
+
+/-- Range-seed version of the forced-root cell bridge.  This is the shape needed
+by the final accept adapter: once the range-gated FORS leaf-step seed frame is
+available, the forced seventh root cell is fully pinned to
+`forsAllRootsC13[6]`. -/
+theorem forcedRootCell_eq_forsAllRootsC13_of_parse_range_seed
+    {v : Variant} (pk : PublicKey) (digest : HMsg)
+    (message sig : ByteArray) {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 v sig = some sigParsed)
+    (hLeaf : ∀ (s : RuntimeState) (idx : Nat), idx < 6 →
+      ((SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+          { s with bindings := bindValue s.bindings "i" (wordNormalize idx) }).world.memory 0).val
+        = (s.world.memory 0).val) :
+    ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+        (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))).world.memory
+        0x140).val =
+      (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)[6]'(by
+        rw [C13Concrete.forsAllRootsC13_length]
+        decide) :=
+  forcedRootCell_eq_forsAllRootsC13_of_parse_static pk digest message sig hparse
+    (afterFors_seed_slot_mkC13State_of_forsLeafStep_range_preserves
+      pk.pkSeed pk.pkRoot message sig hLeaf)
+
+/-- Concrete forced-root cell bridge with the `afterFors` seed cell discharged
+from the actual six C13 outer-loop prefixes. -/
+theorem forcedRootCell_eq_forsAllRootsC13_of_parse_concrete
+    {v : Variant} (pk : PublicKey) (digest : HMsg)
+    (message sig : ByteArray) {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 v sig = some sigParsed) :
+    ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+        (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))).world.memory
+        0x140).val =
+      (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)[6]'(by
+        rw [C13Concrete.forsAllRootsC13_length]
+        decide) :=
+  forcedRootCell_eq_forsAllRootsC13_of_parse_static pk digest message sig hparse
+    (afterFors_seed_slot_mkC13State pk.pkSeed pk.pkRoot message sig)
+
+/-- Combined C13 FORS root-cell handoff: the six ordinary roots are discharged by
+the frozen-calldata node facts, and the forced seventh root is discharged from the
+parse-shaped forced-root bridge plus the range-gated seed-cell frame.  This is
+the exact `hmRlo`/`hmRlast` pair expected by the final accept-path obligations. -/
+theorem rootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes_and_parse_range_seed
+    {v : Variant} (pk : PublicKey) (digest : HMsg)
+    (message sig : ByteArray) {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 v sig = some sigParsed)
+    (hsite : ∀ (s : RuntimeState) (t idx : Nat), t < 6 → idx < 19 →
+      ∃ base,
+        s.selector = 0 ∧
+        s.world.calldata
+          = headWords pk.pkSeed pk.pkRoot message sig.size ++ bytesToWords sig ∧
+        lookupValue s.bindings "authPtr" = sigDataOffset + (128 + 304 * t) ∧
+        lookupValue s.bindings "treeAdrsBase" = base ∧
+        base < 2 ^ 256 ∧
+        lookupValue s.bindings "pathIdx" < 2 ^ 256)
+    (hNode : ∀ j, (hj : j < 6) →
+      wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              { (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+                  { (afterS3 (mkC13State pk.pkSeed pk.pkRoot message sig)) with
+                    bindings :=
+                      bindValue (afterS3 (mkC13State pk.pkSeed pk.pkRoot message sig)).bindings
+                        "i" (wordNormalize 0) }
+                  0 j) with
+                bindings :=
+                  bindValue
+                    (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+                      { (afterS3 (mkC13State pk.pkSeed pk.pkRoot message sig)) with
+                        bindings :=
+                          bindValue
+                            (afterS3 (mkC13State pk.pkSeed pk.pkRoot message sig)).bindings
+                            "i" (wordNormalize 0) }
+                      0 j).bindings "i" (wordNormalize j) })).bindings "node") =
+        (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega))
+    (hLeaf : ∀ (s : RuntimeState) (idx : Nat), idx < 6 →
+      ((SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+          { s with bindings := bindValue s.bindings "i" (wordNormalize idx) }).world.memory 0).val
+        = (s.world.memory 0).val) :
+    (∀ j, (hj : j < 6) →
+      ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+          (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))).world.memory
+          (0x80 + 32 * j)).val =
+        (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega))
+      ∧
+    ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+        (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))).world.memory
+        0x140).val =
+      (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)[6]'(by
+        rw [C13Concrete.forsAllRootsC13_length]
+        decide) := by
+  constructor
+  · exact normalRootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes
+      (mkC13State pk.pkSeed pk.pkRoot message sig) pk digest sigParsed.fors
+      pk.pkSeed pk.pkRoot message sig hsite hNode
+  · exact forcedRootCell_eq_forsAllRootsC13_of_parse_range_seed
+      pk digest message sig hparse hLeaf
+
+/-- Concrete combined C13 FORS root-cell handoff.  The six ordinary roots remain
+the frozen-calldata node obligations; the forced root no longer needs an external
+range-gated seed-frame premise because the concrete `afterFors` seed cell is
+proved from the actual C13 outer-loop prefixes. -/
+theorem rootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes_and_parse
+    {v : Variant} (pk : PublicKey) (digest : HMsg)
+    (message sig : ByteArray) {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 v sig = some sigParsed)
+    (hsite : ∀ (s : RuntimeState) (t idx : Nat), t < 6 → idx < 19 →
+      ∃ base,
+        s.selector = 0 ∧
+        s.world.calldata
+          = headWords pk.pkSeed pk.pkRoot message sig.size ++ bytesToWords sig ∧
+        lookupValue s.bindings "authPtr" = sigDataOffset + (128 + 304 * t) ∧
+        lookupValue s.bindings "treeAdrsBase" = base ∧
+        base < 2 ^ 256 ∧
+        lookupValue s.bindings "pathIdx" < 2 ^ 256)
+    (hNode : ∀ j, (hj : j < 6) →
+      wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              { (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+                  { (afterS3 (mkC13State pk.pkSeed pk.pkRoot message sig)) with
+                    bindings :=
+                      bindValue (afterS3 (mkC13State pk.pkSeed pk.pkRoot message sig)).bindings
+                        "i" (wordNormalize 0) }
+                  0 j) with
+                bindings :=
+                  bindValue
+                    (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+                      { (afterS3 (mkC13State pk.pkSeed pk.pkRoot message sig)) with
+                        bindings :=
+                          bindValue
+                            (afterS3 (mkC13State pk.pkSeed pk.pkRoot message sig)).bindings
+                            "i" (wordNormalize 0) }
+                      0 j).bindings "i" (wordNormalize j) })).bindings "node") =
+        (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega)) :
+    (∀ j, (hj : j < 6) →
+      ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+          (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))).world.memory
+          (0x80 + 32 * j)).val =
+        (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega))
+      ∧
+    ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+        (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))).world.memory
+        0x140).val =
+      (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)[6]'(by
+        rw [C13Concrete.forsAllRootsC13_length]
+        decide) := by
+  constructor
+  · exact normalRootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes
+      (mkC13State pk.pkSeed pk.pkRoot message sig) pk digest sigParsed.fors
+      pk.pkSeed pk.pkRoot message sig hsite hNode
+  · exact forcedRootCell_eq_forsAllRootsC13_of_parse_concrete
+      pk digest message sig hparse
+
+/-- Concrete frozen-entry root-cell handoff for all seven FORS roots.  The six
+ordinary roots are reduced to the six post-inner `"node"` correspondences, and
+the forced seventh root is discharged from parsing plus the concrete
+`afterFors` seed-cell theorem. -/
+theorem rootCells_eq_forsAllRootsC13_of_mkC13State_iteration_nodes_and_parse
+    {v : Variant} (pk : PublicKey) (digest : HMsg)
+    (message sig : ByteArray) {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 v sig = some sigParsed)
+    (hNode : ∀ j, (hj : j < 6) →
+      wordNormalize
+        (lookupValue
+          (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
+            (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
+              (forsOuterLeafState pk.pkSeed pk.pkRoot message sig j))).bindings "node") =
+        (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega)) :
+    (∀ j, (hj : j < 6) →
+      ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+          (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))).world.memory
+          (0x80 + 32 * j)).val =
+        (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega))
+      ∧
+    ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+        (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))).world.memory
+        0x140).val =
+      (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)[6]'(by
+        rw [C13Concrete.forsAllRootsC13_length]
+        decide) := by
+  constructor
+  · exact normalRootCells_eq_forsAllRootsC13_of_mkC13State_iteration_nodes
+      pk digest message sig sigParsed.fors hNode
+  · exact forcedRootCell_eq_forsAllRootsC13_of_parse_concrete
+      pk digest message sig hparse
+
+/-- Fully concrete C13 FORS root-cell handoff for the actual parsed `H_msg`.
+The six normal roots are supplied by the concrete outer-leaf node theorem, and
+the forced root is supplied by the concrete forced-root parse bridge. -/
+theorem rootCells_eq_forsAllRootsC13_of_hMsg_parse_concrete
+    (pk : PublicKey) (message sig : ByteArray) {sigParsed : Signature}
+    (hparse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    (∀ j, (hj : j < 6) →
+      ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+          (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))).world.memory
+          (0x80 + 32 * j)).val =
+        (C13Concrete.forsAllRootsC13 pk
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message)
+          sigParsed.fors)[j]'(by
+          rw [C13Concrete.forsAllRootsC13_length]
+          omega))
+      ∧
+    ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
+        (afterFors (mkC13State pk.pkSeed pk.pkRoot message sig))).world.memory
+        0x140).val =
+      (C13Concrete.forsAllRootsC13 pk
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message)
+        sigParsed.fors)[6]'(by
+        rw [C13Concrete.forsAllRootsC13_length]
+        decide) := by
+  exact
+    rootCells_eq_forsAllRootsC13_of_mkC13State_iteration_nodes_and_parse
+      pk (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message)
+      message sig hparse
+      (fun j hj =>
+        forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_tree_secret_parse_concrete
+          pk message sig hparse j hj)
+
 /-! ## Layer-loop lift for `currentNode`. -/
 
 /-- A compact relation saying that a runtime state's `"currentNode"` binding is
@@ -483,12 +2387,55 @@ theorem afterLayer_currentNode_wordOfHash16_of_forsPk_step
 #print axioms afterSeed_currentNode
 #print axioms afterS2_seed_slot_mkC13State
 #print axioms afterS3_seed_slot_mkC13State
+#print axioms s2Step_preserves_sig_data_offset
+#print axioms s2Step_preserves_selector_calldata
+#print axioms afterS2_sig_data_offset_mkC13State
+#print axioms afterS3_sigBase_mkC13State
+#print axioms afterS2_selector_calldata_mkC13State
+#print axioms afterS3_selector_calldata_mkC13State
+#print axioms forsOuterPrefixState
+#print axioms forsOuterLeafState
+#print axioms forsOuterPrefix_sigBase_mkC13State
+#print axioms forsOuterPrefix_selector_calldata_mkC13State
+#print axioms forsOuterPrefix_leafSetupFacts_mkC13State
+#print axioms forsOuterLeafState_setupFacts_mkC13State
+#print axioms forsLeafStep_preserves_seed_slot_of_mkC13State_prefix
+#print axioms forsLeafStep_preserves_root_cell_ne_of_mkC13State_prefix
+#print axioms forsOuterPrefix_root_cell_succ_ne_mkC13State
+#print axioms forsOuterPrefix_root_cell_suffix_mkC13State
+#print axioms forsOuterPrefix_root_cell_iteration_node_mkC13State
+#print axioms afterFors_eq_forsOuterPrefixState_mkC13State
+#print axioms forsOuterPrefix_seed_slot_mkC13State
+#print axioms afterFors_seed_slot_mkC13State
+#print axioms afterFors_sigBase_mkC13State
+#print axioms afterFors_selector_calldata_mkC13State
+#print axioms afterFors_selector_mkC13State
+#print axioms afterFors_calldata_mkC13State
 #print axioms afterFors_seed_slot_of_forsLeafStep_preserves
 #print axioms afterFors_seed_slot_of_forsLeafStep_bound_preserves
 #print axioms afterFors_seed_slot_of_forsLeafStep_range_preserves
 #print axioms afterFors_seed_slot_mkC13State_of_forsLeafStep_preserves
 #print axioms afterFors_seed_slot_mkC13State_of_forsLeafStep_bound_preserves
 #print axioms afterFors_seed_slot_mkC13State_of_forsLeafStep_range_preserves
+#print axioms normalRootCell_eq_of_outer_iteration_node
+#print axioms normalRootCells_eq_forsAllRootsC13_of_iteration_nodes
+#print axioms normalRootCell_eq_of_fors_frozen_calldata_node
+#print axioms normalRootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes
+#print axioms normalRootCell_eq_of_mkC13State_iteration_node
+#print axioms normalRootCells_eq_forsAllRootsC13_of_mkC13State_iteration_nodes
+#print axioms forsAuthCdAt
+#print axioms forsOuterLeafState_node_eq_forsAllRootsC13_of_eval_parse
+#print axioms forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_eval_parse
+#print axioms forsLeafAddress_eval_eq_adrsForsLeaf
+#print axioms forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_eval_parse
+#print axioms afterS3_dVal_mkC13State
+#print axioms forsOuterPrefix_dVal_mkC13State
+#print axioms forsOuterLeafState_dVal_mkC13State
+#print axioms forsOuterLeafState_treeIdx_eval_eq_hMsg_parse
+#print axioms forsSecret_eval_eq_wordOfHash16_parse
+#print axioms forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_secret_parse
+#print axioms forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_tree_secret_parse
+#print axioms forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_tree_secret_parse_concrete
 #print axioms afterSeed_idxTree
 #print axioms afterSeed_sigOff
 #print axioms afterFinalize_forsPk_of_compress
@@ -499,6 +2446,17 @@ theorem afterLayer_currentNode_wordOfHash16_of_forsPk_step
 #print axioms forsPkCompressWord_eq_of_afterFors_mkC13State_six_plus_last
 #print axioms forsPkCompressWord_eq_of_afterFors_mkC13State_six_plus_last_range
 #print axioms forsPkCompressWord_eq_of_afterFors_seed_mkC13State_six_plus_last
+#print axioms forsPkCompressWord_eq_of_afterFors_concrete_mkC13State_six_plus_last
+#print axioms finalSecret_eval_eq_wordOfHash16
+#print axioms forcedRootCell_eq_forsAllRootsC13_of_parse
+#print axioms forcedRootCell_eq_forsAllRootsC13_of_parse_calldata
+#print axioms forcedRootCell_eq_forsAllRootsC13_of_parse_static
+#print axioms forcedRootCell_eq_forsAllRootsC13_of_parse_range_seed
+#print axioms forcedRootCell_eq_forsAllRootsC13_of_parse_concrete
+#print axioms rootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes_and_parse_range_seed
+#print axioms rootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes_and_parse
+#print axioms rootCells_eq_forsAllRootsC13_of_mkC13State_iteration_nodes_and_parse
+#print axioms rootCells_eq_forsAllRootsC13_of_hMsg_parse_concrete
 #print axioms stepLayer_currentNodeRel_of_merkleNode
 #print axioms afterLayer_currentNode_of_step
 #print axioms afterLayer_currentNode_of_forsPk_step

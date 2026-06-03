@@ -19,12 +19,13 @@ close, and what remains outside its scope.
 - Standalone reject-subdomain lemmas (`SegmentRejectSpec`) framed over the
   accept-path `mkC13State` constructor and concrete `c13Primitives`.  The
   bad-length correspondence is fully discharged on both sides.  The FORS
-  forced-zero revert is discharged on the model side; its spec-side connection
-  (`verifyBytes = none ↔ ¬forcedZeroOk`) depends on the keccak digest↔H_msg data
-  correspondence and is surfaced as an explicit `hCorr` hypothesis in
-  `c13_revert_on_forced_zero` rather than discharged — the revert-side analogue
-  of the accept path's surfaced `hCmp`.  These do not touch `execC13` or the
-  bridge axiom and do not change the bridge trust surface.
+  forced-zero revert is discharged on the model side.  The older low-level
+  theorem `c13_revert_on_forced_zero` still accepts the spec-side result as an
+  explicit `hCorr` hypothesis, but the parse-shaped C13 theorem
+  `c13_revert_on_forced_zero_of_parse` now discharges that spec-side
+  `verifyBytes = none` result from successful concrete parsing and the non-zero
+  model guard.  These do not touch `execC13` or the bridge axiom and do not
+  change the bridge trust surface.
 
 - Boundary byte-shape premises, such as `pkRoot.size = 16`, may remain as
   explicit input-shape obligations until they are connected to a parser, ABI, or
@@ -47,8 +48,17 @@ close, and what remains outside its scope.
   that leave only site-specific sibling read plus those binding/bounds inputs,
   the statement-level
   outer-loop seed-cell handoff in both `wordNormalize 6` and `idx < 6` forms,
-  and in-range final-store offset non-aliasing lemmas are in scope as standalone
-  bridge bricks; they do not change the bridge trust surface.
+  in-range final-store offset non-aliasing lemmas, the parser-side FORS secret
+  word projection `C13Concrete.parseSignatureC13_fors_sk_getElem?`, and the
+  local forced-root scratch-cell proof
+  `SegmentS4Finalize.forsFinalizePreCopyStep_forced_root_cell`, plus the
+  CurrentNodeFrame final-secret calldata and forced-root parsed-cell adapters,
+  are in scope as standalone bridge bricks; they do not change the bridge trust
+  surface.  The forced-root accept-boundary static frame is closed by
+  `CurrentNodeFrame.afterFors_sigBase_mkC13State`,
+  `afterFors_selector_mkC13State`, and `afterFors_calldata_mkC13State`; the
+  packaged forced-root cell handoff is
+  `forcedRootCell_eq_forsAllRootsC13_of_parse_range_seed`.
 
 ## Out Of Scope
 

@@ -249,6 +249,36 @@ theorem parseSignatureC13_fors_authPath_getElem?
   subst htAuth
   exact getElem?_map_range _ hh
 
+/-- `getD` form of `parseSignatureC13_fors_authPath_getElem?`, matching the
+normal-root spec expression `(fors.authPath[i]?).getD []`. -/
+theorem parseSignatureC13_fors_authPath_getD_getElem?
+    {v : Variant} {sig : Bytes} {s : Signature}
+    (hparse : parseSignatureC13 v sig = some s)
+    {t : Nat} (ht : t < 6)
+    {h : Nat} (hh : h < 19) :
+    (((s.fors.authPath[t]?).getD [])[h]?)
+      = some (read16 sig (128 + 304 * t + 16 * h)) := by
+  have hsz : sig.size = v.sigBytes := parseSignatureC13_size hparse
+  unfold parseSignatureC13 at hparse
+  simp only [hsz, ne_eq, not_true_eq_false, if_false, Option.some.injEq] at hparse
+  subst hparse
+  rw [getElem?_map_range _ ht]
+  exact getElem?_map_range _ hh
+
+/-- **FORS secret-key word.**  The `i`-th FORS secret-key preimage
+(`i < 7`, including the forced-zero seventh tree) is the 16-byte hash at
+signature byte-offset `16 + 16*i`. -/
+theorem parseSignatureC13_fors_sk_getElem?
+    {v : Variant} {sig : Bytes} {s : Signature}
+    (hparse : parseSignatureC13 v sig = some s)
+    {i : Nat} (hi : i < 7) :
+    s.fors.sk[i]? = some (read16 sig (16 + 16 * i)) := by
+  have hsz : sig.size = v.sigBytes := parseSignatureC13_size hparse
+  unfold parseSignatureC13 at hparse
+  simp only [hsz, ne_eq, not_true_eq_false, if_false, Option.some.injEq] at hparse
+  subst hparse
+  exact getElem?_map_range _ hi
+
 /-! ### H_msg
 
 The contract computes
@@ -289,6 +319,34 @@ theorem hMsgC13_forsIndex_six (pk : PublicKey) (R message : Bytes) :
   unfold hMsgC13
   exact getElem?_map_range _ (by decide : 6 < 7)
 
+/-- `getD` form of the concrete C13 `H_msg` FORS index for any of the seven
+19-bit slices. -/
+theorem hMsgC13_forsIndex_getD_eq
+    (pk : PublicKey) (R message : Bytes) {j : Nat} (hj : j < 7) :
+    ((hMsgC13 c13 pk R message).forsIndex[j]?).getD 0 =
+      (keccakWords
+        [ wordOfHash16 pk.pkSeed
+        , wordOfHash16 pk.pkRoot
+        , wordOfHash16 R
+        , baToNatBE message % wordMod
+        , hMsgPad ] >>> (19 * j)) % (2 ^ 19) := by
+  unfold hMsgC13
+  have h := getElem?_map_range
+    (fun i => (keccakWords [wordOfHash16 pk.pkSeed, wordOfHash16 pk.pkRoot,
+        wordOfHash16 R, baToNatBE message % wordMod, hMsgPad] >>> (19 * i)) % (2 ^ 19))
+    hj
+  simpa using congrArg (fun o => o.getD 0) h
+
+/-- Every FORS index extracted by the concrete C13 `H_msg` reconstruction is
+19-bit.  This is the spec-side bound needed by concrete FORS leaf address
+assembly. -/
+theorem hMsgC13_forsIndex_getD_lt
+    (pk : PublicKey) (R message : Bytes) {j : Nat} (hj : j < 7) :
+    ((hMsgC13 c13 pk R message).forsIndex[j]?).getD 0 < 2 ^ 19 := by
+  unfold hMsgC13
+  rw [getElem?_map_range _ hj]
+  exact Nat.mod_lt _ (by decide : 0 < 2 ^ 19)
+
 /-! ### FORS+C reconstruction
 
 For each of the K=7 FORS trees:
@@ -304,6 +362,30 @@ def adrsForsLeaf (i idx : Nat) : Word := (3 <<< 96) ||| (i <<< 64) ||| idx
 def adrsForsNode (i h parentIdx : Nat) : Word :=
   (3 <<< 96) ||| (i <<< 64) ||| ((h + 1) <<< 32) ||| parentIdx
 def adrsForsRoots : Word := 4 <<< 96
+
+/-- The concrete FORS leaf address word is a bounded EVM word for the six normal
+FORS roots when the decoded tree index is 19-bit. -/
+theorem adrsForsLeaf_lt_of_normal_idx_lt
+    {i idx : Nat} (hi : i < 6) (hidx : idx < 2 ^ 19) :
+    adrsForsLeaf i idx < 2 ^ 256 := by
+  unfold adrsForsLeaf
+  refine Nat.bitwise_lt_two_pow (Nat.bitwise_lt_two_pow ?_ ?_) ?_
+  · rw [Nat.shiftLeft_eq]
+    decide
+  · rw [Nat.shiftLeft_eq]
+    calc
+      i * 2 ^ 64 ≤ 5 * 2 ^ 64 :=
+        Nat.mul_le_mul_right _ (Nat.le_of_lt_succ hi)
+      _ < 2 ^ 256 := by decide
+  · exact lt_trans hidx (by decide : 2 ^ 19 < 2 ^ 256)
+
+/-- Specialization of `adrsForsLeaf_lt_of_normal_idx_lt` to the normal-root
+indices inside concrete C13 `H_msg`. -/
+theorem adrsForsLeaf_hMsgC13_normal_lt
+    (pk : PublicKey) (R message : Bytes) {j : Nat} (hj : j < 6) :
+    adrsForsLeaf j (((hMsgC13 c13 pk R message).forsIndex[j]?).getD 0) < 2 ^ 256 :=
+  adrsForsLeaf_lt_of_normal_idx_lt hj
+    (hMsgC13_forsIndex_getD_lt pk R message (lt_trans hj (by decide : 6 < 7)))
 
 /-- Climb one FORS auth path (A=19) using fuel-bounded recursion.  Mirrors the
 contract's branchless swap: when `pathIdx` is even, `node` is the left child;
@@ -882,8 +964,14 @@ theorem foldHypertree_c13_ok_root_canonical_of_fors
 #print axioms parseSignatureC13_shape
 #print axioms publicKeyOk_c13
 #print axioms parsePublicKey_c13
+#print axioms parseSignatureC13_fors_sk_getElem?
+#print axioms parseSignatureC13_fors_authPath_getD_getElem?
 #print axioms forcedZeroOk_c13_forsIndex_six
 #print axioms hMsgC13_forsIndex_six
+#print axioms hMsgC13_forsIndex_getD_eq
+#print axioms hMsgC13_forsIndex_getD_lt
+#print axioms adrsForsLeaf_lt_of_normal_idx_lt
+#print axioms adrsForsLeaf_hMsgC13_normal_lt
 
 end C13Concrete
 end SphincsMinusVerifierSpec
