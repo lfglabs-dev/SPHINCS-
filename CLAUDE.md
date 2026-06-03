@@ -9,7 +9,7 @@ SPHINCs- is a research prototype for lightweight SPHINCS+ variants on Ethereum. 
 1. **C-series** (C7, C9, C11, **C13** in `src/`; C6/C8/C10 in `legacy/src/`) — stateless WOTS+C / FORS+C (ePrint 2025/2203), n=128. Signature-count cap = 2^h (C7 → 2²⁴, C11 → 2¹⁶, C13 → 2²²); security degrades with N as shown in the variants table in the README. **C7, C9 and C13 use the FIPS 205 §11.2.2 uncompressed 32-byte ADRS layout** (see "ADRS layout discipline" below); C11 still uses JARDIN's 32-byte ADRS.
 2. **C12** (`src/SPHINCs-C12Asm.sol`) — plain SPHINCS+ (SPX) variant of the SPHINCs- family, with the JARDIN 32-byte ADRS kernel + keccak256 truncated to 16 B. h=20, d=5, a=7, k=20, w=8, l=45. 6,512-B sig, ~276 K verify gas. Cross-referenced by the JARDIN repo as `JardinSpxVerifier`.
 3. **SLH-DSA-128-24** — NIST SP 800-230 parameter set (d=1, h=22, a=24, k=6, w=4). Two variants:
-   - FIPS 205 bit-exact SHA-2 (`src/SLH-DSA-SHA2-128-24verifier.sol`), uses the SHA-256 precompile at 0x02.
+   - FIPS 205 **external** SLH-DSA-SHA2 (`src/SLH-DSA-SHA2-128-24verifier.sol`), empty-context envelope (`M' = 0x00‖0x00‖M`); uses the SHA-256 precompile at 0x02. Matches NIST/ACVP external KATs.
    - JARDIN-convention Keccak twin (`src/SLH-DSA-keccak-128-24verifier.sol`), uses the native `keccak256` opcode.
 
 Accounts present in this repo use the C-series: `SphincsAccount` (ERC-4337), `SphincsAccountFactory`, `SphincsFrameAccount` (EIP-8141). The JARDIN hybrid-account stack (ECDSA + SPHINCs-) lives in the separate [nconsigny/JARDIN](https://github.com/nconsigny/JARDIN) repo.
@@ -71,7 +71,7 @@ JARDIN's structural divergence from FIPS uncompressed is a shorter tree field (8
 
 ### Shared hash kernel (legacy phrasing, kept for context)
 
-The **C-series (pre-C13), C12, and SLH-DSA-Keccak** verifiers share the JARDIN kernel: one 32-byte ADRS layout and the `keccak(seed32 ‖ adrs32 ‖ inputs)` tweakable-hash shape (see `script/jardin_primitives.py`). A device port covers those four with a single `sphincs_th*` implementation. **SLH-DSA-SHA2-128-24** uses FIPS 205's 22-byte compressed ADRSc + SHA-256 with the nested MGF1 Hmsg. **C13** uses FIPS uncompressed 32 B ADRS + keccak256 — a third primitive set today, on track to become the canonical keccak-family layout once the older C-series migrates.
+The **C-series (pre-C13), C12, and SLH-DSA-Keccak** verifiers share the JARDIN kernel: one 32-byte ADRS layout and the `keccak(seed32 ‖ adrs32 ‖ inputs)` tweakable-hash shape (see `script/jardin_primitives.py`). A device port covers those four with a single `sphincs_th*` implementation. **SLH-DSA-SHA2-128-24** uses FIPS 205's 22-byte compressed ADRSc + SHA-256 with the nested MGF1 Hmsg, in **external** mode (empty-context envelope `M' = 0x00‖0x00‖M`). **C13** uses FIPS uncompressed 32 B ADRS + keccak256 — a third primitive set today, on track to become the canonical keccak-family layout once the older C-series migrates.
 
 ### Current contracts (`src/`)
 
@@ -85,7 +85,7 @@ The **C-series (pre-C13), C12, and SLH-DSA-Keccak** verifiers share the JARDIN k
 | `SphincsAccountFactory.sol` | CREATE2 factory for `SphincsAccount` |
 | `SphincsFrameAccount.sol` | EIP-8141 pure-PQ frame account; keys embedded in bytecode (no SLOAD) |
 | `SPHINCs-C12Asm.sol` | C12 — plain SPHINCS+ verifier with JARDIN 32-byte ADRS. 6,512-B sig, ~276 K verify |
-| `SLH-DSA-SHA2-128-24verifier.sol` | FIPS 205 bit-exact SLH-DSA-SHA2-128-24 verifier (SHA-256 precompile) |
+| `SLH-DSA-SHA2-128-24verifier.sol` | FIPS 205 **external** SLH-DSA-SHA2-128-24 verifier (empty-ctx envelope `0x00‖0x00‖M`; SHA-256 precompile) |
 | `SLH-DSA-keccak-128-24verifier.sol` | JARDIN-convention SLH-DSA-Keccak-128-24 verifier (keccak opcode) |
 | `SLH-DSA-SHA2-128-24-Diagnostic.sol` | Debug tool used to bisect the SHA-2 verifier during development |
 
@@ -106,7 +106,7 @@ Prior C-series verifiers (C6, C8, C10) kept for benchmark reproducibility. Same 
 
 NIST SP 800-230 (April 2026 IPD) parameter set with a hard 2^24 signature limit per key. Parameters: n=16, h=22, d=1 (single XMSS tree), h'=22, a=24, k=6, w=4, m=21. Signature size 3,856 B (same for both hash variants).
 
-- **SHA-2 variant** (`SLH-DSA-SHA2-128-24verifier.sol`): FIPS 205 bit-exact. 22-byte compressed ADRSc, nested Hmsg = `MGF1-SHA-256(R‖seed‖SHA-256(R‖seed‖root‖M), 21)`, LSB-first-within-bytes digest parsing (industry SPHINCS+ convention). Every F / H / T is a SHA-256 precompile (0x02) staticcall.
+- **SHA-2 variant** (`SLH-DSA-SHA2-128-24verifier.sol`): FIPS 205 **external** SLH-DSA.Verify, empty context. Message wrapped as `M' = 0x00‖0x00‖M` before H_msg; 22-byte compressed ADRSc, nested Hmsg = `MGF1-SHA-256(R‖seed‖SHA-256(R‖seed‖root‖M'), 21)`, **big-endian / MSB-first digest parsing** (`md[t]=BE(digest[3t..3t+3])` — FIPS 205 / current PQClean; *not* the legacy LSB-first SPHINCS+ ref). Signers prepend the same `0x00 0x00`. Every F / H / T is a SHA-256 precompile (0x02) staticcall.
 - **Keccak variant** (`SLH-DSA-keccak-128-24verifier.sol`): JARDIN-family twin. 32-byte full JARDIN ADRS (`layer4‖tree8‖type4‖kp4‖ci4‖cp4‖ha4`), one-shot Hmsg = `keccak(seed‖root‖R‖msg‖0xFF..FB)`, LSB-first digest parsing on the 256-bit keccak output (not byte-wise), LSB-first-within-128-bit WOTS `base_w`. Every F / H / T is a native `keccak256` opcode.
 
 **Hash-call counts** (both variants, same tree shape):
