@@ -94,7 +94,10 @@ are:
   `C13Concrete.foldHypertree_c13_ok_root_size_of_fors`:
   `[propext, Quot.sound]`.
 
-- `C13Concrete.wotsGrindingFailsC13_false_digitSum`:
+- `C13Concrete.wotsDigitSum_fold_le`,
+  `C13Concrete.wotsDigitSum_le_301`,
+  `C13Concrete.wotsDigitSum_lt_uint256`, and
+  `C13Concrete.wotsGrindingFailsC13_false_digitSum`:
   `[propext, Quot.sound]`.
 
 - `C13Concrete.CanonicalHash16` and

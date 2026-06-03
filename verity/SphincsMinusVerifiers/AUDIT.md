@@ -85,6 +85,9 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   `foldHypertree_c13_ok_root_canonical_of_fors`;
 - C13 WOTS grinding-target fact in
   `SphincsMinusVerifierSpec/C13Concrete.lean`:
+  `wotsDigitSum_fold_le`, `wotsDigitSum_le_301`, and
+  `wotsDigitSum_lt_uint256`, which bound the 43 three-bit WOTS digits by
+  `301`, plus
   `wotsGrindingFailsC13_false_digitSum`, which derives the concrete digit-sum
   target `208` from `wotsGrindingFails = false`;
 - S3 guard arithmetic facts in `SphincsMinusVerifiers/SegmentS3.lean`:
@@ -519,11 +522,12 @@ The current narrow C13 accept handoff still has real residual obligations:
   `accept_path_returns_verifyParsed_bool_from_concrete_layer_digit_cell_range_obligations_of_bytes`
   reduce that guard side to the executable digit cell matching the concrete
   `wotsDigitSum (wotsDigest ...)`; the target `208` follows from the existing
-  grinding-success fact.  `SegmentLayer3.digitSumStep_digitSum_eq` supplies the
-  single-step executable arithmetic for that cell; the remaining work is the
-  43-step digit fold, its prefix-to-`wotsDigest` correspondence, concrete
-  WOTS/XMSS success, and exact `"merkleNode"` model-cell facts through the
-  bounded boundary.  The older
+  grinding-success fact, and `C13Concrete.wotsDigitSum_lt_uint256` supplies the
+  overflow bound for the corresponding executable accumulator.
+  `SegmentLayer3.digitSumStep_digitSum_eq` supplies the single-step executable
+  arithmetic for that cell; the remaining work is the 43-step digit fold, its
+  prefix-to-`wotsDigest` correspondence, concrete WOTS/XMSS success, and exact
+  `"merkleNode"` model-cell facts through the bounded boundary.  The older
   concrete-layer packages still quantify
   success over every `idx : Nat`;
   `no_concrete_layer_site_root_obligations_of_parse` and

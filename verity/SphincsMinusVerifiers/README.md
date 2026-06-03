@@ -678,6 +678,9 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `foldHypertree_c13_ok_root_size_of_fors` establish that successful C13
     reconstruction outputs are 16-byte roots; this is the canonical root-size
     side needed by the eventual final word-comparison/injectivity bridge.
+    `wotsDigitSum_fold_le`, `wotsDigitSum_le_301`, and
+    `wotsDigitSum_lt_uint256` bound every C13 WOTS digit sum by `43 * 7 = 301`,
+    supplying the overflow side needed by the executable digit-fold lift.
     `wotsGrindingFailsC13_false_digitSum` shows that the concrete C13
     `wotsGrindingFails = false` success fact already entails the WOTS digit-sum
     target `208`.

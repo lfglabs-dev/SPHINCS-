@@ -675,6 +675,30 @@ def chainHash (seed chainBase : Word) (digit : Nat) (fuel step : Nat)
 def wotsDigitSum (d : Word) : Nat :=
   (List.range 43).foldl (fun acc i => acc + ((d >>> (3 * i)) % 8)) 0
 
+/-- Any finite WOTS digit fold is bounded by seven times its length. -/
+theorem wotsDigitSum_fold_le (d acc : Nat) :
+    ∀ xs : List Nat,
+      xs.foldl (fun acc i => acc + ((d >>> (3 * i)) % 8)) acc
+        ≤ acc + 7 * xs.length
+  | [] => by simp
+  | i :: xs => by
+      have htail :=
+        wotsDigitSum_fold_le d (acc + ((d >>> (3 * i)) % 8)) xs
+      have hdigit : (d >>> (3 * i)) % 8 ≤ 7 := by
+        exact Nat.le_pred_of_lt (Nat.mod_lt _ (by decide : 0 < 8))
+      simp only [List.foldl_cons, List.length_cons]
+      exact Nat.le_trans htail (by omega)
+
+/-- The 43 three-bit WOTS digits sum to at most `43 * 7 = 301`. -/
+theorem wotsDigitSum_le_301 (d : Word) : wotsDigitSum d ≤ 301 := by
+  unfold wotsDigitSum
+  have h := wotsDigitSum_fold_le d 0 (List.range 43)
+  simpa using h
+
+/-- The WOTS digit sum is far below the EVM word modulus. -/
+theorem wotsDigitSum_lt_uint256 (d : Word) : wotsDigitSum d < 2 ^ 256 := by
+  exact lt_of_le_of_lt (wotsDigitSum_le_301 d) (by decide : 301 < 2 ^ 256)
+
 /-- The reconstructed WOTS public key word for one layer.  `treeIdx`/`leafIdx`
 follow the spec's per-layer naming (`nextTree`/`idxLeaf`). -/
 def wotsPkWord (seed : Word) (layer treeIdx leafIdx : Nat)
@@ -1013,6 +1037,9 @@ theorem foldHypertree_c13_ok_root_canonical_of_fors
 #print axioms wotsPkFromSigC13_canonical
 #print axioms xmssRootFromSigC13_size
 #print axioms xmssRootFromSigC13_canonical
+#print axioms wotsDigitSum_fold_le
+#print axioms wotsDigitSum_le_301
+#print axioms wotsDigitSum_lt_uint256
 #print axioms wotsGrindingFailsC13_false_digitSum
 #print axioms foldHypertreeAux_c13_ok_root_size
 #print axioms foldHypertree_c13_ok_root_size
