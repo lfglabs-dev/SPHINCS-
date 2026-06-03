@@ -2508,6 +2508,57 @@ theorem layerGuardsPass_of_c13HypertreeSpecStep_success_range
     rw [hTwo] at hi
     omega
 
+/-- Range-gated guard-trace projection where the guard premise is stated as the
+natural post-prefix `"digitSum"` model cell. -/
+theorem layerGuardsPass_of_c13HypertreeSpecStep_digitSum_success_range
+    (pkSeed pkRoot message sig : ByteArray)
+    (pk : PublicKey) (digest : HMsg) (layers : List XmssLayerSig)
+    (forsPk : ByteArray)
+    (hStart : CurrentNodeRel wordOfHash16
+      { (afterSeed (mkC13State pkSeed pkRoot message sig)) with
+          bindings := bindValue
+            (afterSeed (mkC13State pkSeed pkRoot message sig)).bindings
+            "layer" (wordNormalize 0) }
+      forsPk)
+    (hDigitSum : ∀ (s : RuntimeState) (node : ByteArray) (idx : Nat), idx < 2 →
+      CurrentNodeRel wordOfHash16 s node →
+        lookupValue
+            (SegmentLayer3.afterDigit
+              { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) }).bindings
+            "digitSum" = 208)
+    (hSuccess : ∀ (s : RuntimeState) (node : ByteArray) (idx : Nat), idx < 2 →
+      CurrentNodeRel wordOfHash16 s node →
+        ∃ (lsig : XmssLayerSig) (wotsPk root : ByteArray),
+          layers[idx]? = some lsig ∧
+          wotsGrindingFails C13Concrete.c13PrimitivesConcrete c13 pk
+            (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx)
+            node lsig.wots = false ∧
+          C13Concrete.c13PrimitivesConcrete.wotsPkFromSig c13 pk
+            (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx)
+            node lsig.wots = some wotsPk ∧
+          C13Concrete.c13PrimitivesConcrete.xmssRootFromSig c13 pk
+            (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx)
+            wotsPk lsig.authPath = some root ∧
+          lookupValue
+              (SegmentLayer3.stepLayer
+                { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) }).bindings
+              "merkleNode"
+            = wordOfHash16 root) :
+    ClimbLoopGuarded.allGuardsPass "layer" SegmentLayer3.stepLayer
+      SegmentLayer3.layerGuard
+      { (afterSeed (mkC13State pkSeed pkRoot message sig)) with
+          bindings := bindValue
+            (afterSeed (mkC13State pkSeed pkRoot message sig)).bindings
+            "layer" (wordNormalize 0) }
+      0 (wordNormalize 2) :=
+  layerGuardsPass_of_c13HypertreeSpecStep_success_range
+    pkSeed pkRoot message sig pk digest layers forsPk hStart
+    (fun s node idx hidx hRel =>
+      SegmentLayer3.layerGuard_of_afterDigit_digitSum_eq
+        { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) }
+        (hDigitSum s node idx hidx hRel))
+    hSuccess
+
 /-- Concrete C13 layer success facts package directly into the per-step
 `currentNode` relation used by the accept-path layer fold.  This is the data
 projection paired with `layerGuardsPass_of_c13HypertreeSpecStep_success`. -/
@@ -3356,6 +3407,72 @@ structure C13SeedNamedAcceptConcreteLayerRangeObligations
             "merkleNode"
           = wordOfHash16 root
   hPkRootSize : pkRoot.size = 16
+
+/-- Range-gated concrete layer obligations with the layer guard stated as the
+post-prefix `"digitSum"` cell rather than the executable guard result. -/
+structure C13SeedNamedAcceptConcreteLayerDigitSumRangeObligations
+    (pkSeed pkRoot message sig : ByteArray)
+    (sigParsed : Signature) : Prop where
+  hDigitSum : ∀ (s : RuntimeState) (node : ByteArray) (idx : Nat), idx < 2 →
+    CurrentNodeRel wordOfHash16 s node →
+      lookupValue
+          (SegmentLayer3.afterDigit
+            { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) }).bindings
+          "digitSum" = 208
+  hSuccess : ∀ (s : RuntimeState) (node : ByteArray) (idx : Nat), idx < 2 →
+    CurrentNodeRel wordOfHash16 s node →
+      ∃ (lsig : XmssLayerSig) (wotsPk root : ByteArray),
+        sigParsed.layers[idx]? = some lsig ∧
+        wotsGrindingFails C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (c13LayerNextTree
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) idx)
+          (c13LayerLeafIdx
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) idx)
+          node lsig.wots = false ∧
+        C13Concrete.c13PrimitivesConcrete.wotsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (c13LayerNextTree
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) idx)
+          (c13LayerLeafIdx
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) idx)
+          node lsig.wots = some wotsPk ∧
+        C13Concrete.c13PrimitivesConcrete.xmssRootFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (c13LayerNextTree
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) idx)
+          (c13LayerLeafIdx
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) idx)
+          wotsPk lsig.authPath = some root ∧
+        lookupValue
+            (SegmentLayer3.stepLayer
+              { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) }).bindings
+            "merkleNode"
+          = wordOfHash16 root
+  hPkRootSize : pkRoot.size = 16
+
+/-- Convert the natural `"digitSum"`-shaped range package into the existing
+range package consumed by the accept-path proof. -/
+theorem concrete_layer_range_obligations_of_digitSum_range_obligations
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hObs : C13SeedNamedAcceptConcreteLayerDigitSumRangeObligations
+      pkSeed pkRoot message sig sigParsed) :
+    C13SeedNamedAcceptConcreteLayerRangeObligations
+      pkSeed pkRoot message sig sigParsed := by
+  exact
+    { hGuard := by
+        intro s node idx hidx hRel
+        exact SegmentLayer3.layerGuard_of_afterDigit_digitSum_eq
+          { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) }
+          (hObs.hDigitSum s node idx hidx hRel)
+      hSuccess := hObs.hSuccess
+      hPkRootSize := hObs.hPkRootSize }
 
 /-- Minimal state used only to show that the broad concrete-layer success fields
 can be queried at an out-of-range layer index. -/
@@ -4212,6 +4329,41 @@ theorem accept_path_returns_verifyParsed_bool_from_concrete_layer_range_obligati
     (by simpa [pk, digest] using hFold)
     hLen hS3 hLayerGuards hCurrent hWordCmp
 
+/-- Byte-shaped concrete C13 accept handoff with the layer guard obligation
+stated as the post-prefix `"digitSum"` cell over the actual two-iteration
+hypertree loop. -/
+theorem accept_path_returns_verifyParsed_bool_from_concrete_layer_digitSum_range_obligations_of_bytes
+    (pkSeed pkRoot message sig : ByteArray)
+    (sigParsed : Signature) (forsPk specRoot : ByteArray)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hZero : forcedZeroOk c13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) sigParsed.fors
+          = some forsPk)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hObs : C13SeedNamedAcceptConcreteLayerDigitSumRangeObligations
+        pkSeed pkRoot message sig sigParsed) :
+    ∃ finalState,
+      verifyParsed C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot } message sigParsed
+        = some (specRoot == pkRoot) ∧
+      execStmtList [] (mkC13State pkSeed pkRoot message sig) c13VerifyBody
+        = .return (wordNormalize (boolWord (specRoot == pkRoot))) finalState := by
+  exact
+    accept_path_returns_verifyParsed_bool_from_concrete_layer_range_obligations_of_bytes
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hZero hFors hFold
+      (concrete_layer_range_obligations_of_digitSum_range_obligations
+        pkSeed pkRoot message sig sigParsed hObs)
+
 /-- Byte-shaped guarded handoff at the current concrete C13 accept boundary.
 The caller supplies concrete layer guard/success facts, frozen FORS site facts,
 ordinary-root post-inner `"node"` correspondences, parse/spec facts, and
@@ -4360,6 +4512,7 @@ theorem accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of
 #print axioms layerGuardsPass_of_c13HypertreeSpecStep_success
 #print axioms layerStep_of_c13HypertreeSpecStep_success
 #print axioms layerGuardsPass_of_c13HypertreeSpecStep_success_range
+#print axioms layerGuardsPass_of_c13HypertreeSpecStep_digitSum_success_range
 #print axioms layerStep_of_c13HypertreeSpecStep_success_range
 #print axioms layerStart_of_seed_named_fors_roots_roundtrip
 #print axioms C13SeedNamedAcceptDataObligations
@@ -4386,6 +4539,8 @@ theorem accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of
 #print axioms C13SeedNamedAcceptConcreteLayerSiteRootObligations
 #print axioms C13SeedNamedAcceptConcreteLayerObligations
 #print axioms C13SeedNamedAcceptConcreteLayerRangeObligations
+#print axioms C13SeedNamedAcceptConcreteLayerDigitSumRangeObligations
+#print axioms concrete_layer_range_obligations_of_digitSum_range_obligations
 #print axioms no_concrete_layer_site_root_obligations_of_parse
 #print axioms no_concrete_layer_obligations_of_parse
 #print axioms seed_named_leaf_obligations_of_leaf_root_obligations
@@ -4399,5 +4554,6 @@ theorem accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of
 #print axioms accept_path_returns_verifyParsed_bool_from_concrete_layer_site_root_obligations_of_bytes
 #print axioms accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of_bytes
 #print axioms accept_path_returns_verifyParsed_bool_from_concrete_layer_range_obligations_of_bytes
+#print axioms accept_path_returns_verifyParsed_bool_from_concrete_layer_digitSum_range_obligations_of_bytes
 
 end SphincsMinusVerifiers.SegmentAcceptSpec

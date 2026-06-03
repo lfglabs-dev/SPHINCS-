@@ -496,7 +496,11 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     accept-path layer fold.  Their `_range` variants,
     `layerGuardsPass_of_c13HypertreeSpecStep_success_range` and
     `layerStep_of_c13HypertreeSpecStep_success_range`, replace the impossible
-    all-`Nat` layer surface with the actual C13 loop range `idx < 2`; the
+    all-`Nat` layer surface with the actual C13 loop range `idx < 2`;
+    `layerGuardsPass_of_c13HypertreeSpecStep_digitSum_success_range` and the
+    `C13SeedNamedAcceptConcreteLayerDigitSumRangeObligations` handoff state the
+    guard side as the natural post-prefix
+    `afterDigit ... "digitSum" = 208` model fact; the
     generic `ClimbLoopGuarded.allGuardsPass_of_rel_range` and
     `CurrentNodeFrame.afterLayer_currentNode_wordOfHash16_of_forsPk_step_range`
     provide the matching guarded-loop and final-`currentNode` range adapters, and

@@ -240,6 +240,8 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   all-`Nat` layer surface with the actual `idx < 2` loop range, backed by
   `ClimbLoopGuarded.allGuardsPass_of_rel_range` and
   `CurrentNodeFrame.afterLayer_currentNode_wordOfHash16_of_forsPk_step_range`;
+  `layerGuardsPass_of_c13HypertreeSpecStep_digitSum_success_range` exposes the
+  guard side as the post-prefix `afterDigit ... "digitSum" = 208` model cell;
   `accept_path_returns_verifyParsed_bool_from_layer_step_range` exposes the same
   bounded step shape at the final accept handoff;
 - pure C13 hypertree spec-fold closure in
@@ -502,8 +504,12 @@ The current narrow C13 accept handoff still has real residual obligations:
   layer boundary.  `C13SeedNamedAcceptConcreteLayerRangeObligations` and
   `accept_path_returns_verifyParsed_bool_from_concrete_layer_range_obligations_of_bytes`
   now index the concrete handoff only over the actual C13 hypertree loop range
-  `idx < 2`; the remaining work is to supply concrete WOTS/XMSS and model-cell
-  facts through that boundary.  The older concrete-layer packages still quantify
+  `idx < 2`; `C13SeedNamedAcceptConcreteLayerDigitSumRangeObligations` and
+  `accept_path_returns_verifyParsed_bool_from_concrete_layer_digitSum_range_obligations_of_bytes`
+  further replace the raw guard premise with the natural `afterDigit`
+  `"digitSum" = 208` fact.  The remaining work is to supply that digitSum fact
+  plus concrete WOTS/XMSS success and exact `"merkleNode"` model-cell facts
+  through the bounded boundary.  The older concrete-layer packages still quantify
   success over every `idx : Nat`;
   `no_concrete_layer_site_root_obligations_of_parse` and
   `no_concrete_layer_obligations_of_parse` prove those packages are

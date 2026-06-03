@@ -434,6 +434,7 @@ are:
   `SegmentAcceptSpec.layerGuardsPass_of_c13HypertreeSpecStep_success`, and
   `SegmentAcceptSpec.layerStep_of_c13HypertreeSpecStep_success`,
   `SegmentAcceptSpec.layerGuardsPass_of_c13HypertreeSpecStep_success_range`, and
+  `SegmentAcceptSpec.layerGuardsPass_of_c13HypertreeSpecStep_digitSum_success_range`, and
   `SegmentAcceptSpec.layerStep_of_c13HypertreeSpecStep_success_range`:
   `[propext, Classical.choice, Quot.sound]`.
 
@@ -488,10 +489,13 @@ are:
 
 - `SegmentAcceptSpec.C13SeedNamedAcceptConcreteLayerObligations`,
   `SegmentAcceptSpec.C13SeedNamedAcceptConcreteLayerRangeObligations`,
+  `SegmentAcceptSpec.C13SeedNamedAcceptConcreteLayerDigitSumRangeObligations`,
+  `SegmentAcceptSpec.concrete_layer_range_obligations_of_digitSum_range_obligations`,
   `SegmentAcceptSpec.seed_named_pk_root_size_obligations_of_concrete_layer_obligations`,
   `SegmentAcceptSpec.no_concrete_layer_obligations_of_parse`,
   `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of_bytes`, and
-  `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_concrete_layer_range_obligations_of_bytes`:
+  `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_concrete_layer_range_obligations_of_bytes`, and
+  `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_concrete_layer_digitSum_range_obligations_of_bytes`:
   `[propext, Classical.choice, Quot.sound]`.
 
 These are ordinary Lean/meta foundations for the existing development.  The
