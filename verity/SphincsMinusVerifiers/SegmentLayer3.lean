@@ -24,6 +24,7 @@
 import SphincsMinusVerifiers.ClimbLoop
 import SphincsMinusVerifiers.ClimbLoopGuarded
 import SphincsMinusVerifiers.ClimbKeccakStep
+import SphincsMinusVerifiers.BindingFrame
 import SphincsMinusVerifiers.MemoryFrame
 import SphincsMinusVerifiers.Model
 import SphincsMinusVerifierSpec.C13Concrete
@@ -327,6 +328,22 @@ def prefixBeforeWotsDigest : List Stmt :=
   , mstore 0x60 (v "count")
   ]
 
+/-- Prefix up to and including the WOTS ADRS store, just before the
+`currentNode` store. -/
+def prefixBeforeWotsDigestCurrentNodeSlot : List Stmt :=
+  [ .letVar "idxLeaf" (andE (v "idxTree") (u 0x7FF))
+  , .assignVar "idxTree" (shrE (u 11) (v "idxTree"))
+  , .letVar "wotsAdrs" (orE (shlE (u 224) (v "layer")) (orE (shlE (u 128) (v "idxTree")) (shlE (u 64) (v "idxLeaf"))))
+  , .letVar "countOff" (addE (v "sigOff") (u 688))
+  , .letVar "count" (shrE (u 224) (cdload (addE (v "sigBase") (v "countOff"))))
+  , mstore 0x20 (v "wotsAdrs")
+  ]
+
+theorem prefixBeforeWotsDigest_eq_currentNodeSlot_append :
+    prefixBeforeWotsDigest =
+      prefixBeforeWotsDigestCurrentNodeSlot ++
+        [ mstore 0x40 (v "currentNode"), mstore 0x60 (v "count") ] := rfl
+
 /-- Statements 154-163, stopping just before the digit-sum loop. -/
 def prefixBeforeDigitSum : List Stmt :=
   [ .letVar "idxLeaf" (andE (v "idxTree") (u 0x7FF))
@@ -497,6 +514,96 @@ theorem beforeWotsDigest_seed_slot_eq (ls : RuntimeState) :
             rw [hro]
             decide) hexec)
     (beforeWotsDigest_eq ls)
+
+/-- State just before the WOTS-digest setup stores `"currentNode"` at `0x40`. -/
+def beforeWotsDigestCurrentNodeSlot (ls : RuntimeState) : RuntimeState :=
+  match execStmtList [] ls prefixBeforeWotsDigestCurrentNodeSlot with
+  | .continue s' => s'
+  | _ => ls
+
+theorem beforeWotsDigestCurrentNodeSlot_eq (ls : RuntimeState) :
+    execStmtList [] ls prefixBeforeWotsDigestCurrentNodeSlot =
+      .continue (beforeWotsDigestCurrentNodeSlot ls) := by
+  unfold beforeWotsDigestCurrentNodeSlot prefixBeforeWotsDigestCurrentNodeSlot mstore u
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "idxLeaf" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "idxTree" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "countOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rfl
+
+theorem beforeWotsDigestCurrentNodeSlot_currentNode_lookup_eq (ls : RuntimeState) :
+    lookupValue (beforeWotsDigestCurrentNodeSlot ls).bindings "currentNode" =
+      lookupValue ls.bindings "currentNode" := by
+  refine SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    "currentNode" prefixBeforeWotsDigestCurrentNodeSlot ls
+    (beforeWotsDigestCurrentNodeSlot ls) ?_ (beforeWotsDigestCurrentNodeSlot_eq ls)
+  intro s s'' stmt hmem hexec
+  unfold prefixBeforeWotsDigestCurrentNodeSlot mstore u at hmem
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl
+  · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "idxLeaf" "currentNode" _ (by decide) hexec
+  · exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+      s s'' "idxTree" "currentNode" _ (by decide) hexec
+  · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "wotsAdrs" "currentNode" _ (by decide) hexec
+  · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "countOff" "currentNode" _ (by decide) hexec
+  · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "count" "currentNode" _ (by decide) hexec
+  · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "currentNode" _ _ hexec
+
+/-- The WOTS-digest setup writes the incoming `"currentNode"` binding to the
+`0x40` scratch slot. -/
+theorem beforeWotsDigest_currentNode_slot_eq (ls : RuntimeState) :
+    ((beforeWotsDigest ls).world.memory 0x40).val =
+      wordNormalize (lookupValue ls.bindings "currentNode") := by
+  unfold beforeWotsDigest
+  rw [prefixBeforeWotsDigest_eq_currentNodeSlot_append]
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeWotsDigestCurrentNodeSlot_eq ls)]
+  unfold mstore u
+  let mid := beforeWotsDigestCurrentNodeSlot ls
+  let st40 : RuntimeState :=
+    { mid with world := { mid.world with
+        memory := SphincsMinusVerifiers.MemoryKit.memUpdate mid.world.memory 0x40
+          (lookupValue mid.bindings "currentNode") } }
+  let st60 : RuntimeState :=
+    { st40 with world := { st40.world with
+        memory := SphincsMinusVerifiers.MemoryKit.memUpdate st40.world.memory 0x60
+          (lookupValue mid.bindings "count") } }
+  have htail :
+      execStmtList [] mid
+        [ Stmt.mstore (Expr.literal 0x40) (v "currentNode"),
+          Stmt.mstore (Expr.literal 0x60) (v "count") ] = .continue st60 := by
+    rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_mstore_continue mid (Expr.literal 0x40) (v "currentNode") 0x40
+        (lookupValue mid.bindings "currentNode") rfl rfl)]
+    rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_mstore_continue st40 (Expr.literal 0x60) (v "count") 0x60
+        (lookupValue mid.bindings "count") rfl rfl)]
+    rfl
+  rw [htail]
+  show (SphincsMinusVerifiers.MemoryKit.memUpdate
+      (SphincsMinusVerifiers.MemoryKit.memUpdate mid.world.memory 0x40
+        (lookupValue mid.bindings "currentNode"))
+      0x60 (lookupValue mid.bindings "count") 0x40).val =
+        wordNormalize (lookupValue ls.bindings "currentNode")
+  rw [SphincsMinusVerifiers.MemoryKit.memUpdate_diff _ _ _ _ (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.memUpdate_val_same]
+  rw [beforeWotsDigestCurrentNodeSlot_currentNode_lookup_eq ls]
+
+/-- Spec-facing current-node scratch fact: if the incoming binding is a bounded
+word, the `0x40` scratch slot contains that exact word. -/
+theorem beforeWotsDigest_currentNode_slot_eq_of_lookup
+    (ls : RuntimeState) (currentNode : Nat)
+    (hcur : lookupValue ls.bindings "currentNode" = currentNode)
+    (hcurLt : currentNode < 2 ^ 256) :
+    ((beforeWotsDigest ls).world.memory 0x40).val = currentNode := by
+  rw [beforeWotsDigest_currentNode_slot_eq, hcur, wordNormalize_eq_mod]
+  exact Nat.mod_eq_of_lt hcurLt
 
 /-- The state after the straight-line prefix that sets up `"d"` and initializes
 `"digitSum"`, just before the 43-step checksum loop. -/
@@ -934,6 +1041,8 @@ theorem execLayerLoop (state : RuntimeState)
 #print axioms digitSumFold_zero_eq_wotsDigitSum
 #print axioms beforeWotsDigest_eq
 #print axioms beforeWotsDigest_seed_slot_eq
+#print axioms beforeWotsDigest_currentNode_slot_eq
+#print axioms beforeWotsDigest_currentNode_slot_eq_of_lookup
 #print axioms beforeDigitSum_eq
 #print axioms beforeDigitSum_digitSum_eq_zero
 #print axioms beforeDigitSum_d_eq_keccakWords_of_beforeWotsDigest_memory
