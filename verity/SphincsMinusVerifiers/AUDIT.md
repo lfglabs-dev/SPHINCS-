@@ -104,8 +104,9 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   expose the exact executable `"d"` and post-prefix `"digitSum"` handoff from a
   four-word WOTS-digest scratch-frame hypothesis; `beforeWotsDigest_seed_slot_eq`
   closes the seed-slot preservation part of that frame, and
-  `beforeWotsDigest_currentNode_slot_eq_of_lookup` closes the bounded
-  current-node binding-to-slot part;
+  `beforeWotsDigest_wotsAdrs_slot_eq_of_lookup` /
+  `beforeWotsDigest_currentNode_slot_eq_of_lookup` close the bounded
+  ADRS/current-node binding-to-slot parts;
 - seed and FORS-compression frame adapters in
   `SphincsMinusVerifiers/CurrentNodeFrame.lean`;
 - forced-root final-secret calldata and parsed-root cell adapters in
@@ -542,11 +543,12 @@ The current narrow C13 accept handoff still has real residual obligations:
   bridge now proves executable `"d" = wotsDigest ...` and the post-prefix
   `"digitSum" = wotsDigitSum (wotsDigest ...)` once memory `[0x00,0x80)` is
   identified with seed, WOTS_HASH ADRS, current node, and count; the seed slot is
-  now preserved by `beforeWotsDigest_seed_slot_eq`, and the current-node slot is
-  written back by `beforeWotsDigest_currentNode_slot_eq_of_lookup` once the
-  incoming binding and bound are available.  The remaining digit-cell gap is
-  therefore proving the ADRS/count scratch-frame cells from the parsed layer
-  inputs, followed by concrete
+  now preserved by `beforeWotsDigest_seed_slot_eq`, while the ADRS/current-node
+  slots are written back by `beforeWotsDigest_wotsAdrs_slot_eq_of_lookup` and
+  `beforeWotsDigest_currentNode_slot_eq_of_lookup` once the corresponding
+  bindings and bounds are available.  The remaining digit-cell gap is therefore
+  proving the pure WOTS_HASH ADRS binding identification and the count
+  scratch-frame cell from the parsed layer inputs, followed by concrete
   WOTS/XMSS success and exact `"merkleNode"` model-cell facts through the
   bounded boundary.  The older
   concrete-layer packages still quantify

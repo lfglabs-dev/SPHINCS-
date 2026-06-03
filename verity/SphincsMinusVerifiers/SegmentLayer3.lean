@@ -339,6 +339,19 @@ def prefixBeforeWotsDigestCurrentNodeSlot : List Stmt :=
   , mstore 0x20 (v "wotsAdrs")
   ]
 
+/-- Prefix just before the WOTS ADRS store at `0x20`. -/
+def prefixBeforeWotsDigestAdrsSlot : List Stmt :=
+  [ .letVar "idxLeaf" (andE (v "idxTree") (u 0x7FF))
+  , .assignVar "idxTree" (shrE (u 11) (v "idxTree"))
+  , .letVar "wotsAdrs" (orE (shlE (u 224) (v "layer")) (orE (shlE (u 128) (v "idxTree")) (shlE (u 64) (v "idxLeaf"))))
+  , .letVar "countOff" (addE (v "sigOff") (u 688))
+  , .letVar "count" (shrE (u 224) (cdload (addE (v "sigBase") (v "countOff"))))
+  ]
+
+theorem prefixBeforeWotsDigestCurrentNodeSlot_eq_adrsSlot_append :
+    prefixBeforeWotsDigestCurrentNodeSlot =
+      prefixBeforeWotsDigestAdrsSlot ++ [mstore 0x20 (v "wotsAdrs")] := rfl
+
 theorem prefixBeforeWotsDigest_eq_currentNodeSlot_append :
     prefixBeforeWotsDigest =
       prefixBeforeWotsDigestCurrentNodeSlot ++
@@ -532,6 +545,90 @@ theorem beforeWotsDigestCurrentNodeSlot_eq (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rfl
+
+/-- State just before the WOTS-digest setup stores `"wotsAdrs"` at `0x20`. -/
+def beforeWotsDigestAdrsSlot (ls : RuntimeState) : RuntimeState :=
+  match execStmtList [] ls prefixBeforeWotsDigestAdrsSlot with
+  | .continue s' => s'
+  | _ => ls
+
+theorem beforeWotsDigestAdrsSlot_eq (ls : RuntimeState) :
+    execStmtList [] ls prefixBeforeWotsDigestAdrsSlot =
+      .continue (beforeWotsDigestAdrsSlot ls) := by
+  unfold beforeWotsDigestAdrsSlot prefixBeforeWotsDigestAdrsSlot u
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "idxLeaf" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "idxTree" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "countOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
+  rfl
+
+/-- The WOTS-digest setup writes the computed `"wotsAdrs"` binding to the
+`0x20` scratch slot. -/
+theorem beforeWotsDigest_wotsAdrs_slot_eq (ls : RuntimeState) :
+    ((beforeWotsDigest ls).world.memory 0x20).val =
+      wordNormalize (lookupValue (beforeWotsDigestAdrsSlot ls).bindings "wotsAdrs") := by
+  unfold beforeWotsDigest
+  rw [prefixBeforeWotsDigest_eq_currentNodeSlot_append]
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeWotsDigestCurrentNodeSlot_eq ls)]
+  unfold beforeWotsDigestCurrentNodeSlot
+  rw [prefixBeforeWotsDigestCurrentNodeSlot_eq_adrsSlot_append]
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeWotsDigestAdrsSlot_eq ls)]
+  unfold mstore u
+  let adr := beforeWotsDigestAdrsSlot ls
+  let st20 : RuntimeState :=
+    { adr with world := { adr.world with
+        memory := SphincsMinusVerifiers.MemoryKit.memUpdate adr.world.memory 0x20
+          (lookupValue adr.bindings "wotsAdrs") } }
+  have h20 :
+      execStmtList [] adr [Stmt.mstore (Expr.literal 0x20) (v "wotsAdrs")] =
+        .continue st20 := by
+    rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_mstore_continue adr (Expr.literal 0x20) (v "wotsAdrs") 0x20
+        (lookupValue adr.bindings "wotsAdrs") rfl rfl)]
+    rfl
+  rw [h20]
+  let mid := st20
+  let st40 : RuntimeState :=
+    { mid with world := { mid.world with
+        memory := SphincsMinusVerifiers.MemoryKit.memUpdate mid.world.memory 0x40
+          (lookupValue mid.bindings "currentNode") } }
+  let st60 : RuntimeState :=
+    { st40 with world := { st40.world with
+        memory := SphincsMinusVerifiers.MemoryKit.memUpdate st40.world.memory 0x60
+          (lookupValue mid.bindings "count") } }
+  have htail :
+      execStmtList [] mid
+        [ Stmt.mstore (Expr.literal 0x40) (v "currentNode"),
+          Stmt.mstore (Expr.literal 0x60) (v "count") ] = .continue st60 := by
+    rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_mstore_continue mid (Expr.literal 0x40) (v "currentNode") 0x40
+        (lookupValue mid.bindings "currentNode") rfl rfl)]
+    rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_mstore_continue st40 (Expr.literal 0x60) (v "count") 0x60
+        (lookupValue mid.bindings "count") rfl rfl)]
+    rfl
+  rw [htail]
+  show (SphincsMinusVerifiers.MemoryKit.memUpdate
+      (SphincsMinusVerifiers.MemoryKit.memUpdate
+        (SphincsMinusVerifiers.MemoryKit.memUpdate adr.world.memory 0x20
+          (lookupValue adr.bindings "wotsAdrs"))
+        0x40 (lookupValue adr.bindings "currentNode"))
+      0x60 (lookupValue adr.bindings "count") 0x20).val =
+        wordNormalize (lookupValue adr.bindings "wotsAdrs")
+  rw [SphincsMinusVerifiers.MemoryKit.memUpdate_diff _ _ _ _ (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.memUpdate_diff _ _ _ _ (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.memUpdate_val_same]
+
+/-- Spec-facing WOTS ADRS scratch fact: once the computed `"wotsAdrs"` binding is
+identified with a bounded word, the `0x20` scratch slot contains that exact word. -/
+theorem beforeWotsDigest_wotsAdrs_slot_eq_of_lookup
+    (ls : RuntimeState) (wotsAdrs : Nat)
+    (hadr : lookupValue (beforeWotsDigestAdrsSlot ls).bindings "wotsAdrs" = wotsAdrs)
+    (hadrLt : wotsAdrs < 2 ^ 256) :
+    ((beforeWotsDigest ls).world.memory 0x20).val = wotsAdrs := by
+  rw [beforeWotsDigest_wotsAdrs_slot_eq, hadr, wordNormalize_eq_mod]
+  exact Nat.mod_eq_of_lt hadrLt
 
 theorem beforeWotsDigestCurrentNodeSlot_currentNode_lookup_eq (ls : RuntimeState) :
     lookupValue (beforeWotsDigestCurrentNodeSlot ls).bindings "currentNode" =
@@ -1041,6 +1138,8 @@ theorem execLayerLoop (state : RuntimeState)
 #print axioms digitSumFold_zero_eq_wotsDigitSum
 #print axioms beforeWotsDigest_eq
 #print axioms beforeWotsDigest_seed_slot_eq
+#print axioms beforeWotsDigest_wotsAdrs_slot_eq
+#print axioms beforeWotsDigest_wotsAdrs_slot_eq_of_lookup
 #print axioms beforeWotsDigest_currentNode_slot_eq
 #print axioms beforeWotsDigest_currentNode_slot_eq_of_lookup
 #print axioms beforeDigitSum_eq

@@ -518,8 +518,9 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     suffix.  The remaining digit-cell work is the prefix correspondence proving
     that scratch frame from the parsed layer seed/ADRS/current-node/count
     (`beforeWotsDigest_seed_slot_eq` closes the seed-slot preservation part, and
-    `beforeWotsDigest_currentNode_slot_eq_of_lookup` closes the bounded
-    current-node binding-to-slot part); the
+    `beforeWotsDigest_wotsAdrs_slot_eq_of_lookup` and
+    `beforeWotsDigest_currentNode_slot_eq_of_lookup` close the bounded
+    ADRS/current-node binding-to-slot parts); the
     generic `ClimbLoopGuarded.allGuardsPass_of_rel_range` and
     `CurrentNodeFrame.afterLayer_currentNode_wordOfHash16_of_forsPk_step_range`
     provide the matching guarded-loop and final-`currentNode` range adapters, and
