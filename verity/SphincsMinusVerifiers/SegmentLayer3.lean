@@ -23,6 +23,7 @@
 
 import SphincsMinusVerifiers.ClimbLoop
 import SphincsMinusVerifiers.ClimbLoopGuarded
+import SphincsMinusVerifiers.ClimbKeccakStep
 import SphincsMinusVerifiers.Model
 
 namespace SphincsMinusVerifiers.SegmentLayer3
@@ -94,6 +95,108 @@ theorem digitSumStepLemma (st : RuntimeState) :
   unfold digitSumStep digitSumBody
   rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue st "digitSum" _ _ rfl)]
   rfl
+
+/-- Low-three-bit mask in the numeric form used by the concrete WOTS digit sum. -/
+theorem nat_land_low3 (x : Nat) : Nat.land x 0x7 = x % 2 ^ 3 := by
+  change (x &&& (2 ^ 3 - 1)) = x % 2 ^ 3
+  apply Nat.eq_of_testBit_eq
+  intro i
+  rw [Nat.testBit_land]
+  by_cases hi : i < 3
+  · have hmask : (2 ^ 3 - 1).testBit i = true := by
+      rw [Nat.testBit_two_pow_sub_one]
+      exact decide_eq_true hi
+    rw [hmask, Bool.and_true]
+    rw [Nat.testBit_mod_two_pow]
+    simp [hi]
+  · have hmask : (2 ^ 3 - 1).testBit i = false := by
+      rw [Nat.testBit_two_pow_sub_one]
+      exact decide_eq_false hi
+    rw [hmask, Bool.and_false]
+    rw [Nat.testBit_mod_two_pow]
+    simp [hi]
+
+/-- One executable digit-sum loop iteration adds the next three-bit WOTS digit.
+This is the local arithmetic brick for the eventual 43-iteration digit-cell
+correspondence; it does not unfold the enclosing layer prefix. -/
+theorem digitSumStep_digitSum_eq
+    (st : RuntimeState) (ii d acc : Nat)
+    (hii : lookupValue st.bindings "ii" = ii)
+    (hd : lookupValue st.bindings "d" = d)
+    (hacc : lookupValue st.bindings "digitSum" = acc)
+    (hiiLt : ii < 43)
+    (hdLt : d < 2 ^ 256)
+    (haddLt : acc + (d >>> (3 * ii)) % 8 < 2 ^ 256) :
+    lookupValue (digitSumStep st).bindings "digitSum"
+      = acc + (d >>> (3 * ii)) % 8 := by
+  have hiiEval : evalExpr [] st (v "ii") = some ii := by
+    exact congrArg some hii
+  have hdEval : evalExpr [] st (v "d") = some d := by
+    exact congrArg some hd
+  have haccEval : evalExpr [] st (v "digitSum") = some acc := by
+    exact congrArg some hacc
+  have hmul :
+      evalExpr [] st (mulE (v "ii") (u 3)) = some (3 * ii) := by
+    show (do
+      let lhs : Verity.Core.Uint256 := ← evalExpr [] st (v "ii")
+      let rhs : Verity.Core.Uint256 := ← evalExpr [] st (u 3)
+      pure (lhs * rhs).val) = some (3 * ii)
+    rw [hiiEval]
+    show some ((Verity.Core.Uint256.ofNat ii * Verity.Core.Uint256.ofNat 3).val)
+      = some (3 * ii)
+    show some (((Verity.Core.Uint256.ofNat ii).val * (Verity.Core.Uint256.ofNat 3).val)
+          % Verity.Core.Uint256.modulus) = some (3 * ii)
+    have hiiv : (Verity.Core.Uint256.ofNat ii).val = ii :=
+      Nat.mod_eq_of_lt (lt_trans hiiLt (by decide : 43 < 2 ^ 256))
+    have h3v : (Verity.Core.Uint256.ofNat 3).val = 3 :=
+      Nat.mod_eq_of_lt (by decide : 3 < 2 ^ 256)
+    have hmod : Verity.Core.Uint256.modulus = 2 ^ 256 := rfl
+    rw [hiiv, h3v, hmod, Nat.mul_comm,
+      Nat.mod_eq_of_lt (by
+        calc
+          3 * ii ≤ 3 * 42 := Nat.mul_le_mul_left 3 (Nat.le_of_lt_succ hiiLt)
+          _ < 2 ^ 256 := by decide)]
+  have hshiftLt : 3 * ii < 2 ^ 256 := by
+    calc
+      3 * ii ≤ 3 * 42 := Nat.mul_le_mul_left 3 (Nat.le_of_lt_succ hiiLt)
+      _ < 2 ^ 256 := by decide
+  have hshr :
+      evalExpr [] st (shrE (mulE (v "ii") (u 3)) (v "d"))
+        = some (d >>> (3 * ii)) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shr_bounded
+      st (mulE (v "ii") (u 3)) (v "d") (3 * ii) d
+      hmul hdEval hshiftLt hdLt
+  have hshrLt : d >>> (3 * ii) < 2 ^ 256 := by
+    rw [Nat.shiftRight_eq_div_pow]
+    exact Nat.lt_of_le_of_lt (Nat.div_le_self d (2 ^ (3 * ii))) hdLt
+  have hdigit :
+      evalExpr [] st (andE (shrE (mulE (v "ii") (u 3)) (v "d")) (u 0x7))
+        = some ((d >>> (3 * ii)) % 8) := by
+    have hshrLit :
+        evalExpr [] st (shrE (mulE (v "ii") (Expr.literal 3)) (v "d"))
+          = some (d >>> (3 * ii)) := by
+      simpa [u] using hshr
+    unfold andE u
+    rw [SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitAnd_literal
+      st (shrE (mulE (v "ii") (Expr.literal 3)) (v "d")) (d >>> (3 * ii)) 0x7
+      hshrLit hshrLt (by decide : 0x7 < 2 ^ 256)]
+    rw [nat_land_low3]
+    norm_num
+  have hdigitLt : (d >>> (3 * ii)) % 8 < 2 ^ 256 :=
+    lt_trans (Nat.mod_lt _ (by decide : 0 < 8)) (by decide : 8 < 2 ^ 256)
+  have haccLt : acc < 2 ^ 256 :=
+    lt_of_le_of_lt (Nat.le_add_right acc ((d >>> (3 * ii)) % 8)) haddLt
+  have hsum :
+      evalExpr [] st
+        (addE (v "digitSum") (andE (shrE (mulE (v "ii") (u 3)) (v "d")) (u 0x7)))
+        = some (acc + (d >>> (3 * ii)) % 8) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      st (v "digitSum") (andE (shrE (mulE (v "ii") (u 3)) (v "d")) (u 0x7))
+      acc ((d >>> (3 * ii)) % 8) haccEval hdigit haccLt hdigitLt haddLt
+  unfold digitSumStep digitSumBody
+  rw [execStmtList_cons_continue _ _ _ _
+    (assignVar_continue st "digitSum" _ _ hsum)]
+  simp only [execStmtList, MemoryKit.lookupValue_bindValue_self]
 
 /-- The WOTS-chain outer-loop body (`forEach "i" (u 43)`), with its inner
 variable-bound chain `forEach "step" (v "steps")` written as `wotsChainBody`. -/
@@ -436,6 +539,8 @@ theorem execLayerLoop (state : RuntimeState)
 /-! ## 7. Axiom audit. -/
 
 #print axioms layerStmt_eq_slice
+#print axioms nat_land_low3
+#print axioms digitSumStep_digitSum_eq
 #print axioms layerGuard_of_afterDigit_digitSum_eq
 #print axioms beforeMerkle_eq
 #print axioms finalLayerTail_preserves_merkleNode

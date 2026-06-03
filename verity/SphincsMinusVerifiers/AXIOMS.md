@@ -412,6 +412,8 @@ are:
   `[propext, Classical.choice, Quot.sound]`.
 
 - `SegmentAcceptSpec.LayerGuardedStep`,
+  `SegmentLayer3.nat_land_low3`,
+  `SegmentLayer3.digitSumStep_digitSum_eq`,
   `SegmentLayer3.layerGuard_of_afterDigit_digitSum_eq`,
   `SegmentLayer3.beforeMerkle_eq`,
   `SegmentLayer3.finalLayerTail_preserves_merkleNode`,

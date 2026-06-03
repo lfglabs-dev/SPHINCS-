@@ -504,7 +504,10 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `C13SeedNamedAcceptConcreteLayerDigitCellRangeObligations` handoff further
     reduces that to the executable digit cell matching the concrete
     `wotsDigitSum (wotsDigest ...)`, with the target discharged from grinding
-    success; the
+    success.  `SegmentLayer3.nat_land_low3` and
+    `SegmentLayer3.digitSumStep_digitSum_eq` add the local arithmetic brick for
+    one executable digit-sum loop iteration, leaving the full 43-step fold and
+    prefix-to-`wotsDigest` correspondence as the remaining digit-cell work; the
     generic `ClimbLoopGuarded.allGuardsPass_of_rel_range` and
     `CurrentNodeFrame.afterLayer_currentNode_wordOfHash16_of_forsPk_step_range`
     provide the matching guarded-loop and final-`currentNode` range adapters, and
