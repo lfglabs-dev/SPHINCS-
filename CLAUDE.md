@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 SPHINCs- is a research prototype for lightweight SPHINCS+ variants on Ethereum. Three families of on-chain verifiers live here:
 
-1. **C-series** (C7, C11, **C13** in `src/`; C6/C8/C9/C10 in `legacy/src/`) — stateless WOTS+C / FORS+C (ePrint 2025/2203), n=128. Signature-count cap = 2^h (C7 → 2²⁴, C11 → 2¹⁶, C13 → 2²²); security degrades with N as shown in the variants table in the README. **C13 uses the FIPS 205 §11.2.2 uncompressed 32-byte ADRS layout** (see "ADRS layout discipline" below); C7/C11 still use JARDIN's 32-byte ADRS.
+1. **C-series** (C7, C9, C11, **C13** in `src/`; C6/C8/C10 in `legacy/src/`) — stateless WOTS+C / FORS+C (ePrint 2025/2203), n=128. Signature-count cap = 2^h (C7 → 2²⁴, C11 → 2¹⁶, C13 → 2²²); security degrades with N as shown in the variants table in the README. **C7, C9 and C13 use the FIPS 205 §11.2.2 uncompressed 32-byte ADRS layout** (see "ADRS layout discipline" below); C11 still uses JARDIN's 32-byte ADRS.
 2. **C12** (`src/SPHINCs-C12Asm.sol`) — plain SPHINCS+ (SPX) variant of the SPHINCs- family, with the JARDIN 32-byte ADRS kernel + keccak256 truncated to 16 B. h=20, d=5, a=7, k=20, w=8, l=45. 6,512-B sig, ~276 K verify gas. Cross-referenced by the JARDIN repo as `JardinSpxVerifier`.
 3. **SLH-DSA-128-24** — NIST SP 800-230 parameter set (d=1, h=22, a=24, k=6, w=4). Two variants:
    - FIPS 205 bit-exact SHA-2 (`src/SLH-DSA-SHA2-128-24verifier.sol`), uses the SHA-256 precompile at 0x02.
@@ -61,13 +61,13 @@ The repo is converging on **only two address layouts**:
 2. **FIPS 205 §11.2.1 ADRSc (22 B compressed)** + SHA-256 (precompile 0x02) — required for the FIPS-SHA2 instantiation; smaller because SHA-2 block size benefits from packing.
 
 Current users:
-- **C13**: FIPS uncompressed 32 B + keccak256 (first verifier on this layout).
+- **C7, C9, C13**: FIPS uncompressed 32 B + keccak256 (C13 was first on this layout; C7/C9 migrated from JARDIN). FORS is keyed by the per-message hypertree leaf via the FIPS field split — tree=idxTree0, kp=idxLeaf0, FORS tree number folded into tree_index.
 - **SLH-DSA-SHA2-128-24**: FIPS ADRSc 22 B + SHA-256.
-- **C7, C11, C12, SLH-DSA-Keccak-128-24**: still on the older JARDIN 32 B layout (`layer4 ‖ tree8 ‖ type4 ‖ kp4 ‖ ci4 ‖ cp4 ‖ ha4`) + keccak256. To be migrated to FIPS uncompressed in a follow-up.
+- **C11, C12, SLH-DSA-Keccak-128-24**: still on the older JARDIN 32 B layout (`layer4 ‖ tree8 ‖ type4 ‖ kp4 ‖ ci4 ‖ cp4 ‖ ha4`) + keccak256. To be migrated to FIPS uncompressed in a follow-up.
 
 JARDIN's structural divergence from FIPS uncompressed is a shorter tree field (8 B vs 12 B) and a 4th type-dependent word (`ha`) that is never actually populated by any type. The visible difference between layouts is that JARDIN's `ci` (chain_index, WOTS-only) and `cp`/`ha` (height/index, TREE-only) live at distinct byte positions; FIPS overloads `word2` and `word3` per type. Both layouts are sound; FIPS is the cross-impl interop choice.
 
-**When adding a new keccak-family verifier, default to FIPS uncompressed.** When touching C7/C11/C12 ADRS code, leave it as JARDIN unless the user explicitly asks for migration — the JARDIN-aware signers in `script/signer.py` (with `cfg["adrs_mode"]` defaulting to JARDIN) and `signer-wasm` (currently C13-only) must agree with whatever the verifier uses.
+**When adding a new keccak-family verifier, default to FIPS uncompressed.** When touching C11/C12 ADRS code, leave it as JARDIN unless the user explicitly asks for migration — the JARDIN-aware signers in `script/signer.py` (with `cfg["adrs_mode"]` defaulting to JARDIN) and `signer-wasm` (currently C13-only) must agree with whatever the verifier uses. C7/C9/C13 set `cfg["adrs_mode"]="fips"`.
 
 ### Shared hash kernel (legacy phrasing, kept for context)
 

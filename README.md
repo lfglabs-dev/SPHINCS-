@@ -52,7 +52,7 @@ C13's parameter choice (`h=22 d=2 a=19 k=7 w=8`) was built around three goals: s
 | Signature-count cap            | 2²⁴     | 2¹⁶     | 2²²     | 2²⁰ (h=20, d=5) | 2²⁴ | 2²⁴ |
 | Security at the cap            | 128 bit | 86 bit  | **128 bit** | 95 bit | 128 bit | 128 bit |
 | Hash-call cost / sign (cold)   | 4.3 M   | 292 K   | ~10 M   | 36.6 K | ~1.07 B | ~1.07 B |
-| ADRS layout                    | JARDIN  | JARDIN  | **FIPS uncompressed** | JARDIN | FIPS ADRSc | JARDIN |
+| ADRS layout                    | **FIPS uncompressed** | JARDIN  | **FIPS uncompressed** | JARDIN | FIPS ADRSc | JARDIN |
 
 Reading the table:
 
@@ -70,12 +70,12 @@ C11 and C12 are light enough to run on a hardware wallet, 390s and 47.5s signatu
 
 ### Shared hash kernel
 
-Two distinct ADRS layouts live in this repo. The keccak-family verifiers used to all share JARDIN's, but **C13 onward** uses the FIPS 205 uncompressed layout instead. Target end state: just two layouts — **FIPS uncompressed 32 B for keccak/SHAKE-family hashes**, and **FIPS ADRSc 22 B for SHA-2** — both straight out of FIPS 205. JARDIN remains for the older C-series and the keccak SLH-DSA twin until they're migrated.
+Two distinct ADRS layouts live in this repo. The keccak-family verifiers used to all share JARDIN's, but **C7, C9 and C13** now use the FIPS 205 uncompressed layout instead. Target end state: just two layouts — **FIPS uncompressed 32 B for keccak/SHAKE-family hashes**, and **FIPS ADRSc 22 B for SHA-2** — both straight out of FIPS 205. JARDIN remains for C11, C12 and the keccak SLH-DSA twin until they're migrated.
 
 | Layout | Variants | ADRS bytes | Hash | F/H/T input |
 |---|---|---|---|---|
-| **JARDIN 32 B**            | C7, C11, C12, SLH-DSA-Keccak-128-24 | `layer4 ‖ tree8 ‖ type4 ‖ kp4 ‖ ci4 ‖ cp4 ‖ ha4` | keccak256 | `seed32 ‖ adrs32 ‖ payload` |
-| **FIPS uncompressed 32 B** | **C13** (first user)                 | `layer4 ‖ tree12 ‖ type4 ‖ word1·4 ‖ word2·4 ‖ word3·4` | keccak256 | `seed32 ‖ adrs32 ‖ payload` |
+| **JARDIN 32 B**            | C11, C12, SLH-DSA-Keccak-128-24     | `layer4 ‖ tree8 ‖ type4 ‖ kp4 ‖ ci4 ‖ cp4 ‖ ha4` | keccak256 | `seed32 ‖ adrs32 ‖ payload` |
+| **FIPS uncompressed 32 B** | **C7, C9, C13** (C13 first)          | `layer4 ‖ tree12 ‖ type4 ‖ word1·4 ‖ word2·4 ‖ word3·4` | keccak256 | `seed32 ‖ adrs32 ‖ payload` |
 | **FIPS ADRSc 22 B**        | SLH-DSA-SHA2-128-24                  | `layer1 ‖ tree8 ‖ type1 ‖ 12 B type-dependent` | SHA-256 (precompile 0x02) | `PK.seed(16) ‖ zeros(48) ‖ ADRSc(22) ‖ payload` |
 
 ### Address layout
