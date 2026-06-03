@@ -430,6 +430,7 @@ are:
   `SegmentLayer3.beforeWotsDigest_currentNode_slot_eq_of_lookup`,
   `SegmentLayer3.beforeWotsDigest_count_slot_eq`,
   `SegmentLayer3.beforeWotsDigest_count_slot_eq_of_lookup`,
+  `SegmentLayer3.countExpr_eval_eq_shifted_calldata`,
   `SegmentLayer3.beforeDigitSum_eq`,
   `SegmentLayer3.beforeDigitSum_digitSum_eq_zero`,
   `SegmentLayer3.beforeDigitSum_d_eq_keccakWords_of_beforeWotsDigest_memory`,

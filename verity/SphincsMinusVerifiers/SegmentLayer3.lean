@@ -925,6 +925,47 @@ theorem beforeWotsDigest_count_slot_eq_of_lookup
   rw [beforeWotsDigest_count_slot_eq, hcount, wordNormalize_eq_mod]
   exact Nat.mod_eq_of_lt hcountLt
 
+/-- The WOTS count expression evaluates to the high 32 bits of the raw calldata
+word at `sigBase + countOff`.  The lemma is deliberately local: callers supply
+the binding facts and the frozen-calldata read identity for the relevant layer. -/
+theorem countExpr_eval_eq_shifted_calldata
+    (st : RuntimeState) (sigBase countOff raw : Nat)
+    (hsigBase : lookupValue st.bindings "sigBase" = sigBase)
+    (hcountOff : lookupValue st.bindings "countOff" = countOff)
+    (hsigBaseLt : sigBase < 2 ^ 256)
+    (hcountOffLt : countOff < 2 ^ 256)
+    (hsum : sigBase + countOff < 2 ^ 256)
+    (hread :
+      Compiler.Proofs.YulGeneration.calldataloadWord st.selector st.world.calldata
+        (sigBase + countOff) = raw)
+    (hrawLt : raw < 2 ^ 256) :
+    evalExpr [] st (shrE (u 224) (cdload (addE (v "sigBase") (v "countOff")))) =
+      some (raw >>> 224) := by
+  have hsigBaseEval : evalExpr [] st (v "sigBase") = some sigBase := by
+    show some (lookupValue st.bindings "sigBase") = some sigBase
+    rw [hsigBase]
+  have hcountOffEval : evalExpr [] st (v "countOff") = some countOff := by
+    show some (lookupValue st.bindings "countOff") = some countOff
+    rw [hcountOff]
+  have hoff :
+      evalExpr [] st (addE (v "sigBase") (v "countOff")) =
+        some (sigBase + countOff) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      st (v "sigBase") (v "countOff") sigBase countOff
+      hsigBaseEval hcountOffEval hsigBaseLt hcountOffLt hsum
+  have hcd :
+      evalExpr [] st (cdload (addE (v "sigBase") (v "countOff"))) = some raw := by
+    unfold cdload
+    show (evalExpr [] st (addE (v "sigBase") (v "countOff"))).bind
+        (fun ro => some
+          (Compiler.Proofs.YulGeneration.calldataloadWord st.selector st.world.calldata ro)) =
+        some raw
+    rw [hoff]
+    simp [hread]
+  exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shr_bounded
+    st (u 224) (cdload (addE (v "sigBase") (v "countOff"))) 224 raw
+    rfl hcd (by decide) hrawLt
+
 /-- The state after the straight-line prefix that sets up `"d"` and initializes
 `"digitSum"`, just before the 43-step checksum loop. -/
 def beforeDigitSum (ls : RuntimeState) : RuntimeState :=
@@ -1369,6 +1410,7 @@ theorem execLayerLoop (state : RuntimeState)
 #print axioms beforeWotsDigest_currentNode_slot_eq_of_lookup
 #print axioms beforeWotsDigest_count_slot_eq
 #print axioms beforeWotsDigest_count_slot_eq_of_lookup
+#print axioms countExpr_eval_eq_shifted_calldata
 #print axioms beforeDigitSum_eq
 #print axioms beforeDigitSum_digitSum_eq_zero
 #print axioms beforeDigitSum_d_eq_keccakWords_of_beforeWotsDigest_memory
