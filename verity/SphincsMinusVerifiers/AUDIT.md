@@ -62,6 +62,7 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   `parseSignatureC13_fors_authPath_getD_getElem?`,
   `publicKeyOk_c13`, `parsePublicKey_c13`,
   `parsePublicKey_c13_does_not_imply_pkRoot_size`,
+  `parsePublicKey_c13_does_not_imply_pkSeed_size`,
   `forcedZeroOk_c13_forsIndex_six`, `hMsgC13_forsIndex_six`,
   `hMsgC13_forsIndex_getD_eq`, `hMsgC13_forsIndex_getD_lt`,
   `adrsForsLeaf_lt_of_normal_idx_lt`, and `adrsForsLeaf_hMsgC13_normal_lt`;
@@ -479,11 +480,12 @@ The current narrow C13 accept handoff still has real residual obligations:
   existing Merkle frame/data obligations;
 - per-layer guarded WOTS/XMSS correspondence;
 - remaining concrete data-cell proof for the new C13 hypertree layer step;
-- public-key root byte size `pkRoot.size = 16`, as an ABI boundary premise
-  rather than a Lean byte-spec consequence.  `C13Concrete.parsePublicKey_c13`
-  accepts arbitrary `ByteArray` roots, and
-  `C13Concrete.parsePublicKey_c13_does_not_imply_pkRoot_size` gives a formal
-  empty-root counterexample.
+- public-key byte sizes such as `pkRoot.size = 16`, as ABI boundary premises
+  rather than Lean byte-spec consequences.  `C13Concrete.parsePublicKey_c13`
+  accepts arbitrary `ByteArray` public-key parts, and
+  `C13Concrete.parsePublicKey_c13_does_not_imply_pkRoot_size` /
+  `parsePublicKey_c13_does_not_imply_pkSeed_size` give formal empty-part
+  counterexamples.
 
 The successful C13 FORS/WOTS/XMSS/hypertree outputs now have standalone 16-byte
 shape lemmas and `CanonicalHash16` propagation lemmas.  The base-256 arithmetic

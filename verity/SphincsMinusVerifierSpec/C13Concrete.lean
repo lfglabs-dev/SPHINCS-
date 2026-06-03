@@ -222,6 +222,17 @@ theorem parsePublicKey_c13_does_not_imply_pkRoot_size :
   · rw [parsePublicKey_c13]
   · simp [ByteArray.size]
 
+/-- C13 byte-level public-key parsing likewise does not enforce a 16-byte
+`pkSeed`; that shape is supplied by the Solidity ABI boundary, not by this byte
+spec parser. -/
+theorem parsePublicKey_c13_does_not_imply_pkSeed_size :
+    ∃ pkSeed pkRoot pk,
+      SphincsMinusVerifierSpec.ByteLevel.parsePublicKey c13 pkSeed pkRoot = some pk ∧
+      pk.pkSeed.size ≠ 16 := by
+  refine ⟨⟨#[]⟩, ⟨#[]⟩, { pkSeed := ⟨#[]⟩, pkRoot := ⟨#[]⟩ }, ?_, ?_⟩
+  · rw [parsePublicKey_c13]
+  · simp [ByteArray.size]
+
 /-- **XMSS `hauth`.**  The `h`-th auth-path sibling of climb layer `layer`
 (`layer < 2`, `h < 11`) is the 16-byte hash at sig byte-offset
 `1952 + 868*layer + 692 + 16*h`. -/
@@ -976,6 +987,7 @@ theorem foldHypertree_c13_ok_root_canonical_of_fors
 #print axioms publicKeyOk_c13
 #print axioms parsePublicKey_c13
 #print axioms parsePublicKey_c13_does_not_imply_pkRoot_size
+#print axioms parsePublicKey_c13_does_not_imply_pkSeed_size
 #print axioms parseSignatureC13_fors_sk_getElem?
 #print axioms parseSignatureC13_fors_authPath_getD_getElem?
 #print axioms forcedZeroOk_c13_forsIndex_six

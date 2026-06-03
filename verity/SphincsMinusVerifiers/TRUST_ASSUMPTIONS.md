@@ -31,7 +31,9 @@ close, and what remains outside its scope.
   explicit input-shape obligations until they are connected to a parser, ABI, or
   caller-side assumption.  For C13 this is necessary in the current Lean byte
   spec: `C13Concrete.parsePublicKey_c13_does_not_imply_pkRoot_size` gives a
-  formal empty-root counterexample to deriving the size from public-key parsing.
+  formal empty-root counterexample to deriving the root size from public-key
+  parsing, and `C13Concrete.parsePublicKey_c13_does_not_imply_pkSeed_size` gives
+  the matching seed-size counterexample.
 
 - Local frame obligations, such as the range-gated FORS leaf-step
   seed-preservation fact, may remain explicit until their statement-level memory
