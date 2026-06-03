@@ -702,6 +702,54 @@ theorem beforeWotsDigest_currentNode_slot_eq_of_lookup
   rw [beforeWotsDigest_currentNode_slot_eq, hcur, wordNormalize_eq_mod]
   exact Nat.mod_eq_of_lt hcurLt
 
+/-- The WOTS-digest setup writes the computed `"count"` binding to the `0x60`
+scratch slot. -/
+theorem beforeWotsDigest_count_slot_eq (ls : RuntimeState) :
+    ((beforeWotsDigest ls).world.memory 0x60).val =
+      wordNormalize (lookupValue (beforeWotsDigestCurrentNodeSlot ls).bindings "count") := by
+  unfold beforeWotsDigest
+  rw [prefixBeforeWotsDigest_eq_currentNodeSlot_append]
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeWotsDigestCurrentNodeSlot_eq ls)]
+  unfold mstore u
+  let mid := beforeWotsDigestCurrentNodeSlot ls
+  let st40 : RuntimeState :=
+    { mid with world := { mid.world with
+        memory := SphincsMinusVerifiers.MemoryKit.memUpdate mid.world.memory 0x40
+          (lookupValue mid.bindings "currentNode") } }
+  let st60 : RuntimeState :=
+    { st40 with world := { st40.world with
+        memory := SphincsMinusVerifiers.MemoryKit.memUpdate st40.world.memory 0x60
+          (lookupValue mid.bindings "count") } }
+  have htail :
+      execStmtList [] mid
+        [ Stmt.mstore (Expr.literal 0x40) (v "currentNode"),
+          Stmt.mstore (Expr.literal 0x60) (v "count") ] = .continue st60 := by
+    rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_mstore_continue mid (Expr.literal 0x40) (v "currentNode") 0x40
+        (lookupValue mid.bindings "currentNode") rfl rfl)]
+    rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_mstore_continue st40 (Expr.literal 0x60) (v "count") 0x60
+        (lookupValue mid.bindings "count") rfl rfl)]
+    rfl
+  rw [htail]
+  show (SphincsMinusVerifiers.MemoryKit.memUpdate
+      (SphincsMinusVerifiers.MemoryKit.memUpdate mid.world.memory 0x40
+        (lookupValue mid.bindings "currentNode"))
+      0x60 (lookupValue mid.bindings "count") 0x60).val =
+        wordNormalize (lookupValue mid.bindings "count")
+  rw [SphincsMinusVerifiers.MemoryKit.memUpdate_val_same]
+
+/-- Spec-facing count scratch fact: once the computed `"count"` binding is
+identified with a bounded word, the `0x60` scratch slot contains that exact word. -/
+theorem beforeWotsDigest_count_slot_eq_of_lookup
+    (ls : RuntimeState) (count : Nat)
+    (hcount :
+      lookupValue (beforeWotsDigestCurrentNodeSlot ls).bindings "count" = count)
+    (hcountLt : count < 2 ^ 256) :
+    ((beforeWotsDigest ls).world.memory 0x60).val = count := by
+  rw [beforeWotsDigest_count_slot_eq, hcount, wordNormalize_eq_mod]
+  exact Nat.mod_eq_of_lt hcountLt
+
 /-- The state after the straight-line prefix that sets up `"d"` and initializes
 `"digitSum"`, just before the 43-step checksum loop. -/
 def beforeDigitSum (ls : RuntimeState) : RuntimeState :=
@@ -1142,6 +1190,8 @@ theorem execLayerLoop (state : RuntimeState)
 #print axioms beforeWotsDigest_wotsAdrs_slot_eq_of_lookup
 #print axioms beforeWotsDigest_currentNode_slot_eq
 #print axioms beforeWotsDigest_currentNode_slot_eq_of_lookup
+#print axioms beforeWotsDigest_count_slot_eq
+#print axioms beforeWotsDigest_count_slot_eq_of_lookup
 #print axioms beforeDigitSum_eq
 #print axioms beforeDigitSum_digitSum_eq_zero
 #print axioms beforeDigitSum_d_eq_keccakWords_of_beforeWotsDigest_memory
