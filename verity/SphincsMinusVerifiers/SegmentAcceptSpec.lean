@@ -2397,6 +2397,65 @@ theorem layerGuardsPass_of_c13HypertreeSpecStep_success
     (layerGuardedStep_c13HypertreeSpecStep_of_success
       pk digest layers hGuard hSuccess)
 
+/-- Range-gated variant of `layerGuardsPass_of_c13HypertreeSpecStep_success` for
+the actual C13 hypertree loop.  The concrete WOTS/XMSS obligations only need to
+hold for the two visited layer indices. -/
+theorem layerGuardsPass_of_c13HypertreeSpecStep_success_range
+    (pkSeed pkRoot message sig : ByteArray)
+    (pk : PublicKey) (digest : HMsg) (layers : List XmssLayerSig)
+    (forsPk : ByteArray)
+    (hStart : CurrentNodeRel wordOfHash16
+      { (afterSeed (mkC13State pkSeed pkRoot message sig)) with
+          bindings := bindValue
+            (afterSeed (mkC13State pkSeed pkRoot message sig)).bindings
+            "layer" (wordNormalize 0) }
+      forsPk)
+    (hGuard : ∀ (s : RuntimeState) (node : ByteArray) (idx : Nat), idx < 2 →
+      CurrentNodeRel wordOfHash16 s node →
+        SegmentLayer3.layerGuard
+          { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) } = true)
+    (hSuccess : ∀ (s : RuntimeState) (node : ByteArray) (idx : Nat), idx < 2 →
+      CurrentNodeRel wordOfHash16 s node →
+        ∃ (lsig : XmssLayerSig) (wotsPk root : ByteArray),
+          layers[idx]? = some lsig ∧
+          wotsGrindingFails C13Concrete.c13PrimitivesConcrete c13 pk
+            (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx)
+            node lsig.wots = false ∧
+          C13Concrete.c13PrimitivesConcrete.wotsPkFromSig c13 pk
+            (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx)
+            node lsig.wots = some wotsPk ∧
+          C13Concrete.c13PrimitivesConcrete.xmssRootFromSig c13 pk
+            (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx)
+            wotsPk lsig.authPath = some root ∧
+          lookupValue
+              (SegmentLayer3.stepLayer
+                { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) }).bindings
+              "merkleNode"
+            = wordOfHash16 root) :
+    ClimbLoopGuarded.allGuardsPass "layer" SegmentLayer3.stepLayer
+      SegmentLayer3.layerGuard
+      { (afterSeed (mkC13State pkSeed pkRoot message sig)) with
+          bindings := bindValue
+            (afterSeed (mkC13State pkSeed pkRoot message sig)).bindings
+            "layer" (wordNormalize 0) }
+      0 (wordNormalize 2) := by
+  have hTwo : wordNormalize 2 = 2 :=
+    SegmentS2.wordNormalize_of_lt (by decide : 2 < 2 ^ 256)
+  refine ClimbLoopGuarded.allGuardsPass_of_rel_range "layer" SegmentLayer3.stepLayer
+    SegmentLayer3.layerGuard (c13HypertreeSpecStep pk digest layers)
+    (CurrentNodeRel wordOfHash16) (fun idx => idx < 2) ?_
+    _ forsPk 0 (wordNormalize 2) ?_ hStart
+  · intro s node idx hidx hRel
+    refine ⟨hGuard s node idx hidx hRel, ?_⟩
+    rcases hSuccess s node idx hidx hRel with
+      ⟨lsig, wotsPk, root, hLayer, hGrinding, hWots, hXmss, hMerkleNode⟩
+    exact stepLayer_currentNodeRel_c13HypertreeSpecStep_of_success
+      pk digest layers s idx node wotsPk root lsig hLayer hGrinding hWots hXmss
+      hMerkleNode
+  · intro i _ hi
+    rw [hTwo] at hi
+    omega
+
 /-- Concrete C13 layer success facts package directly into the per-step
 `currentNode` relation used by the accept-path layer fold.  This is the data
 projection paired with `layerGuardsPass_of_c13HypertreeSpecStep_success`. -/
@@ -2433,6 +2492,40 @@ theorem layerStep_of_c13HypertreeSpecStep_success
   layerStep_of_guarded_step (c13HypertreeSpecStep pk digest layers)
     (layerGuardedStep_c13HypertreeSpecStep_of_success
       pk digest layers hGuard hSuccess)
+
+/-- Range-gated one-step data projection for the concrete C13 hypertree step. -/
+theorem layerStep_of_c13HypertreeSpecStep_success_range
+    (pk : PublicKey) (digest : HMsg) (layers : List XmssLayerSig)
+    (hSuccess : ∀ (s : RuntimeState) (node : ByteArray) (idx : Nat), idx < 2 →
+      CurrentNodeRel wordOfHash16 s node →
+        ∃ (lsig : XmssLayerSig) (wotsPk root : ByteArray),
+          layers[idx]? = some lsig ∧
+          wotsGrindingFails C13Concrete.c13PrimitivesConcrete c13 pk
+            (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx)
+            node lsig.wots = false ∧
+          C13Concrete.c13PrimitivesConcrete.wotsPkFromSig c13 pk
+            (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx)
+            node lsig.wots = some wotsPk ∧
+          C13Concrete.c13PrimitivesConcrete.xmssRootFromSig c13 pk
+            (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx)
+            wotsPk lsig.authPath = some root ∧
+          lookupValue
+              (SegmentLayer3.stepLayer
+                { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) }).bindings
+              "merkleNode"
+            = wordOfHash16 root) :
+    ∀ (s : RuntimeState) (node : ByteArray) (idx : Nat), idx < 2 →
+      CurrentNodeRel wordOfHash16 s node →
+      CurrentNodeRel wordOfHash16
+        (SegmentLayer3.stepLayer
+          { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) })
+        (c13HypertreeSpecStep pk digest layers idx node) := by
+  intro s node idx hidx hRel
+  rcases hSuccess s node idx hidx hRel with
+    ⟨lsig, wotsPk, root, hLayer, hGrinding, hWots, hXmss, hMerkleNode⟩
+  exact stepLayer_currentNodeRel_c13HypertreeSpecStep_of_success
+    pk digest layers s idx node wotsPk root lsig hLayer hGrinding hWots hXmss
+    hMerkleNode
 
 /-- The initial C13 layer-loop relation follows from the named S4/FORS frame.
 
@@ -4028,6 +4121,8 @@ theorem accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of
 #print axioms layerStep_of_guarded_step
 #print axioms layerGuardsPass_of_c13HypertreeSpecStep_success
 #print axioms layerStep_of_c13HypertreeSpecStep_success
+#print axioms layerGuardsPass_of_c13HypertreeSpecStep_success_range
+#print axioms layerStep_of_c13HypertreeSpecStep_success_range
 #print axioms layerStart_of_seed_named_fors_roots_roundtrip
 #print axioms C13SeedNamedAcceptDataObligations
 #print axioms accept_path_returns_verifyParsed_bool_from_seed_named_data_obligations_of_parse

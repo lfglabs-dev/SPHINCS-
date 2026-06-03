@@ -71,6 +71,32 @@ theorem allGuardsPass_of_rel
         ih (step { state with bindings := bindValue state.bindings varName (wordNormalize index) })
           (specStep index a) (index + 1) (hstep state a index hR).2⟩
 
+/-- Range-conditioned variant of `allGuardsPass_of_rel`.  The per-step guard and
+relation advance may depend on an index-indexed data predicate `D`, and callers
+only need to supply `D` over the actual loop range. -/
+theorem allGuardsPass_of_rel_range
+    {α : Type} (varName : String) (step : RuntimeState → RuntimeState)
+    (guard : RuntimeState → Bool) (specStep : Nat → α → α)
+    (R : RuntimeState → α → Prop) (D : Nat → Prop)
+    (hstep : ∀ (s : RuntimeState) (a : α) (idx : Nat), D idx →
+      R s a →
+        guard { s with bindings := bindValue s.bindings varName (wordNormalize idx) } = true ∧
+        R (step { s with bindings := bindValue s.bindings varName (wordNormalize idx) })
+          (specStep idx a)) :
+    ∀ (state : RuntimeState) (a : α) (index remaining : Nat),
+      (∀ i, index ≤ i → i < index + remaining → D i) →
+      R state a →
+      allGuardsPass varName step guard state index remaining := by
+  intro state a index remaining hD hR
+  induction remaining generalizing state a index with
+  | zero => exact True.intro
+  | succ remaining ih =>
+      exact ⟨(hstep state a index (hD index (by omega) (by omega)) hR).1,
+        ih (step { state with bindings := bindValue state.bindings varName (wordNormalize index) })
+          (specStep index a) (index + 1)
+          (fun i hi1 hi2 => hD i (by omega) (by omega))
+          (hstep state a index (hD index (by omega) (by omega)) hR).2⟩
+
 /-! ## 2. The headline guarded loop-threading lemma. -/
 
 /-- **`execForEachLoop_of_guarded_step`** — if the loop body either continues to
@@ -135,5 +161,6 @@ theorem execStmt_forEach_of_guarded_step
 #print axioms execForEachLoop_of_guarded_step
 #print axioms execStmt_forEach_of_guarded_step
 #print axioms allGuardsPass_of_rel
+#print axioms allGuardsPass_of_rel_range
 
 end SphincsMinusVerifiers.ClimbLoopGuarded

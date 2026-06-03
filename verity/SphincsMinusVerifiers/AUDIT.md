@@ -234,7 +234,10 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   `layerGuardsPass_of_c13HypertreeSpecStep_success`
   and `layerStep_of_c13HypertreeSpecStep_success` project those same concrete
   success facts into the guard trace and per-step relation consumed by the
-  accept-path layer loop;
+  accept-path layer loop; their `_range` variants replace the impossible
+  all-`Nat` layer surface with the actual `idx < 2` loop range, backed by
+  `ClimbLoopGuarded.allGuardsPass_of_rel_range` and
+  `CurrentNodeFrame.afterLayer_currentNode_wordOfHash16_of_forsPk_step_range`;
 - pure C13 hypertree spec-fold closure in
   `SphincsMinusVerifiers/SegmentAcceptSpec.lean`:
   `specFold_c13HypertreeSpecStep_eq_of_foldHypertree_ok`, which derives the
@@ -416,9 +419,9 @@ The current narrow C13 accept handoff still has real residual obligations:
 	  FORS site facts or post-inner normal-root node correspondences.  The current
 	  concrete-layer obligation records quantify layer success over every natural
 	  index, while `parseSignatureC13` produces exactly two layers; the
-	  `no_concrete_layer_*_of_parse` counterexamples show this boundary must be
-	  replaced by a loop-bound/range-gated contract before the layer data-cell
-	  handoff can be completed;
+	  `no_concrete_layer_*_of_parse` counterexamples show why callers must now use
+	  the range-gated guard/step/afterLayer adapters and provide concrete layer
+	  data-cell facts only for `idx < 2`;
 - concrete C13 FORS outer-loop prefix setup facts in
   `CurrentNodeFrame.forsOuterPrefixState`,
   `CurrentNodeFrame.forsOuterLeafState`,
@@ -490,14 +493,16 @@ The current narrow C13 accept handoff still has real residual obligations:
   specializes the outer-leaf adapter to the actual `mkC13State` calldata image
   and removes the remaining per-height relation-step callback.
   existing Merkle frame/data obligations;
-- per-layer guarded WOTS/XMSS correspondence through a range-gated layer
-  boundary.  The current concrete-layer packages quantify success over every
-  `idx : Nat`; `no_concrete_layer_site_root_obligations_of_parse` and
+- per-layer guarded WOTS/XMSS correspondence through the new range-gated layer
+  boundary.  The guard/step/final-`currentNode` plumbing now indexes only the
+  actual C13 hypertree loop range `idx < 2`; the remaining work is to supply
+  concrete WOTS/XMSS and model-cell facts through that boundary.  The older
+  concrete-layer packages still quantify success over every `idx : Nat`;
+  `no_concrete_layer_site_root_obligations_of_parse` and
   `no_concrete_layer_obligations_of_parse` prove those packages are
-  uninhabited for successfully parsed C13 signatures at `idx = 2`, so the
-  next proof boundary should index only the actual hypertree loop range;
+  uninhabited for successfully parsed C13 signatures at `idx = 2`;
 - remaining concrete data-cell proof for the new C13 hypertree layer step,
-  after that layer-success boundary is refactored to the loop/range index;
+  now that the layer-success boundary has a loop/range-indexed shape;
 - public-key byte sizes such as `pkRoot.size = 16`, as ABI boundary premises
   rather than Lean byte-spec consequences.  `C13Concrete.publicKeyOk_c13` and
   `C13Concrete.parsePublicKey_c13` accept arbitrary `ByteArray` public-key

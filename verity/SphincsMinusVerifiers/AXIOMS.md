@@ -202,7 +202,13 @@ are:
 	  `rootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes_and_parse`,
 	  `rootCells_eq_forsAllRootsC13_of_mkC13State_iteration_nodes_and_parse`,
 	  `rootCells_eq_forsAllRootsC13_of_hMsg_parse_concrete`,
-	  `forsPkCompressWord_eq_of_afterFors_concrete_mkC13State_six_plus_last`:
+	  `forsPkCompressWord_eq_of_afterFors_concrete_mkC13State_six_plus_last`,
+	  `stepLayer_currentNodeRel_of_merkleNode`,
+	  `afterLayer_currentNode_of_step`,
+	  `afterLayer_currentNode_of_step_range`,
+	  `afterLayer_currentNode_of_forsPk_step`,
+	  `afterLayer_currentNode_wordOfHash16_of_forsPk_step`, and
+	  `afterLayer_currentNode_wordOfHash16_of_forsPk_step_range`:
 	  `[propext, Classical.choice, Quot.sound]`.
 
 - `SegmentAcceptSpec` final accept adapters and
@@ -269,6 +275,9 @@ are:
 
 - `ClimbLoopGuarded.allGuardsPass_of_rel`:
   `[propext]`.
+
+- `ClimbLoopGuarded.allGuardsPass_of_rel_range`:
+  `[propext, Quot.sound]`.
 
 - `ClimbMemFrameMerkle.address_assembly_eq`:
   `[propext, Classical.choice, Quot.sound]`.
@@ -422,7 +431,9 @@ are:
   `SegmentAcceptSpec.layerGuardsPass_of_guarded_step`, and
   `SegmentAcceptSpec.layerStep_of_guarded_step`,
   `SegmentAcceptSpec.layerGuardsPass_of_c13HypertreeSpecStep_success`, and
-  `SegmentAcceptSpec.layerStep_of_c13HypertreeSpecStep_success`:
+  `SegmentAcceptSpec.layerStep_of_c13HypertreeSpecStep_success`,
+  `SegmentAcceptSpec.layerGuardsPass_of_c13HypertreeSpecStep_success_range`, and
+  `SegmentAcceptSpec.layerStep_of_c13HypertreeSpecStep_success_range`:
   `[propext, Classical.choice, Quot.sound]`.
 
 - `SegmentAcceptSpec.layerStart_of_seed_named_fors_roots_roundtrip` and

@@ -2346,6 +2346,45 @@ theorem afterLayer_currentNode_of_step
   rw [← hFinal]
   exact hFold
 
+/-- Range-gated variant of `afterLayer_currentNode_of_step` for the C13 layer
+loop.  The one-step correspondence only has to hold for the two concrete
+hypertree iterations that the executable loop actually visits. -/
+theorem afterLayer_currentNode_of_step_range
+    {α : Type} (st : RuntimeState)
+    (specStep : Nat → α → α) (toWord : α → Nat) (a0 afinal : α)
+    (hStart : lookupValue (afterSeed st).bindings "currentNode" = toWord a0)
+    (hStep : ∀ (s : RuntimeState) (a : α) (idx : Nat), idx < 2 →
+        CurrentNodeRel toWord s a →
+        CurrentNodeRel toWord
+          (SegmentLayer3.stepLayer
+            { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) })
+          (specStep idx a))
+    (hFinal : ClimbLoop.specFold specStep a0 0 (wordNormalize 2) = afinal) :
+    lookupValue (afterLayer st).bindings "currentNode" = toWord afinal := by
+  let init : RuntimeState :=
+    { (afterSeed st) with
+      bindings := bindValue (afterSeed st).bindings "layer" (wordNormalize 0) }
+  have hStartInit : CurrentNodeRel toWord init a0 := by
+    unfold CurrentNodeRel init
+    rw [MemoryKit.lookupValue_bindValue_ne
+      (afterSeed st).bindings "layer" "currentNode" (wordNormalize 0) (by decide)]
+    exact hStart
+  have hTwo : wordNormalize 2 = 2 :=
+    SegmentS2.wordNormalize_of_lt (by decide : 2 < 2 ^ 256)
+  have hFold := ClimbLoop.foldLoop_invariant_cond "layer" SegmentLayer3.stepLayer
+    specStep (CurrentNodeRel toWord) (fun idx => idx < 2)
+    (fun s a idx hidx hRel => hStep s a idx hidx hRel)
+    init a0 0 (wordNormalize 2)
+    (fun i _ hi => by
+      rw [hTwo] at hi
+      omega)
+    hStartInit
+  unfold afterLayer
+  change CurrentNodeRel toWord
+      (ClimbLoop.foldLoop "layer" SegmentLayer3.stepLayer init 0 (wordNormalize 2)) afinal
+  rw [← hFinal]
+  exact hFold
+
 /-- Same loop adapter, with the start fact supplied at the FORS-finalize boundary:
 if `afterFinalize.forsPk` is the word image of the initial spec accumulator, and
 each layer step preserves the relation, then the final compare's left operand is
@@ -2381,6 +2420,22 @@ theorem afterLayer_currentNode_wordOfHash16_of_forsPk_step
     lookupValue (afterLayer st).bindings "currentNode" = wordOfHash16 finalNode :=
   afterLayer_currentNode_of_forsPk_step st specStep wordOfHash16 startNode finalNode
     hForsPk hStep hFinal
+
+/-- Byte-node specialization of the range-gated layer-loop adapter. -/
+theorem afterLayer_currentNode_wordOfHash16_of_forsPk_step_range
+    (st : RuntimeState)
+    (specStep : Nat → Bytes → Bytes) (startNode finalNode : Bytes)
+    (hForsPk : lookupValue (afterFinalize st).bindings "forsPk" = wordOfHash16 startNode)
+    (hStep : ∀ (s : RuntimeState) (node : Bytes) (idx : Nat), idx < 2 →
+        CurrentNodeRel wordOfHash16 s node →
+        CurrentNodeRel wordOfHash16
+          (SegmentLayer3.stepLayer
+            { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) })
+          (specStep idx node))
+    (hFinal : ClimbLoop.specFold specStep startNode 0 (wordNormalize 2) = finalNode) :
+    lookupValue (afterLayer st).bindings "currentNode" = wordOfHash16 finalNode :=
+  afterLayer_currentNode_of_step_range st specStep wordOfHash16 startNode finalNode
+    (by rw [afterSeed_currentNode, hForsPk]) hStep hFinal
 
 /-! ## Axiom audit. -/
 
@@ -2459,7 +2514,9 @@ theorem afterLayer_currentNode_wordOfHash16_of_forsPk_step
 #print axioms rootCells_eq_forsAllRootsC13_of_hMsg_parse_concrete
 #print axioms stepLayer_currentNodeRel_of_merkleNode
 #print axioms afterLayer_currentNode_of_step
+#print axioms afterLayer_currentNode_of_step_range
 #print axioms afterLayer_currentNode_of_forsPk_step
 #print axioms afterLayer_currentNode_wordOfHash16_of_forsPk_step
+#print axioms afterLayer_currentNode_wordOfHash16_of_forsPk_step_range
 
 end SphincsMinusVerifiers.CurrentNodeFrame

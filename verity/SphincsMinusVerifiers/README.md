@@ -493,7 +493,13 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `layerGuardsPass_of_c13HypertreeSpecStep_success` and
     `layerStep_of_c13HypertreeSpecStep_success` project those same concrete
     success facts into the guard trace and per-step relation used by the
-    accept-path layer fold.
+    accept-path layer fold.  Their `_range` variants,
+    `layerGuardsPass_of_c13HypertreeSpecStep_success_range` and
+    `layerStep_of_c13HypertreeSpecStep_success_range`, replace the impossible
+    all-`Nat` layer surface with the actual C13 loop range `idx < 2`; the
+    generic `ClimbLoopGuarded.allGuardsPass_of_rel_range` and
+    `CurrentNodeFrame.afterLayer_currentNode_wordOfHash16_of_forsPk_step_range`
+    provide the matching guarded-loop and final-`currentNode` range adapters.
     `specFold_c13HypertreeSpecStep_eq_of_foldHypertree_ok` closes the pure
     two-layer spec-fold side for that concrete step from a successful
     `foldHypertree` result, so the remaining layer work is model data-cell
@@ -583,8 +589,10 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `no_concrete_layer_obligations_of_parse` prove that their all-`idx : Nat`
     success field is impossible for a successfully parsed C13 signature,
     because C13 parsing yields exactly two XMSS layers and the records still
-    ask for a layer witness at `idx = 2`.  Future concrete layer handoffs
-    should replace this with a loop-bound/range-gated index.
+    ask for a layer witness at `idx = 2`.  The range-gated guard/step and
+    `afterLayer` adapters above are the replacement shape for future concrete
+    layer handoffs; callers should state WOTS/XMSS and model-cell facts only
+    for `idx < 2`.
     `SegmentS4Fors` now proves the straight-line setup and final-store frame
     pieces needed by that premise, including the in-range final-store offset
     non-aliasing arithmetic, and a statement-level outer-loop seed-cell handoff
