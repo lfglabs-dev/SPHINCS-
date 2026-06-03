@@ -42,16 +42,29 @@ contract SphincsFrameAccountC13Test is Test {
     }
 
     function testFrameVerifyAndApproveRevertsOnBadSignature() public {
-        bytes32 pkSeed = bytes32(uint256(1));
-        bytes32 pkRoot = bytes32(uint256(2));
+        // Canonical (top-128-aligned) keys so we exercise the actual bad-SIGNATURE
+        // path, not the non-canonical-key input guard.
+        bytes32 pkSeed = bytes32(uint256(1) << 128);
+        bytes32 pkRoot = bytes32(uint256(2) << 128);
         SphincsFrameAccount frame = new SphincsFrameAccount(pkSeed, pkRoot, address(verifier), frameOwner);
 
-        // 3688 zero bytes — wrong length should already trip the verifier's
-        // "Invalid sig length" guard. Try the exact length filled with zeros
-        // (will fail the sum check before any merkle work).
+        // 3688 zero bytes: correct length, but the FORS+C forced-zero / WOTS+C
+        // target-sum / root checks all fail. The verifier now RETURNS false for
+        // these (audit C13-evm-f2), so the frame's descriptive require fires.
         bytes memory zeroSig = new bytes(3688);
         bytes32 message = bytes32(uint256(0xdead));
-        vm.expectRevert(); // verifier reverts on bad sig → outer require fires
+        vm.expectRevert(bytes("invalid SPHINCS+ signature"));
         frame.verifyAndApprove(message, zeroSig, 1);
+    }
+
+    function testFrameRevertsOnNonCanonicalKey() public {
+        // Non-canonical pkSeed (low 128 bits set) now trips the verifier's
+        // "Invalid public key" guard, surfaced by the frame as "verify call failed".
+        bytes32 pkSeed = bytes32(uint256(1));
+        bytes32 pkRoot = bytes32(uint256(2) << 128);
+        SphincsFrameAccount frame = new SphincsFrameAccount(pkSeed, pkRoot, address(verifier), frameOwner);
+        bytes memory zeroSig = new bytes(3688);
+        vm.expectRevert(bytes("verify call failed"));
+        frame.verifyAndApprove(bytes32(uint256(0xdead)), zeroSig, 1);
     }
 }

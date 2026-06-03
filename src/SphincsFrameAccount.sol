@@ -39,6 +39,12 @@ contract SphincsFrameAccount {
                 sig
             )
         );
+        // Error-surface contract (audit C13-evm-f2): the C13 verifier RETURNS
+        // `false` for every soundness rejection — invalid Merkle root, FORS+C
+        // forced-zero violation, and WOTS+C target-sum violation — so those all
+        // land on the descriptive "invalid SPHINCS+ signature" path below. The
+        // verifier only REVERTS on malformed *inputs* (wrong sig length /
+        // non-canonical public key), for which "verify call failed" is correct.
         require(success && result.length >= 32, "verify call failed");
         bool valid = abi.decode(result, (bool));
         require(valid, "invalid SPHINCS+ signature");
