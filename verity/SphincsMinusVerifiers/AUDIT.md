@@ -243,7 +243,11 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   `SegmentLayer3.suffixBeforeMerkle`, `beforeMerkle`, `afterMerkle`, and
   `beforeMerkle_eq` split the layer suffix around the XMSS Merkle climb so the
   remaining `"merkleNode"` proof can target the existing Merkle frame fold state;
-  `SegmentLayer3.finalLayerTail_preserves_merkleNode` isolates the final
+  `SegmentLayer3.stepMerkle_preserves_authOff`,
+  `SegmentLayer3.afterMerkle_authOff_lookup_eq`, and
+  `SegmentLayer3.finalLayerTail_sigOff_lookup_eq` isolate the post-climb
+  `authOff` carry and the final `sigOff := authOff + 176` tail update, while
+  `SegmentLayer3.finalLayerTail_preserves_merkleNode` isolates the same final
   `currentNode`/`sigOff` assignment tail as preserving the post-climb
   `"merkleNode"` binding;
   `afterMerkle_model_node_of_xmss_frame` applies the frame-threaded XMSS theorem
@@ -566,8 +570,9 @@ The current narrow C13 accept handoff still has real residual obligations:
   `beforeWotsDigest_count_slot_eq_of_lookup` once the corresponding bindings and
   bounds are available.  The remaining digit-cell gap is therefore proving the
   layer-start facts that supply the WOTS_HASH ADRS split/bounds and the
-  per-layer `sigOff = 1952 + 868 * idx` fact needed to apply the parsed-count
-  calldata bridge, followed by concrete
+  local `authOff = sigOff + 692` suffix binding plus per-layer
+  `sigOff = 1952 + 868 * idx` fact needed to apply the parsed-count calldata
+  bridge, followed by concrete
   WOTS/XMSS success and exact `"merkleNode"` model-cell facts through the
   bounded boundary.  The older
   concrete-layer packages still quantify

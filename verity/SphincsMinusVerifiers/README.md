@@ -461,9 +461,12 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     exposing the exact pre-climb state and folded `"h"` climb state consumed by
     the generic Merkle frame lemmas; this is structural plumbing for the
     remaining post-step `"merkleNode"` correspondence, not the correspondence
-    proof itself.  `finalLayerTail_preserves_merkleNode` records the cheap tail
-    fact that `currentNode := merkleNode` and `sigOff := authOff + 176` do not
-    rebind the post-climb `"merkleNode"` cell.
+    proof itself.  `stepMerkle_preserves_authOff` and
+    `afterMerkle_authOff_lookup_eq` carry `authOff` through the folded XMSS
+    climb, `finalLayerTail_sigOff_lookup_eq` records the cheap final
+    `sigOff := authOff + 176` update, and `finalLayerTail_preserves_merkleNode`
+    records that the same tail does not rebind the post-climb `"merkleNode"`
+    cell.
     `afterMerkle_model_node_of_xmss_frame` applies the existing frame-threaded
     XMSS theorem to that split, deriving the normalized model `"merkleNode"` as
     the C13 `xmssClimb` word once callers materialize the frame at the

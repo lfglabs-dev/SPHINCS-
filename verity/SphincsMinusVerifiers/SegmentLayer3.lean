@@ -1398,6 +1398,63 @@ def afterMerkle (ls : RuntimeState) : RuntimeState :=
       bindings := bindValue (beforeMerkle ls).bindings "h" (wordNormalize 0) }
     0 (wordNormalize 11)
 
+/-- One XMSS Merkle-climb step leaves the layer-suffix `"authOff"` binding
+untouched.  This is a pure key-frame fact; it does not inspect the climbed node
+or any keccak output. -/
+theorem stepMerkle_preserves_authOff (st : RuntimeState) :
+    lookupValue
+        (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr" st).bindings
+        "authOff"
+      = lookupValue st.bindings "authOff" := by
+  exact SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    "authOff" (merkleClimbBody "merkleNode" "mIdx" "treeAdrs" "merklePtr")
+    st (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr" st)
+    (by
+      intro s s'' stmt hmem hexec
+      simp [merkleClimbBody] at hmem
+      rcases hmem with hmem | hmem | hmem | hmem | hmem | hmem | hmem | hmem
+      · subst hmem
+        exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          s s'' "sibling" "authOff" _ (by decide) hexec
+      · subst hmem
+        exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          s s'' "parentIdx" "authOff" _ (by decide) hexec
+      · subst hmem
+        exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+          s s'' "authOff" _ _ hexec
+      · subst hmem
+        exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          s s'' "s" "authOff" _ (by decide) hexec
+      · subst hmem
+        exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+          s s'' "authOff" _ _ hexec
+      · subst hmem
+        exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+          s s'' "authOff" _ _ hexec
+      · subst hmem
+        exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+          s s'' "merkleNode" "authOff" _ (by decide) hexec
+      · subst hmem
+        exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+          s s'' "mIdx" "authOff" _ (by decide) hexec)
+    (ClimbKit.merkleClimbStep "merkleNode" "mIdx" "treeAdrs" "merklePtr" st)
+
+/-- The folded XMSS Merkle-climb preserves the layer-suffix `"authOff"` binding.
+The only loop write outside the generic climb body is the loop index `"h"`,
+which is disjoint from `"authOff"`. -/
+theorem afterMerkle_authOff_lookup_eq (ls : RuntimeState) :
+    lookupValue (afterMerkle ls).bindings "authOff" =
+      lookupValue (beforeMerkle ls).bindings "authOff" := by
+  unfold afterMerkle
+  rw [ClimbLoop.foldLoop_preserves_lookup "h" "authOff"
+    (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr")
+    (by decide) stepMerkle_preserves_authOff
+    { beforeMerkle ls with
+      bindings := bindValue (beforeMerkle ls).bindings "h" (wordNormalize 0) }
+    0 (wordNormalize 11)]
+  exact MemoryKit.lookupValue_bindValue_ne
+    (beforeMerkle ls).bindings "h" "authOff" (wordNormalize 0) (by decide)
+
 set_option maxHeartbeats 4000000 in
 theorem suffix14_continues (ls : RuntimeState) :
     execStmtList [] (afterDigit ls) suffix14 = .continue (stepLayer ls) := by
@@ -1420,6 +1477,50 @@ theorem suffix14_continues (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "currentNode" _ _ rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "sigOff" _ _ rfl)]
   rfl
+
+/-- The final layer tail sets `"sigOff"` to `authOff + 176`, and the preceding
+`"currentNode"` assignment does not disturb `"authOff"`.  Callers can combine
+this with `afterMerkle_authOff_lookup_eq` and the local `"authOff"` binding fact
+without replaying the WOTS/copy prefix. -/
+theorem finalLayerTail_sigOff_lookup_eq
+    (st : RuntimeState) (authOff : Nat)
+    (hauth : lookupValue st.bindings "authOff" = authOff)
+    (hauthLt : authOff < 2 ^ 256)
+    (hsum : authOff + 176 < 2 ^ 256) :
+    lookupValue
+        (match execStmtList [] st
+            [ .assignVar "currentNode" (v "merkleNode")
+            , .assignVar "sigOff" (addE (v "authOff") (u 176)) ] with
+          | .continue s' => s'
+          | _ => st).bindings
+        "sigOff"
+      = authOff + 176 := by
+  have hcur :
+      evalExpr [] st (v "merkleNode") =
+        some (lookupValue st.bindings "merkleNode") := rfl
+  let currentState : RuntimeState :=
+    { st with
+      bindings := bindValue st.bindings "currentNode"
+        (lookupValue st.bindings "merkleNode") }
+  have hauthCurrent : lookupValue currentState.bindings "authOff" = authOff := by
+    dsimp [currentState]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "currentNode" "authOff" _
+      (by decide), hauth]
+  have hauthEvalCurrent :
+      evalExpr [] currentState (v "authOff") = some authOff := by
+    show some (lookupValue currentState.bindings "authOff") = some authOff
+    rw [hauthCurrent]
+  have hsigOffEval :
+      evalExpr [] currentState (addE (v "authOff") (u 176)) =
+        some (authOff + 176) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      currentState (v "authOff") (u 176) authOff 176
+      hauthEvalCurrent rfl hauthLt (by decide) hsum
+  rw [execStmtList_cons_continue _ _ _ _
+      (assignVar_continue _ "currentNode" _ _ hcur)]
+  rw [execStmtList_cons_continue _ _ _ _
+      (assignVar_continue _ "sigOff" _ _ hsigOffEval)]
+  simp only [execStmtList, MemoryKit.lookupValue_bindValue_self]
 
 /-- The final two layer assignments do not rebind `"merkleNode"`.  This is the
 cheap tail brick used by structural layer-suffix proofs without replaying the
@@ -1594,6 +1695,9 @@ theorem execLayerLoop (state : RuntimeState)
 #print axioms afterDigit_digitSum_eq_wotsDigitSum_of_beforeDigitSum_d
 #print axioms layerGuard_of_afterDigit_digitSum_eq
 #print axioms beforeMerkle_eq
+#print axioms stepMerkle_preserves_authOff
+#print axioms afterMerkle_authOff_lookup_eq
+#print axioms finalLayerTail_sigOff_lookup_eq
 #print axioms finalLayerTail_preserves_merkleNode
 #print axioms execLayerBody
 #print axioms execLayerLoop
