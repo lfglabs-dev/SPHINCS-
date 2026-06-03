@@ -25,6 +25,7 @@ import SphincsMinusVerifiers.ClimbLoop
 import SphincsMinusVerifiers.ClimbLoopGuarded
 import SphincsMinusVerifiers.ClimbKeccakStep
 import SphincsMinusVerifiers.Model
+import SphincsMinusVerifierSpec.C13Concrete
 
 namespace SphincsMinusVerifiers.SegmentLayer3
 
@@ -263,6 +264,14 @@ theorem foldLoop_digitSum_eq
         ih (digitSumStep s1) (acc + digitAt d index) (index + 1)
           hdStep hstep hRangeTail haccLtTail
       simpa [s1, digitSumFold] using htail
+
+/-- The 43-step executable checksum fold targets exactly the concrete C13 WOTS
+digit-sum function.  This connects the local loop arithmetic to the spec-side
+grinding predicate without unfolding the layer prefix or WOTS-chain loops. -/
+theorem digitSumFold_zero_eq_wotsDigitSum (d : Nat) :
+    digitSumFold d 0 0 43 = SphincsMinusVerifierSpec.C13Concrete.wotsDigitSum d := by
+  unfold SphincsMinusVerifierSpec.C13Concrete.wotsDigitSum digitSumFold digitAt
+  rfl
 
 /-- The WOTS-chain outer-loop body (`forEach "i" (u 43)`), with its inner
 variable-bound chain `forEach "step" (v "steps")` written as `wotsChainBody`. -/
@@ -609,6 +618,7 @@ theorem execLayerLoop (state : RuntimeState)
 #print axioms digitSumStep_digitSum_eq
 #print axioms digitSumStep_preserves_d
 #print axioms foldLoop_digitSum_eq
+#print axioms digitSumFold_zero_eq_wotsDigitSum
 #print axioms layerGuard_of_afterDigit_digitSum_eq
 #print axioms beforeMerkle_eq
 #print axioms finalLayerTail_preserves_merkleNode

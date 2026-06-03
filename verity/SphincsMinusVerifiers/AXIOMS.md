@@ -419,6 +419,7 @@ are:
   `SegmentLayer3.digitSumStep_digitSum_eq`,
   `SegmentLayer3.digitSumStep_preserves_d`,
   `SegmentLayer3.foldLoop_digitSum_eq`,
+  `SegmentLayer3.digitSumFold_zero_eq_wotsDigitSum`,
   `SegmentLayer3.layerGuard_of_afterDigit_digitSum_eq`,
   `SegmentLayer3.beforeMerkle_eq`,
   `SegmentLayer3.finalLayerTail_preserves_merkleNode`,

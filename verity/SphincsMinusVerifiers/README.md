@@ -508,8 +508,10 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `SegmentLayer3.digitSumStep_digitSum_eq` add the local arithmetic brick for
     one executable digit-sum loop iteration; `digitSumStep_preserves_d` and
     `foldLoop_digitSum_eq` lift that brick through the pure `foldLoop "ii"`
-    checksum loop without unfolding the layer prefix, leaving the recursive
-    fold/prefix-to-`wotsDigest` correspondence as the remaining digit-cell work; the
+    checksum loop without unfolding the layer prefix, and
+    `digitSumFold_zero_eq_wotsDigitSum` identifies the 43-step pure fold with
+    the concrete `wotsDigitSum`.  The remaining digit-cell work is the prefix
+    correspondence that binds executable `"d"` to `wotsDigest ...`; the
     generic `ClimbLoopGuarded.allGuardsPass_of_rel_range` and
     `CurrentNodeFrame.afterLayer_currentNode_wordOfHash16_of_forsPk_step_range`
     provide the matching guarded-loop and final-`currentNode` range adapters, and

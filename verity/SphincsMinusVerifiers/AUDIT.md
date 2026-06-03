@@ -96,7 +96,8 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   `SphincsMinusVerifiers/SegmentLayer3.lean`: `nat_land_low3` and
   `digitSumStep_digitSum_eq`, covering one executable digit-sum loop step, plus
   `digitSumStep_preserves_d` and `foldLoop_digitSum_eq`, lifting that step over
-  the pure checksum `foldLoop`;
+  the pure checksum `foldLoop`, and `digitSumFold_zero_eq_wotsDigitSum`, matching
+  the 43-step pure fold to the concrete C13 `wotsDigitSum`;
 - seed and FORS-compression frame adapters in
   `SphincsMinusVerifiers/CurrentNodeFrame.lean`;
 - forced-root final-secret calldata and parsed-root cell adapters in
@@ -528,8 +529,9 @@ The current narrow C13 accept handoff still has real residual obligations:
   overflow bound for the corresponding executable accumulator.
   `SegmentLayer3.digitSumStep_digitSum_eq` supplies the single-step executable
   arithmetic for that cell, and `SegmentLayer3.foldLoop_digitSum_eq` lifts it
-  through the pure `forEach "ii"` image; the remaining digit-cell work is the
-  recursive fold/prefix-to-`wotsDigest` correspondence, followed by concrete
+  through the pure `forEach "ii"` image.  `digitSumFold_zero_eq_wotsDigitSum`
+  closes the pure recursive-fold side, leaving the prefix-to-`wotsDigest`
+  executable cell correspondence, followed by concrete
   WOTS/XMSS success and exact `"merkleNode"` model-cell facts through the
   bounded boundary.  The older
   concrete-layer packages still quantify
