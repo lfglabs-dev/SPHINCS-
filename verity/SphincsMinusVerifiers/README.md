@@ -510,8 +510,12 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `foldLoop_digitSum_eq` lift that brick through the pure `foldLoop "ii"`
     checksum loop without unfolding the layer prefix, and
     `digitSumFold_zero_eq_wotsDigitSum` identifies the 43-step pure fold with
-    the concrete `wotsDigitSum`.  The remaining digit-cell work is the prefix
-    correspondence that binds executable `"d"` to `wotsDigest ...`; the
+    the concrete `wotsDigitSum`.  The `beforeDigitSum` split plus
+    `afterDigit_eq_foldLoop_digitSum` and
+    `afterDigit_digitSum_eq_wotsDigitSum_of_beforeDigitSum_d` expose the exact
+    `afterDigit ... "digitSum"` handoff from a pre-loop `"d"` binding without
+    re-elaborating the WOTS/XMSS suffix.  The remaining digit-cell work is the
+    prefix correspondence that binds executable `"d"` to `wotsDigest ...`; the
     generic `ClimbLoopGuarded.allGuardsPass_of_rel_range` and
     `CurrentNodeFrame.afterLayer_currentNode_wordOfHash16_of_forsPk_step_range`
     provide the matching guarded-loop and final-`currentNode` range adapters, and

@@ -97,7 +97,10 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   `digitSumStep_digitSum_eq`, covering one executable digit-sum loop step, plus
   `digitSumStep_preserves_d` and `foldLoop_digitSum_eq`, lifting that step over
   the pure checksum `foldLoop`, and `digitSumFold_zero_eq_wotsDigitSum`, matching
-  the 43-step pure fold to the concrete C13 `wotsDigitSum`;
+  the 43-step pure fold to the concrete C13 `wotsDigitSum`.  The `beforeDigitSum`
+  split, `afterDigit_eq_foldLoop_digitSum`, and
+  `afterDigit_digitSum_eq_wotsDigitSum_of_beforeDigitSum_d` expose the exact
+  `afterDigit ... "digitSum"` handoff from a pre-loop `"d"` binding;
 - seed and FORS-compression frame adapters in
   `SphincsMinusVerifiers/CurrentNodeFrame.lean`;
 - forced-root final-secret calldata and parsed-root cell adapters in
@@ -530,8 +533,11 @@ The current narrow C13 accept handoff still has real residual obligations:
   `SegmentLayer3.digitSumStep_digitSum_eq` supplies the single-step executable
   arithmetic for that cell, and `SegmentLayer3.foldLoop_digitSum_eq` lifts it
   through the pure `forEach "ii"` image.  `digitSumFold_zero_eq_wotsDigitSum`
-  closes the pure recursive-fold side, leaving the prefix-to-`wotsDigest`
-  executable cell correspondence, followed by concrete
+  closes the pure recursive-fold side, while
+  `afterDigit_digitSum_eq_wotsDigitSum_of_beforeDigitSum_d` connects the
+  post-prefix `"digitSum"` cell to any pre-loop `"d"` binding.  The remaining
+  digit-cell gap is therefore the executable `"d" = wotsDigest ...` cell
+  correspondence, followed by concrete
   WOTS/XMSS success and exact `"merkleNode"` model-cell facts through the
   bounded boundary.  The older
   concrete-layer packages still quantify

@@ -314,6 +314,20 @@ theorem copyStepLemma (st : RuntimeState) :
 /-! ## 3. The Layer-3 body reconstruction (Model.lean:154-203), split around the
 checksum-guard `ite` as `prefix11 ++ (ite :: suffix14)`. -/
 
+/-- Statements 154-163, stopping just before the digit-sum loop. -/
+def prefixBeforeDigitSum : List Stmt :=
+  [ .letVar "idxLeaf" (andE (v "idxTree") (u 0x7FF))
+  , .assignVar "idxTree" (shrE (u 11) (v "idxTree"))
+  , .letVar "wotsAdrs" (orE (shlE (u 224) (v "layer")) (orE (shlE (u 128) (v "idxTree")) (shlE (u 64) (v "idxLeaf"))))
+  , .letVar "countOff" (addE (v "sigOff") (u 688))
+  , .letVar "count" (shrE (u 224) (cdload (addE (v "sigBase") (v "countOff"))))
+  , mstore 0x20 (v "wotsAdrs")
+  , mstore 0x40 (v "currentNode")
+  , mstore 0x60 (v "count")
+  , .letVar "d" (keccak 0x00 0x80)
+  , .letVar "digitSum" (u 0)
+  ]
+
 /-- Statements 154-163 + the digit-sum loop (everything before the guard). -/
 def prefix11 : List Stmt :=
   [ .letVar "idxLeaf" (andE (v "idxTree") (u 0x7FF))
@@ -327,6 +341,9 @@ def prefix11 : List Stmt :=
   , .letVar "d" (keccak 0x00 0x80)
   , .letVar "digitSum" (u 0)
   , .forEach "ii" (u 43) digitSumBody ]
+
+theorem prefix11_eq_prefixBeforeDigitSum_append :
+    prefix11 = prefixBeforeDigitSum ++ [ .forEach "ii" (u 43) digitSumBody ] := rfl
 
 /-- Statements 168-203 (everything after the guard). -/
 def suffix14 : List Stmt :=
@@ -390,13 +407,14 @@ private theorem execStmtList_cons_eq (st : RuntimeState) (s : Stmt) (rest : List
 
 /-! ## 4. Threading the guard-free prefix and suffix. -/
 
-/-- The state after running `prefix11` (always continues). -/
-def afterDigit (ls : RuntimeState) : RuntimeState :=
-  match execStmtList [] ls prefix11 with | .continue s' => s' | _ => ls
+/-- The state after the straight-line prefix that sets up `"d"` and initializes
+`"digitSum"`, just before the 43-step checksum loop. -/
+def beforeDigitSum (ls : RuntimeState) : RuntimeState :=
+  match execStmtList [] ls prefixBeforeDigitSum with | .continue s' => s' | _ => ls
 
-theorem afterDigit_eq (ls : RuntimeState) :
-    execStmtList [] ls prefix11 = .continue (afterDigit ls) := by
-  unfold afterDigit prefix11 mstore u
+theorem beforeDigitSum_eq (ls : RuntimeState) :
+    execStmtList [] ls prefixBeforeDigitSum = .continue (beforeDigitSum ls) := by
+  unfold beforeDigitSum prefixBeforeDigitSum mstore u
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "idxLeaf" _ _ rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "idxTree" _ _ rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsAdrs" _ _ rfl)]
@@ -407,9 +425,101 @@ theorem afterDigit_eq (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "d" _ _ rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "digitSum" _ _ rfl)]
-  rw [execStmtList_cons_continue _ _ _ _
-      (execStmt_forEach_of_step "ii" (.literal 43) digitSumBody _ _ digitSumStep rfl digitSumStepLemma)]
   rfl
+
+theorem beforeDigitSum_digitSum_eq_zero (ls : RuntimeState) :
+    lookupValue (beforeDigitSum ls).bindings "digitSum" = 0 := by
+  unfold beforeDigitSum prefixBeforeDigitSum mstore u
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "idxLeaf" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "idxTree" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "countOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "d" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "digitSum" _ _ rfl)]
+  have h0 : wordNormalize 0 = 0 := by
+    rw [wordNormalize_eq_mod]
+    exact Nat.zero_mod _
+  simp only [execStmtList, h0, MemoryKit.lookupValue_bindValue_self]
+
+/-- The state after running `prefix11` (always continues). -/
+def afterDigit (ls : RuntimeState) : RuntimeState :=
+  match execStmtList [] ls prefix11 with | .continue s' => s' | _ => ls
+
+theorem afterDigit_eq (ls : RuntimeState) :
+    execStmtList [] ls prefix11 = .continue (afterDigit ls) := by
+  unfold afterDigit
+  rw [prefix11_eq_prefixBeforeDigitSum_append]
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeDigitSum_eq ls)]
+  have hloop :
+      execStmtList [] (beforeDigitSum ls) [ .forEach "ii" (u 43) digitSumBody ]
+        =
+      .continue
+        (foldLoop "ii" digitSumStep
+          { beforeDigitSum ls with
+            bindings := bindValue (beforeDigitSum ls).bindings "ii" (wordNormalize 0) }
+          0 (wordNormalize 43)) := by
+    unfold u
+    rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_forEach_of_step "ii" (.literal 43) digitSumBody _ _ digitSumStep rfl digitSumStepLemma)]
+    rfl
+  rw [hloop]
+
+/-- `afterDigit` is the setup prefix followed by the pure 43-step digit fold.
+This exposes the loop entry state without re-elaborating the loop body. -/
+theorem afterDigit_eq_foldLoop_digitSum (ls : RuntimeState) :
+    afterDigit ls =
+      foldLoop "ii" digitSumStep
+        { beforeDigitSum ls with
+          bindings := bindValue (beforeDigitSum ls).bindings "ii" (wordNormalize 0) }
+        0 (wordNormalize 43) := by
+  unfold afterDigit
+  rw [prefix11_eq_prefixBeforeDigitSum_append]
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeDigitSum_eq ls)]
+  have hloop :
+      execStmtList [] (beforeDigitSum ls) [ .forEach "ii" (u 43) digitSumBody ]
+        =
+      .continue
+        (foldLoop "ii" digitSumStep
+          { beforeDigitSum ls with
+            bindings := bindValue (beforeDigitSum ls).bindings "ii" (wordNormalize 0) }
+          0 (wordNormalize 43)) := by
+    unfold u
+    rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_forEach_of_step "ii" (.literal 43) digitSumBody _ _ digitSumStep rfl digitSumStepLemma)]
+    rfl
+  rw [hloop]
+
+/-- Once the straight-line setup has bound `"d"` to a concrete 256-bit word, the
+post-prefix executable checksum cell is exactly the concrete C13 WOTS digit sum.
+The remaining open prefix obligation is therefore just identifying that `"d"`
+cell with `wotsDigest ...`. -/
+theorem afterDigit_digitSum_eq_wotsDigitSum_of_beforeDigitSum_d
+    (ls : RuntimeState) (d : Nat)
+    (hd : lookupValue (beforeDigitSum ls).bindings "d" = d)
+    (hdLt : d < 2 ^ 256) :
+    lookupValue (afterDigit ls).bindings "digitSum"
+      = SphincsMinusVerifierSpec.C13Concrete.wotsDigitSum d := by
+  let loopStart : RuntimeState :=
+    { beforeDigitSum ls with
+      bindings := bindValue (beforeDigitSum ls).bindings "ii" (wordNormalize 0) }
+  have h43 : wordNormalize 43 = 43 := by
+    rw [wordNormalize_eq_mod]
+    exact Nat.mod_eq_of_lt (by decide : 43 < 2 ^ 256)
+  have hdStart : lookupValue loopStart.bindings "d" = d := by
+    rw [MemoryKit.lookupValue_bindValue_ne _ "ii" "d" _ (by decide), hd]
+  have haccStart : lookupValue loopStart.bindings "digitSum" = 0 := by
+    rw [MemoryKit.lookupValue_bindValue_ne _ "ii" "digitSum" _ (by decide),
+      beforeDigitSum_digitSum_eq_zero]
+  rw [afterDigit_eq_foldLoop_digitSum, h43]
+  have hfold :=
+    foldLoop_digitSum_eq loopStart d 0 0 43 hdStart haccStart
+      (by norm_num) hdLt (by decide : 0 + 7 * 43 < 2 ^ 256)
+  rw [hfold]
+  exact digitSumFold_zero_eq_wotsDigitSum d
 
 /-- The pure transformer for one accepting layer iteration: the `.continue`
 payload of `suffix14` run from `afterDigit ls`. -/
@@ -619,6 +729,10 @@ theorem execLayerLoop (state : RuntimeState)
 #print axioms digitSumStep_preserves_d
 #print axioms foldLoop_digitSum_eq
 #print axioms digitSumFold_zero_eq_wotsDigitSum
+#print axioms beforeDigitSum_eq
+#print axioms beforeDigitSum_digitSum_eq_zero
+#print axioms afterDigit_eq_foldLoop_digitSum
+#print axioms afterDigit_digitSum_eq_wotsDigitSum_of_beforeDigitSum_d
 #print axioms layerGuard_of_afterDigit_digitSum_eq
 #print axioms beforeMerkle_eq
 #print axioms finalLayerTail_preserves_merkleNode
