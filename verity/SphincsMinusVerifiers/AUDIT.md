@@ -61,6 +61,8 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   `parseSignatureC13_fors_sk_getElem?`,
   `parseSignatureC13_fors_authPath_getD_getElem?`,
   `publicKeyOk_c13`, `parsePublicKey_c13`,
+  `publicKeyOk_c13_does_not_imply_pkRoot_size`,
+  `publicKeyOk_c13_does_not_imply_pkSeed_size`,
   `parsePublicKey_c13_does_not_imply_pkRoot_size`,
   `parsePublicKey_c13_does_not_imply_pkSeed_size`,
   `forcedZeroOk_c13_forsIndex_six`, `hMsgC13_forsIndex_six`,
@@ -481,11 +483,11 @@ The current narrow C13 accept handoff still has real residual obligations:
 - per-layer guarded WOTS/XMSS correspondence;
 - remaining concrete data-cell proof for the new C13 hypertree layer step;
 - public-key byte sizes such as `pkRoot.size = 16`, as ABI boundary premises
-  rather than Lean byte-spec consequences.  `C13Concrete.parsePublicKey_c13`
-  accepts arbitrary `ByteArray` public-key parts, and
-  `C13Concrete.parsePublicKey_c13_does_not_imply_pkRoot_size` /
-  `parsePublicKey_c13_does_not_imply_pkSeed_size` give formal empty-part
-  counterexamples.
+  rather than Lean byte-spec consequences.  `C13Concrete.publicKeyOk_c13` and
+  `C13Concrete.parsePublicKey_c13` accept arbitrary `ByteArray` public-key
+  parts, and the `*_does_not_imply_pkRoot_size` /
+  `*_does_not_imply_pkSeed_size` theorems give formal empty-part
+  counterexamples at both the predicate and parser boundaries.
 
 The successful C13 FORS/WOTS/XMSS/hypertree outputs now have standalone 16-byte
 shape lemmas and `CanonicalHash16` propagation lemmas.  The base-256 arithmetic
@@ -497,8 +499,10 @@ the C13 canonical-output facts,
 roundtrip from successful FORS reconstruction and hypertree folding.  The
 public-key-root roundtrip is now reduced by
 `SegmentAcceptSpec.hash16OfWord_wordOfHash16_of_size` to the ordinary byte-size
-premise `pkRoot.size = 16`.  That premise cannot be derived from
-`parsePublicKey_c13` in the current byte spec; the formal counterexample is
+premise `pkRoot.size = 16`.  That premise cannot be derived from either
+`publicKeyOk_c13` or `parsePublicKey_c13` in the current byte spec; the formal
+counterexamples are
+`C13Concrete.publicKeyOk_c13_does_not_imply_pkRoot_size` and
 `C13Concrete.parsePublicKey_c13_does_not_imply_pkRoot_size`.  Once these
 final-root roundtrips are available,
 `SegmentAcceptSpec.wordCmp_of_wordOfHash16_roundtrip` derives the `hWordCmp`

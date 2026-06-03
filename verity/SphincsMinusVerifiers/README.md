@@ -541,11 +541,12 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     derive the public-key-root
     roundtrip from `pkRoot.size = 16`, so the final comparison boundary is now an
     ordinary public-key-root size premise rather than a raw roundtrip equality.
-    `C13Concrete.parsePublicKey_c13_does_not_imply_pkRoot_size` proves this size
-    premise is not derivable from C13 byte-level public-key parsing alone; the
-    companion `parsePublicKey_c13_does_not_imply_pkSeed_size` records the same
-    fact for `pkSeed`.  The Lean byte spec accepts empty public-key parts, while
-    the deployed ABI supplies `bytes32`.
+    `C13Concrete.publicKeyOk_c13_does_not_imply_pkRoot_size` and
+    `C13Concrete.parsePublicKey_c13_does_not_imply_pkRoot_size` prove this size
+    premise is not derivable from either C13 public-key well-formedness or
+    byte-level public-key parsing; the companion `*_pkSeed_size`
+    counterexamples record the same fact for `pkSeed`.  The Lean byte spec
+    accepts empty public-key parts, while the deployed ABI supplies `bytes32`.
     `C13SeedNamedAcceptGuardedPkRootSizeLeafObligations` and
     `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_leaf_obligations_of_bytes`
     are the compatibility handoff for callers that still expose a range-gated

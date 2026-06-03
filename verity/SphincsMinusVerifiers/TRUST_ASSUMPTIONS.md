@@ -30,10 +30,11 @@ close, and what remains outside its scope.
 - Boundary byte-shape premises, such as `pkRoot.size = 16`, may remain as
   explicit input-shape obligations until they are connected to a parser, ABI, or
   caller-side assumption.  For C13 this is necessary in the current Lean byte
-  spec: `C13Concrete.parsePublicKey_c13_does_not_imply_pkRoot_size` gives a
-  formal empty-root counterexample to deriving the root size from public-key
-  parsing, and `C13Concrete.parsePublicKey_c13_does_not_imply_pkSeed_size` gives
-  the matching seed-size counterexample.
+  spec: `C13Concrete.publicKeyOk_c13_does_not_imply_pkRoot_size` and
+  `C13Concrete.parsePublicKey_c13_does_not_imply_pkRoot_size` give formal
+  empty-root counterexamples to deriving the root size from public-key
+  well-formedness or parsing, and the matching `*_pkSeed_size` counterexamples
+  do the same for seed size.
 
 - Local frame obligations, such as the range-gated FORS leaf-step
   seed-preservation fact, may remain explicit until their statement-level memory

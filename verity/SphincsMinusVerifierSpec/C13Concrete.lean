@@ -204,6 +204,22 @@ theorem publicKeyOk_c13 (pk : PublicKey) :
     publicKeyOk c13 pk = true := by
   simp [publicKeyOk, c13]
 
+/-- C13's public-key well-formedness predicate itself does not enforce a
+16-byte `pkRoot`; the empty root is accepted. -/
+theorem publicKeyOk_c13_does_not_imply_pkRoot_size :
+    ∃ pk, publicKeyOk c13 pk = true ∧ pk.pkRoot.size ≠ 16 := by
+  refine ⟨{ pkSeed := ⟨#[]⟩, pkRoot := ⟨#[]⟩ }, ?_, ?_⟩
+  · exact publicKeyOk_c13 _
+  · simp [ByteArray.size]
+
+/-- C13's public-key well-formedness predicate itself does not enforce a
+16-byte `pkSeed`; the empty seed is accepted. -/
+theorem publicKeyOk_c13_does_not_imply_pkSeed_size :
+    ∃ pk, publicKeyOk c13 pk = true ∧ pk.pkSeed.size ≠ 16 := by
+  refine ⟨{ pkSeed := ⟨#[]⟩, pkRoot := ⟨#[]⟩ }, ?_, ?_⟩
+  · exact publicKeyOk_c13 _
+  · simp [ByteArray.size]
+
 /-- Byte-level C13 public-key parsing is just the two exposed `bytes32`
 arguments packaged as a `PublicKey`. -/
 theorem parsePublicKey_c13 (pkSeed pkRoot : Bytes) :
@@ -985,6 +1001,8 @@ theorem foldHypertree_c13_ok_root_canonical_of_fors
 #print axioms parseSignatureC13_R
 #print axioms parseSignatureC13_shape
 #print axioms publicKeyOk_c13
+#print axioms publicKeyOk_c13_does_not_imply_pkRoot_size
+#print axioms publicKeyOk_c13_does_not_imply_pkSeed_size
 #print axioms parsePublicKey_c13
 #print axioms parsePublicKey_c13_does_not_imply_pkRoot_size
 #print axioms parsePublicKey_c13_does_not_imply_pkSeed_size
