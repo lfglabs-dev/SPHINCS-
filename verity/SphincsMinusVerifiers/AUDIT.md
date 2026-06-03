@@ -190,7 +190,12 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   `C13SeedNamedAcceptGuardedPkRootSizeSiteRootObligations` /
   `C13SeedNamedAcceptConcreteLayerSiteRootObligations` /
   `C13SeedNamedAcceptConcreteLayerObligations` contracts in
-  `SphincsMinusVerifiers/SegmentAcceptSpec.lean`;
+  `SphincsMinusVerifiers/SegmentAcceptSpec.lean`.  The concrete-layer
+  contracts are now formally marked too strong for parsed C13 signatures:
+  `no_concrete_layer_site_root_obligations_of_parse` and
+  `no_concrete_layer_obligations_of_parse` use
+  `parseSignatureC13_layers_length` to refute their all-`idx : Nat` success
+  fields at `idx = 2`;
 - concrete C13 per-layer hypertree spec-step adapters in
   `SphincsMinusVerifiers/SegmentAcceptSpec.lean`:
   `c13HypertreeSpecStep_eq_root_of_success`,
@@ -400,15 +405,20 @@ The current narrow C13 accept handoff still has real residual obligations:
 	  `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_site_root_obligations_of_bytes`
 	  plug the direct concrete seed/root-cell bundle into the byte-shaped accept
 	  handoff without constructing an intermediate `hLeaf`.  The concrete-layer adapter
-		  `site_root_obligations_of_concrete_layer_site_root_obligations` and
-		  `accept_path_returns_verifyParsed_bool_from_concrete_layer_site_root_obligations_of_bytes`
-		  also fix `specStep` to `c13HypertreeSpecStep`, deriving `LayerGuardedStep`
-		  and `hSpecFold` from concrete layer guard/success facts and `hFold`;
-		  `seed_named_pk_root_size_obligations_of_concrete_layer_obligations`
-		  and
-		  `accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of_bytes`
-		  are the slimmer concrete-layer handoff that no longer asks callers for
-		  FORS site facts or post-inner normal-root node correspondences;
+	  `site_root_obligations_of_concrete_layer_site_root_obligations` and
+	  `accept_path_returns_verifyParsed_bool_from_concrete_layer_site_root_obligations_of_bytes`
+	  also fix `specStep` to `c13HypertreeSpecStep`, deriving `LayerGuardedStep`
+	  and `hSpecFold` from concrete layer guard/success facts and `hFold`;
+	  `seed_named_pk_root_size_obligations_of_concrete_layer_obligations`
+	  and
+	  `accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of_bytes`
+	  are the slimmer concrete-layer handoff that no longer asks callers for
+	  FORS site facts or post-inner normal-root node correspondences.  The current
+	  concrete-layer obligation records quantify layer success over every natural
+	  index, while `parseSignatureC13` produces exactly two layers; the
+	  `no_concrete_layer_*_of_parse` counterexamples show this boundary must be
+	  replaced by a loop-bound/range-gated contract before the layer data-cell
+	  handoff can be completed;
 - concrete C13 FORS outer-loop prefix setup facts in
   `CurrentNodeFrame.forsOuterPrefixState`,
   `CurrentNodeFrame.forsOuterLeafState`,
@@ -480,8 +490,14 @@ The current narrow C13 accept handoff still has real residual obligations:
   specializes the outer-leaf adapter to the actual `mkC13State` calldata image
   and removes the remaining per-height relation-step callback.
   existing Merkle frame/data obligations;
-- per-layer guarded WOTS/XMSS correspondence;
-- remaining concrete data-cell proof for the new C13 hypertree layer step;
+- per-layer guarded WOTS/XMSS correspondence through a range-gated layer
+  boundary.  The current concrete-layer packages quantify success over every
+  `idx : Nat`; `no_concrete_layer_site_root_obligations_of_parse` and
+  `no_concrete_layer_obligations_of_parse` prove those packages are
+  uninhabited for successfully parsed C13 signatures at `idx = 2`, so the
+  next proof boundary should index only the actual hypertree loop range;
+- remaining concrete data-cell proof for the new C13 hypertree layer step,
+  after that layer-success boundary is refactored to the loop/range index;
 - public-key byte sizes such as `pkRoot.size = 16`, as ABI boundary premises
   rather than Lean byte-spec consequences.  `C13Concrete.publicKeyOk_c13` and
   `C13Concrete.parsePublicKey_c13` accept arbitrary `ByteArray` public-key

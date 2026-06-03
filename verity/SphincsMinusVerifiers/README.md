@@ -577,7 +577,14 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `seed_named_pk_root_size_obligations_of_concrete_layer_obligations`, and
     `accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of_bytes`
     path drops the FORS site facts and post-inner normal-root node
-    correspondences from that concrete accept boundary.
+    correspondences from that concrete accept boundary.  The current
+    concrete-layer records are intentionally documented as too broad:
+    `no_concrete_layer_site_root_obligations_of_parse` and
+    `no_concrete_layer_obligations_of_parse` prove that their all-`idx : Nat`
+    success field is impossible for a successfully parsed C13 signature,
+    because C13 parsing yields exactly two XMSS layers and the records still
+    ask for a layer witness at `idx = 2`.  Future concrete layer handoffs
+    should replace this with a loop-bound/range-gated index.
     `SegmentS4Fors` now proves the straight-line setup and final-store frame
     pieces needed by that premise, including the in-range final-store offset
     non-aliasing arithmetic, and a statement-level outer-loop seed-cell handoff

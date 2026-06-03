@@ -43,6 +43,9 @@ are:
 - `C13Concrete.parseSignatureC13_shape`:
   `[propext, Classical.choice, Quot.sound]`.
 
+- `C13Concrete.parseSignatureC13_layers_length`:
+  `[propext]`.
+
 - `C13Concrete.parseSignatureC13_fors_sk_getElem?`:
   `[propext]`.
 
@@ -208,6 +211,7 @@ are:
   `C13SeedNamedAcceptGuardedLayerObligations` /
   `C13SeedNamedAcceptGuardedObligations` /
   `C13SeedNamedAcceptConcreteLayerObligations` /
+  `no_concrete_layer_obligations_of_parse` /
   `seed_named_pk_root_size_obligations_of_concrete_layer_obligations` /
   `accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of_bytes`:
   `[propext, Classical.choice, Quot.sound]`.
@@ -465,6 +469,7 @@ are:
 
 - `SegmentAcceptSpec.C13SeedNamedAcceptConcreteLayerSiteRootObligations`,
   `SegmentAcceptSpec.site_root_obligations_of_concrete_layer_site_root_obligations`,
+  `SegmentAcceptSpec.no_concrete_layer_site_root_obligations_of_parse`,
   and
   `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_concrete_layer_site_root_obligations_of_bytes`:
   `[propext, Classical.choice, Quot.sound]`.

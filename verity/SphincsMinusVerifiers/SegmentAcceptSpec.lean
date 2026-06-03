@@ -3162,6 +3162,57 @@ structure C13SeedNamedAcceptConcreteLayerObligations
           = wordOfHash16 root
   hPkRootSize : pkRoot.size = 16
 
+/-- Minimal state used only to show that the broad concrete-layer success fields
+can be queried at an out-of-range layer index. -/
+def zeroCurrentNodeState : RuntimeState :=
+  { world := Verity.defaultState
+    bindings := bindValue [] "currentNode" 0
+    selector := 0 }
+
+theorem zeroCurrentNodeState_rel :
+    CurrentNodeRel wordOfHash16 zeroCurrentNodeState ⟨#[]⟩ := by
+  rfl
+
+/-- The current concrete-layer site/root package is intentionally stronger than
+the parsed C13 shape can satisfy: its `hSuccess` field quantifies over all
+`idx : Nat`, but a parsed C13 signature has exactly two XMSS layers.  At
+`idx = 2`, the required `sigParsed.layers[idx]? = some ...` witness is
+impossible. -/
+theorem no_concrete_layer_site_root_obligations_of_parse
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    ¬ C13SeedNamedAcceptConcreteLayerSiteRootObligations
+        pkSeed pkRoot message sig sigParsed := by
+  intro hObs
+  rcases hObs.hSuccess zeroCurrentNodeState ⟨#[]⟩ 2 zeroCurrentNodeState_rel with
+    ⟨lsig, wotsPk, root, hLayer, _hGrinding, _hWots, _hXmss, _hMerkleNode⟩
+  have hLen : sigParsed.layers.length = 2 :=
+    C13Concrete.parseSignatureC13_layers_length hParse
+  have hNone : sigParsed.layers[2]? = none := by
+    rw [List.getElem?_eq_none_iff]
+    omega
+  rw [hNone] at hLayer
+  contradiction
+
+/-- Same uninhabitedness result after the concrete FORS root-cell bridge: the
+remaining concrete-layer package still quantifies WOTS/XMSS success over every
+natural `idx`, so successful C13 parsing rules it out at `idx = 2`. -/
+theorem no_concrete_layer_obligations_of_parse
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    ¬ C13SeedNamedAcceptConcreteLayerObligations
+        pkSeed pkRoot message sig sigParsed := by
+  intro hObs
+  rcases hObs.hSuccess zeroCurrentNodeState ⟨#[]⟩ 2 zeroCurrentNodeState_rel with
+    ⟨lsig, wotsPk, root, hLayer, _hGrinding, _hWots, _hXmss, _hMerkleNode⟩
+  have hLen : sigParsed.layers.length = 2 :=
+    C13Concrete.parseSignatureC13_layers_length hParse
+  have hNone : sigParsed.layers[2]? = none := by
+    rw [List.getElem?_eq_none_iff]
+    omega
+  rw [hNone] at hLayer
+  contradiction
+
 /-- Adapter from frozen-calldata/root-node obligations to the older accept
 bundle with explicit FORS root-cell equalities. -/
 theorem seed_named_leaf_obligations_of_leaf_root_obligations
@@ -4001,6 +4052,8 @@ theorem accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of
 #print axioms C13SeedNamedAcceptGuardedPkRootSizeSiteRootObligations
 #print axioms C13SeedNamedAcceptConcreteLayerSiteRootObligations
 #print axioms C13SeedNamedAcceptConcreteLayerObligations
+#print axioms no_concrete_layer_site_root_obligations_of_parse
+#print axioms no_concrete_layer_obligations_of_parse
 #print axioms seed_named_leaf_obligations_of_leaf_root_obligations
 #print axioms seed_named_leaf_root_obligations_of_site_root_obligations
 #print axioms seed_named_pk_root_size_obligations_of_site_root_obligations

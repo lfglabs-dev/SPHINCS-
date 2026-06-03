@@ -198,6 +198,17 @@ theorem parseSignatureC13_shape {sig : Bytes} {s : Signature}
   subst hparse
   simp [signatureShapeOk, allSized, allAuthSized, read16, ByteArray.size, c13]
 
+/-- Successful concrete C13 parsing produces exactly the two XMSS layers used by
+the C13 hypertree. -/
+theorem parseSignatureC13_layers_length {sig : Bytes} {s : Signature}
+    (hparse : parseSignatureC13 c13 sig = some s) :
+    s.layers.length = 2 := by
+  have hsz : sig.size = c13.sigBytes := parseSignatureC13_size hparse
+  unfold parseSignatureC13 at hparse
+  simp only [hsz, ne_eq, not_true_eq_false, if_false, Option.some.injEq] at hparse
+  subst hparse
+  simp
+
 /-- C13 accepts the contract-facing public-key words without low-byte
 canonicality checks. -/
 theorem publicKeyOk_c13 (pk : PublicKey) :
@@ -1000,6 +1011,7 @@ theorem foldHypertree_c13_ok_root_canonical_of_fors
 #print axioms foldHypertree_c13_ok_root_canonical_of_fors
 #print axioms parseSignatureC13_R
 #print axioms parseSignatureC13_shape
+#print axioms parseSignatureC13_layers_length
 #print axioms publicKeyOk_c13
 #print axioms publicKeyOk_c13_does_not_imply_pkRoot_size
 #print axioms publicKeyOk_c13_does_not_imply_pkSeed_size
