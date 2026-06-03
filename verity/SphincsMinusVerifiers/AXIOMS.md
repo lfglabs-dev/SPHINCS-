@@ -94,6 +94,9 @@ are:
   `C13Concrete.foldHypertree_c13_ok_root_size_of_fors`:
   `[propext, Quot.sound]`.
 
+- `C13Concrete.wotsGrindingFailsC13_false_digitSum`:
+  `[propext, Quot.sound]`.
+
 - `C13Concrete.CanonicalHash16` and
   `C13Concrete.hash16OfWord_canonical`:
   `[propext]`.
@@ -491,11 +494,14 @@ are:
   `SegmentAcceptSpec.C13SeedNamedAcceptConcreteLayerRangeObligations`,
   `SegmentAcceptSpec.C13SeedNamedAcceptConcreteLayerDigitSumRangeObligations`,
   `SegmentAcceptSpec.concrete_layer_range_obligations_of_digitSum_range_obligations`,
+  `SegmentAcceptSpec.C13SeedNamedAcceptConcreteLayerDigitCellRangeObligations`,
+  `SegmentAcceptSpec.digitSum_range_obligations_of_digit_cell_range_obligations`,
   `SegmentAcceptSpec.seed_named_pk_root_size_obligations_of_concrete_layer_obligations`,
   `SegmentAcceptSpec.no_concrete_layer_obligations_of_parse`,
   `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of_bytes`, and
   `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_concrete_layer_range_obligations_of_bytes`, and
-  `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_concrete_layer_digitSum_range_obligations_of_bytes`:
+  `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_concrete_layer_digitSum_range_obligations_of_bytes`, and
+  `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_concrete_layer_digit_cell_range_obligations_of_bytes`:
   `[propext, Classical.choice, Quot.sound]`.
 
 These are ordinary Lean/meta foundations for the existing development.  The

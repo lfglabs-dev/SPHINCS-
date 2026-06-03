@@ -798,6 +798,16 @@ def c13PrimitivesConcrete : Primitives :=
   , wotsGrindingOk  := wotsGrindingOkC13
   , xmssRootFromSig := xmssRootFromSigC13 }
 
+/-- A successful C13 WOTS grinding check is exactly the concrete digit-sum
+target used by the contract guard. -/
+theorem wotsGrindingFailsC13_false_digitSum
+    (pk : PublicKey) (treeIdx leafIdx : Nat) (node : Bytes) (wots : WotsSig)
+    (h : wotsGrindingFails c13PrimitivesConcrete c13 pk treeIdx leafIdx node wots = false) :
+    wotsDigitSum
+        (wotsDigest (wordOfHash16 pk.pkSeed) 0 treeIdx leafIdx wots.count
+          (wordOfHash16 node)) = 208 := by
+  simpa [wotsGrindingFails, c13PrimitivesConcrete, wotsGrindingOkC13, c13] using h
+
 /-- If the C13 hypertree climb returns `.ok root`, then the returned root is
 16 bytes, provided the starting FORS public key is 16 bytes. -/
 theorem foldHypertreeAux_c13_ok_root_size
@@ -1003,6 +1013,7 @@ theorem foldHypertree_c13_ok_root_canonical_of_fors
 #print axioms wotsPkFromSigC13_canonical
 #print axioms xmssRootFromSigC13_size
 #print axioms xmssRootFromSigC13_canonical
+#print axioms wotsGrindingFailsC13_false_digitSum
 #print axioms foldHypertreeAux_c13_ok_root_size
 #print axioms foldHypertree_c13_ok_root_size
 #print axioms foldHypertree_c13_ok_root_size_of_fors

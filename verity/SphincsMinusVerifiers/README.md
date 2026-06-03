@@ -501,6 +501,10 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `C13SeedNamedAcceptConcreteLayerDigitSumRangeObligations` handoff state the
     guard side as the natural post-prefix
     `afterDigit ... "digitSum" = 208` model fact; the
+    `C13SeedNamedAcceptConcreteLayerDigitCellRangeObligations` handoff further
+    reduces that to the executable digit cell matching the concrete
+    `wotsDigitSum (wotsDigest ...)`, with the target discharged from grinding
+    success; the
     generic `ClimbLoopGuarded.allGuardsPass_of_rel_range` and
     `CurrentNodeFrame.afterLayer_currentNode_wordOfHash16_of_forsPk_step_range`
     provide the matching guarded-loop and final-`currentNode` range adapters, and
@@ -671,6 +675,9 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `foldHypertree_c13_ok_root_size_of_fors` establish that successful C13
     reconstruction outputs are 16-byte roots; this is the canonical root-size
     side needed by the eventual final word-comparison/injectivity bridge.
+    `wotsGrindingFailsC13_false_digitSum` shows that the concrete C13
+    `wotsGrindingFails = false` success fact already entails the WOTS digit-sum
+    target `208`.
     `CanonicalHash16` plus
     `forsPkFromSigC13_canonical`, `wotsPkFromSigC13_canonical`,
     `xmssRootFromSigC13_canonical`,
