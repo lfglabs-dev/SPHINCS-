@@ -9,8 +9,8 @@ use crate::merkle;
 /// Sign a message with SPHINCS+ C13.
 /// Returns the raw signature bytes (SIG_SIZE = 3688 bytes).
 pub fn sign(seed: U256, sk_seed: U256, pk_root: U256, message: U256) -> Result<Vec<u8>, String> {
-    // Step 1: Grind R for FORS+C forced-zero
-    let (r, digest) = fors::grind_r(seed, pk_root, message)?;
+    // Step 1: Grind R for FORS+C forced-zero (R is secret-keyed on sk_seed; audit C13-X-f2)
+    let (r, digest) = fors::grind_r(seed, sk_seed, pk_root, message)?;
 
     // Step 2: Extract hypertree index
     let ht_shift = K * A; // 128

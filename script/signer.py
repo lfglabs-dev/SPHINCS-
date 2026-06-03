@@ -538,20 +538,30 @@ def compute_octopus_auth_set(tree_nodes, sorted_indices, tree_height):
 #  R Grinding
 # ============================================================
 
-def grind_R_fors(seed, root, message, k, a):
+# SECRET-KEYED randomizer (audit C13-X-f2). R is bound to the secret sk_seed and
+# the message: R = mask_n(keccak(sk_seed[32] || "R_grind" || message[32] ||
+# nonce[32])), grinding nonce until the forced-zero / octopus predicate holds.
+# Binding R to sk_seed removes public-grindability (an attacker can no longer
+# offline-search (message, R) to steer the FORS index map / hypertree leaf onto
+# previously-revealed instances), restoring the standard secret-randomizer
+# few-time model, while staying deterministic per (key, message). The preimage
+# layout MUST match signer-wasm/src/fors.rs::grind_r byte-for-byte or the
+# Rust<->Python cross-check (and the on-chain digest) diverge. The verifier is
+# unaffected — it only reads R out of the signature.
+def grind_R_fors(seed, sk_seed, root, message, k, a):
     a_mask = (1 << a) - 1
     last_shift = (k - 1) * a
     for nonce in range(10_000_000):
-        R = keccak256(b"R_grind" + to_b32(nonce)) & N_MASK
+        R = keccak256(to_b32(sk_seed) + b"R_grind" + to_b32(message) + to_b32(nonce)) & N_MASK
         digest = h_msg(seed, root, R, message)
         if (digest >> last_shift) & a_mask == 0:
             eprint(f"  R grind: found at nonce={nonce}")
             return R, digest
     raise RuntimeError("R grinding failed")
 
-def grind_R_pors(seed, root, message, k, tree_height, m_max):
+def grind_R_pors(seed, sk_seed, root, message, k, tree_height, m_max):
     for nonce in range(10_000_000):
-        R = keccak256(b"R_grind" + to_b32(nonce)) & N_MASK
+        R = keccak256(to_b32(sk_seed) + b"R_grind" + to_b32(message) + to_b32(nonce)) & N_MASK
         digest = h_msg(seed, root, R, message)
         indices = extract_pors_indices(digest, k, tree_height)
         n = count_octopus_auth_nodes(indices, tree_height)
@@ -602,9 +612,9 @@ def sign_variant(variant_name, message_int, seed=None, sk_seed=None, pk_root=Non
     # STEP 2: Grind R
     # ================================================================
     if scheme == "fors":
-        R, digest = grind_R_fors(seed, pk_root, message_int, k, a)
+        R, digest = grind_R_fors(seed, sk_seed, pk_root, message_int, k, a)
     else:
-        R, digest = grind_R_pors(seed, pk_root, message_int, k, tree_height, m_max)
+        R, digest = grind_R_pors(seed, sk_seed, pk_root, message_int, k, tree_height, m_max)
 
     # ================================================================
     # STEP 3: Decompose hypertree path

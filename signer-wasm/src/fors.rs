@@ -57,14 +57,29 @@ fn build_fors_tree(seed: U256, sk_seed: U256, tree_idx: u32, ht_idx: u32) -> (Ve
     (nodes, root)
 }
 
-/// Grind R until last FORS index is zero.
-pub fn grind_r(seed: U256, root: U256, message: U256) -> Result<(U256, U256), String> {
+/// Grind R until the last FORS index is zero (FORS+C forced-zero).
+///
+/// SECRET-KEYED randomizer (audit C13-X-f2). `R` is bound to the secret
+/// `sk_seed` and the message:
+///   `R = mask_n(keccak256(sk_seed ‖ "R_grind" ‖ message ‖ nonce))`,
+/// grinding `nonce` until the forced-zero predicate holds. Binding `R` to
+/// `sk_seed` removes the previous public-grindability: an attacker can no
+/// longer offline-search `(message, R)` to steer the FORS index map / hypertree
+/// leaf onto previously-revealed instances, restoring the standard
+/// secret-randomizer few-time model. It stays fully deterministic per
+/// `(key, message)`. The preimage layout MUST match `script/signer.py`'s
+/// `grind_R_fors` byte-for-byte (sk_seed[32] ‖ "R_grind" ‖ message[32] ‖
+/// nonce[32]) or the Rust↔Python cross-check (and on-chain digest) diverge.
+/// The verifier is unaffected — it only reads `R` from the signature.
+pub fn grind_r(seed: U256, sk_seed: U256, root: U256, message: U256) -> Result<(U256, U256), String> {
     let a_mask = (1u64 << A) - 1;
     let last_shift = (K - 1) * A; // C13: bit 114 = (7-1)*19
 
     for nonce in 0..10_000_000u32 {
-        let mut r_input = Vec::with_capacity(7 + 32);
+        let mut r_input = Vec::with_capacity(32 + 7 + 32 + 32);
+        r_input.extend_from_slice(&hash::to_bytes32(sk_seed));
         r_input.extend_from_slice(b"R_grind");
+        r_input.extend_from_slice(&hash::to_bytes32(message));
         r_input.extend_from_slice(&hash::to_bytes32(hash::u256_from_u32(nonce)));
         let r = hash::mask_n(hash::keccak256(&r_input));
         let digest = hash::h_msg(seed, root, r, message);
