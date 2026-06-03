@@ -3255,6 +3255,56 @@ structure C13SeedNamedAcceptConcreteLayerObligations
           = wordOfHash16 root
   hPkRootSize : pkRoot.size = 16
 
+/-- Range-gated concrete layer obligations after the concrete FORS root-cell
+bridge is discharged from `mkC13State`.  This is the satisfiable replacement for
+`C13SeedNamedAcceptConcreteLayerObligations`: callers provide concrete WOTS/XMSS
+and model `"merkleNode"` facts only for the two layer-loop indices visited by
+C13. -/
+structure C13SeedNamedAcceptConcreteLayerRangeObligations
+    (pkSeed pkRoot message sig : ByteArray)
+    (sigParsed : Signature) : Prop where
+  hGuard : ∀ (s : RuntimeState) (node : ByteArray) (idx : Nat), idx < 2 →
+    CurrentNodeRel wordOfHash16 s node →
+      SegmentLayer3.layerGuard
+        { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) } = true
+  hSuccess : ∀ (s : RuntimeState) (node : ByteArray) (idx : Nat), idx < 2 →
+    CurrentNodeRel wordOfHash16 s node →
+      ∃ (lsig : XmssLayerSig) (wotsPk root : ByteArray),
+        sigParsed.layers[idx]? = some lsig ∧
+        wotsGrindingFails C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (c13LayerNextTree
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) idx)
+          (c13LayerLeafIdx
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) idx)
+          node lsig.wots = false ∧
+        C13Concrete.c13PrimitivesConcrete.wotsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (c13LayerNextTree
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) idx)
+          (c13LayerLeafIdx
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) idx)
+          node lsig.wots = some wotsPk ∧
+        C13Concrete.c13PrimitivesConcrete.xmssRootFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (c13LayerNextTree
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) idx)
+          (c13LayerLeafIdx
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) idx)
+          wotsPk lsig.authPath = some root ∧
+        lookupValue
+            (SegmentLayer3.stepLayer
+              { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) }).bindings
+            "merkleNode"
+          = wordOfHash16 root
+  hPkRootSize : pkRoot.size = 16
+
 /-- Minimal state used only to show that the broad concrete-layer success fields
 can be queried at an out-of-range layer index. -/
 def zeroCurrentNodeState : RuntimeState :=
@@ -3975,6 +4025,141 @@ theorem accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_si
       (seed_named_pk_root_size_obligations_of_site_root_obligations
         pkSeed pkRoot message sig sigParsed forsPk specRoot specStep hParse hObs)
 
+/-- Byte-shaped concrete C13 accept handoff with layer facts stated only over
+the actual two-iteration hypertree loop.  This is the range-gated replacement for
+`accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of_bytes`:
+the theorem derives the layer guard trace and final `"currentNode"` fact from
+`idx < 2` guard/success premises instead of requiring an impossible all-`Nat`
+layer package. -/
+theorem accept_path_returns_verifyParsed_bool_from_concrete_layer_range_obligations_of_bytes
+    (pkSeed pkRoot message sig : ByteArray)
+    (sigParsed : Signature) (forsPk specRoot : ByteArray)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hZero : forcedZeroOk c13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) sigParsed.fors
+          = some forsPk)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hObs : C13SeedNamedAcceptConcreteLayerRangeObligations
+        pkSeed pkRoot message sig sigParsed) :
+    ∃ finalState,
+      verifyParsed C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot } message sigParsed
+        = some (specRoot == pkRoot) ∧
+      execStmtList [] (mkC13State pkSeed pkRoot message sig) c13VerifyBody
+        = .return (wordNormalize (boolWord (specRoot == pkRoot))) finalState := by
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  have hShape : signatureShapeOk c13 sigParsed = true :=
+    C13Concrete.parseSignatureC13_shape hParse
+  have hLen : lookupValue (mkC13State pkSeed pkRoot message sig).bindings "sig_length"
+        = wordNormalize 3688 :=
+    c13_sig_length_of_parseSignatureC13 pkSeed pkRoot message sig sigParsed hParse
+  have hS3 : SegmentS3.s3Guard (afterS2 (mkC13State pkSeed pkRoot message sig)) = 0 :=
+    c13_s3Guard_of_parse_forcedZero pkSeed pkRoot message sig pk sigParsed
+      (by rfl) hParse (by simpa [pk, digest] using hZero)
+  have hRoots :=
+    CurrentNodeFrame.rootCells_eq_forsAllRootsC13_of_hMsg_parse_concrete
+      pk message sig hParse
+  have hStart : CurrentNodeRel wordOfHash16
+      { (afterSeed (mkC13State pkSeed pkRoot message sig)) with
+          bindings := bindValue
+            (afterSeed (mkC13State pkSeed pkRoot message sig)).bindings
+            "layer" (wordNormalize 0) }
+      forsPk := by
+    refine layerStart_of_seed_named_fors_roots_roundtrip
+      pkSeed pkRoot message sig pk sigParsed forsPk (by rfl)
+      (by simpa [pk, digest] using hFors)
+      (CurrentNodeFrame.afterFors_seed_slot_mkC13State pkSeed pkRoot message sig)
+      ?_ ?_ ?_
+    · intro j hj
+      simpa [pk, digest] using hRoots.1 j hj
+    · simpa [pk, digest] using hRoots.2
+    · simpa [pk, digest] using
+        (forsPkWordC13_roundtrip pk digest sigParsed.fors)
+  have hSuccessRange :
+      ∀ (s : RuntimeState) (node : ByteArray) (idx : Nat), idx < 2 →
+        CurrentNodeRel wordOfHash16 s node →
+          ∃ (lsig : XmssLayerSig) (wotsPk root : ByteArray),
+            sigParsed.layers[idx]? = some lsig ∧
+            wotsGrindingFails C13Concrete.c13PrimitivesConcrete c13 pk
+              (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx)
+              node lsig.wots = false ∧
+            C13Concrete.c13PrimitivesConcrete.wotsPkFromSig c13 pk
+              (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx)
+              node lsig.wots = some wotsPk ∧
+            C13Concrete.c13PrimitivesConcrete.xmssRootFromSig c13 pk
+              (c13LayerNextTree digest idx) (c13LayerLeafIdx digest idx)
+              wotsPk lsig.authPath = some root ∧
+            lookupValue
+                (SegmentLayer3.stepLayer
+                  { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) }).bindings
+                "merkleNode"
+              = wordOfHash16 root := by
+    intro s node idx hidx hRel
+    simpa [pk, digest] using hObs.hSuccess s node idx hidx hRel
+  have hLayerGuards :
+      ClimbLoopGuarded.allGuardsPass "layer" SegmentLayer3.stepLayer
+        SegmentLayer3.layerGuard
+        { (afterSeed (mkC13State pkSeed pkRoot message sig)) with
+            bindings := bindValue
+              (afterSeed (mkC13State pkSeed pkRoot message sig)).bindings
+              "layer" (wordNormalize 0) }
+        0 (wordNormalize 2) :=
+    layerGuardsPass_of_c13HypertreeSpecStep_success_range
+      pkSeed pkRoot message sig pk digest sigParsed.layers forsPk hStart
+      (by
+        intro s node idx hidx hRel
+        exact hObs.hGuard s node idx hidx hRel)
+      hSuccessRange
+  have hLayerStep :=
+    layerStep_of_c13HypertreeSpecStep_success_range
+      pk digest sigParsed.layers hSuccessRange
+  have hSpecFold :
+      ClimbLoop.specFold (c13HypertreeSpecStep pk digest sigParsed.layers)
+        forsPk 0 (wordNormalize 2) = specRoot := by
+    simpa [pk, digest] using
+      specFold_c13HypertreeSpecStep_eq_of_foldHypertree_ok
+        pk digest forsPk specRoot sigParsed.layers
+        (by simpa [pk, digest] using hFold)
+  have hStartLookup :
+      lookupValue (afterSeed (mkC13State pkSeed pkRoot message sig)).bindings "currentNode"
+        = wordOfHash16 forsPk := by
+    have hs := hStart
+    unfold CurrentNodeRel at hs
+    rw [MemoryKit.lookupValue_bindValue_ne
+      (afterSeed (mkC13State pkSeed pkRoot message sig)).bindings
+      "layer" "currentNode" (wordNormalize 0) (by decide)] at hs
+    exact hs
+  have hCurrent :
+      lookupValue (afterLayer (mkC13State pkSeed pkRoot message sig)).bindings "currentNode"
+        = wordOfHash16 specRoot :=
+    CurrentNodeFrame.afterLayer_currentNode_of_step_range
+      (mkC13State pkSeed pkRoot message sig)
+      (c13HypertreeSpecStep pk digest sigParsed.layers) wordOfHash16 forsPk specRoot
+      hStartLookup hLayerStep hSpecFold
+  have hWordCmp : decide (wordOfHash16 specRoot = wordOfHash16 pkRoot)
+        = (specRoot == pkRoot) :=
+    wordCmp_of_wordOfHash16_roundtrip specRoot pkRoot
+      (specRoot_roundtrip_of_c13_fors_fold
+        (by simpa [pk, digest] using hFors)
+        (by simpa [pk, digest] using hFold))
+      (hash16OfWord_wordOfHash16_of_size pkRoot hObs.hPkRootSize)
+  exact accept_path_returns_verifyParsed_bool_from_root
+    pkSeed pkRoot message sig pk sigParsed forsPk specRoot (by rfl)
+    hShape (by simpa [pk, digest] using hZero)
+    (by simpa [pk, digest] using hFors)
+    (by simpa [pk, digest] using hFold)
+    hLen hS3 hLayerGuards hCurrent hWordCmp
+
 /-- Byte-shaped guarded handoff at the current concrete C13 accept boundary.
 The caller supplies concrete layer guard/success facts, frozen FORS site facts,
 ordinary-root post-inner `"node"` correspondences, parse/spec facts, and
@@ -4147,6 +4332,7 @@ theorem accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of
 #print axioms C13SeedNamedAcceptGuardedPkRootSizeSiteRootObligations
 #print axioms C13SeedNamedAcceptConcreteLayerSiteRootObligations
 #print axioms C13SeedNamedAcceptConcreteLayerObligations
+#print axioms C13SeedNamedAcceptConcreteLayerRangeObligations
 #print axioms no_concrete_layer_site_root_obligations_of_parse
 #print axioms no_concrete_layer_obligations_of_parse
 #print axioms seed_named_leaf_obligations_of_leaf_root_obligations
@@ -4159,5 +4345,6 @@ theorem accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of
 #print axioms accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_site_root_obligations_of_bytes
 #print axioms accept_path_returns_verifyParsed_bool_from_concrete_layer_site_root_obligations_of_bytes
 #print axioms accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of_bytes
+#print axioms accept_path_returns_verifyParsed_bool_from_concrete_layer_range_obligations_of_bytes
 
 end SphincsMinusVerifiers.SegmentAcceptSpec

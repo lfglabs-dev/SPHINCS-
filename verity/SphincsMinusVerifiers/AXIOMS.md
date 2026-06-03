@@ -485,6 +485,14 @@ are:
   `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_concrete_layer_site_root_obligations_of_bytes`:
   `[propext, Classical.choice, Quot.sound]`.
 
+- `SegmentAcceptSpec.C13SeedNamedAcceptConcreteLayerObligations`,
+  `SegmentAcceptSpec.C13SeedNamedAcceptConcreteLayerRangeObligations`,
+  `SegmentAcceptSpec.seed_named_pk_root_size_obligations_of_concrete_layer_obligations`,
+  `SegmentAcceptSpec.no_concrete_layer_obligations_of_parse`,
+  `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of_bytes`, and
+  `SegmentAcceptSpec.accept_path_returns_verifyParsed_bool_from_concrete_layer_range_obligations_of_bytes`:
+  `[propext, Classical.choice, Quot.sound]`.
+
 These are ordinary Lean/meta foundations for the existing development.  The
 forbidden dependencies for these standalone bricks are `sorryAx`, the
 MODEL-EXEC-BRIDGE axiom, and an opaque-primitives axiom.

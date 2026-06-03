@@ -189,13 +189,15 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   `C13SeedNamedAcceptGuardedPkRootSizeLeafRootObligations` /
   `C13SeedNamedAcceptGuardedPkRootSizeSiteRootObligations` /
   `C13SeedNamedAcceptConcreteLayerSiteRootObligations` /
-  `C13SeedNamedAcceptConcreteLayerObligations` contracts in
+  `C13SeedNamedAcceptConcreteLayerObligations` /
+  `C13SeedNamedAcceptConcreteLayerRangeObligations` contracts in
   `SphincsMinusVerifiers/SegmentAcceptSpec.lean`.  The concrete-layer
-  contracts are now formally marked too strong for parsed C13 signatures:
+  all-`Nat` contracts are now formally marked too strong for parsed C13 signatures:
   `no_concrete_layer_site_root_obligations_of_parse` and
   `no_concrete_layer_obligations_of_parse` use
   `parseSignatureC13_layers_length` to refute their all-`idx : Nat` success
-  fields at `idx = 2`;
+  fields at `idx = 2`; the range contract is consumed by
+  `accept_path_returns_verifyParsed_bool_from_concrete_layer_range_obligations_of_bytes`;
 - concrete C13 per-layer hypertree spec-step adapters in
   `SphincsMinusVerifiers/SegmentAcceptSpec.lean`:
   `c13HypertreeSpecStep_eq_root_of_success`,
@@ -417,11 +419,12 @@ The current narrow C13 accept handoff still has real residual obligations:
 	  `accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of_bytes`
 	  are the slimmer concrete-layer handoff that no longer asks callers for
 	  FORS site facts or post-inner normal-root node correspondences.  The current
-	  concrete-layer obligation records quantify layer success over every natural
-	  index, while `parseSignatureC13` produces exactly two layers; the
-	  `no_concrete_layer_*_of_parse` counterexamples show why callers must now use
-	  the range-gated guard/step/afterLayer adapters and provide concrete layer
-	  data-cell facts only for `idx < 2`;
+	  older concrete-layer obligation records quantify layer success over every
+	  natural index, while `parseSignatureC13` produces exactly two layers; the
+	  `no_concrete_layer_*_of_parse` counterexamples show why callers must use
+	  `C13SeedNamedAcceptConcreteLayerRangeObligations`, whose accept theorem
+	  consumes the range-gated guard/step/afterLayer adapters and asks for concrete
+	  layer data-cell facts only for `idx < 2`;
 - concrete C13 FORS outer-loop prefix setup facts in
   `CurrentNodeFrame.forsOuterPrefixState`,
   `CurrentNodeFrame.forsOuterLeafState`,
@@ -493,11 +496,13 @@ The current narrow C13 accept handoff still has real residual obligations:
   specializes the outer-leaf adapter to the actual `mkC13State` calldata image
   and removes the remaining per-height relation-step callback.
   existing Merkle frame/data obligations;
-- per-layer guarded WOTS/XMSS correspondence through the new range-gated layer
-  boundary.  The guard/step/final-`currentNode` plumbing now indexes only the
-  actual C13 hypertree loop range `idx < 2`; the remaining work is to supply
-  concrete WOTS/XMSS and model-cell facts through that boundary.  The older
-  concrete-layer packages still quantify success over every `idx : Nat`;
+- per-layer guarded WOTS/XMSS correspondence through the range-gated concrete
+  layer boundary.  `C13SeedNamedAcceptConcreteLayerRangeObligations` and
+  `accept_path_returns_verifyParsed_bool_from_concrete_layer_range_obligations_of_bytes`
+  now index the concrete handoff only over the actual C13 hypertree loop range
+  `idx < 2`; the remaining work is to supply concrete WOTS/XMSS and model-cell
+  facts through that boundary.  The older concrete-layer packages still quantify
+  success over every `idx : Nat`;
   `no_concrete_layer_site_root_obligations_of_parse` and
   `no_concrete_layer_obligations_of_parse` prove those packages are
   uninhabited for successfully parsed C13 signatures at `idx = 2`;

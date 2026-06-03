@@ -590,9 +590,11 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     success field is impossible for a successfully parsed C13 signature,
     because C13 parsing yields exactly two XMSS layers and the records still
     ask for a layer witness at `idx = 2`.  The range-gated guard/step and
-    `afterLayer` adapters above are the replacement shape for future concrete
-    layer handoffs; callers should state WOTS/XMSS and model-cell facts only
-    for `idx < 2`.
+    `afterLayer` adapters above are used by
+    `C13SeedNamedAcceptConcreteLayerRangeObligations` and
+    `accept_path_returns_verifyParsed_bool_from_concrete_layer_range_obligations_of_bytes`,
+    the satisfiable concrete layer handoff where callers state WOTS/XMSS and
+    model-cell facts only for `idx < 2`.
     `SegmentS4Fors` now proves the straight-line setup and final-store frame
     pieces needed by that premise, including the in-range final-store offset
     non-aliasing arithmetic, and a statement-level outer-loop seed-cell handoff
