@@ -784,6 +784,58 @@ theorem accept_path_returns_verifyParsed_bool_from_layer_step
     pkSeed pkRoot message sig pk sigParsed forsPk specRoot hPk hShape hZero hFors hFold
     hlen hg3 hgL hCurrent hWordCmp
 
+/-- Range-gated variant of `accept_path_returns_verifyParsed_bool_from_layer_step`.
+The per-layer data relation only has to hold for the two concrete C13 layer-loop
+indices. -/
+theorem accept_path_returns_verifyParsed_bool_from_layer_step_range
+    (pkSeed pkRoot message sig : ByteArray)
+    (pk : PublicKey) (sigParsed : Signature) (forsPk specRoot : ByteArray)
+    (specStep : Nat → ByteArray → ByteArray)
+    (hPk : pk = { pkSeed := pkSeed, pkRoot := pkRoot })
+    (hShape : signatureShapeOk c13 sigParsed = true)
+    (hZero : forcedZeroOk c13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message) = true)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13 pk
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message) sigParsed.fors
+          = some forsPk)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13 pk
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hlen : lookupValue (mkC13State pkSeed pkRoot message sig).bindings "sig_length"
+              = wordNormalize 3688)
+    (hg3 : SegmentS3.s3Guard (afterS2 (mkC13State pkSeed pkRoot message sig)) = 0)
+    (hgL : ClimbLoopGuarded.allGuardsPass "layer" SegmentLayer3.stepLayer SegmentLayer3.layerGuard
+        { (afterSeed (mkC13State pkSeed pkRoot message sig)) with
+            bindings := bindValue
+              (afterSeed (mkC13State pkSeed pkRoot message sig)).bindings "layer" (wordNormalize 0) }
+        0 (wordNormalize 2))
+    (hForsPkWord :
+        lookupValue (afterFinalize (mkC13State pkSeed pkRoot message sig)).bindings "forsPk"
+          = wordOfHash16 forsPk)
+    (hLayerStep : ∀ (s : RuntimeState) (node : ByteArray) (idx : Nat), idx < 2 →
+        CurrentNodeRel wordOfHash16 s node →
+        CurrentNodeRel wordOfHash16
+          (SegmentLayer3.stepLayer
+            { s with bindings := bindValue s.bindings "layer" (wordNormalize idx) })
+          (specStep idx node))
+    (hSpecFold : ClimbLoop.specFold specStep forsPk 0 (wordNormalize 2) = specRoot)
+    (hWordCmp : decide (wordOfHash16 specRoot = wordOfHash16 pkRoot)
+          = (specRoot == pkRoot)) :
+    ∃ finalState,
+      verifyParsed C13Concrete.c13PrimitivesConcrete c13 pk message sigParsed
+        = some (specRoot == pk.pkRoot) ∧
+      execStmtList [] (mkC13State pkSeed pkRoot message sig) c13VerifyBody
+        = .return (wordNormalize (boolWord (specRoot == pk.pkRoot))) finalState := by
+  have hCurrent :
+      lookupValue (afterLayer (mkC13State pkSeed pkRoot message sig)).bindings "currentNode"
+        = wordOfHash16 specRoot :=
+    CurrentNodeFrame.afterLayer_currentNode_wordOfHash16_of_forsPk_step_range
+      (mkC13State pkSeed pkRoot message sig) specStep forsPk specRoot
+      hForsPkWord hLayerStep hSpecFold
+  exact accept_path_returns_verifyParsed_bool_from_root
+    pkSeed pkRoot message sig pk sigParsed forsPk specRoot hPk hShape hZero hFors hFold
+    hlen hg3 hgL hCurrent hWordCmp
+
 /-- Same as `accept_path_returns_verifyParsed_bool_from_layer_step`, but the S4
 premise is the concrete masked FORS-compression word rather than the already-bound
 `"forsPk"` lookup.  This is the handoff shape for the forthcoming S4/FORS root
@@ -4272,6 +4324,7 @@ theorem accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of
 #print axioms hash16OfWord_wordOfHash16_of_canonical
 #print axioms specRoot_roundtrip_of_c13_fors_fold
 #print axioms accept_path_returns_verifyParsed_bool_from_layer_step
+#print axioms accept_path_returns_verifyParsed_bool_from_layer_step_range
 #print axioms accept_path_returns_verifyParsed_bool_from_fors_compress_and_layer_step
 #print axioms accept_path_returns_verifyParsed_bool_from_fors_roots_and_layer_step_range
 #print axioms accept_path_returns_verifyParsed_bool_from_seed_and_fors_roots_and_layer_step

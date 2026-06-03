@@ -240,6 +240,8 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   all-`Nat` layer surface with the actual `idx < 2` loop range, backed by
   `ClimbLoopGuarded.allGuardsPass_of_rel_range` and
   `CurrentNodeFrame.afterLayer_currentNode_wordOfHash16_of_forsPk_step_range`;
+  `accept_path_returns_verifyParsed_bool_from_layer_step_range` exposes the same
+  bounded step shape at the final accept handoff;
 - pure C13 hypertree spec-fold closure in
   `SphincsMinusVerifiers/SegmentAcceptSpec.lean`:
   `specFold_c13HypertreeSpecStep_eq_of_foldHypertree_ok`, which derives the

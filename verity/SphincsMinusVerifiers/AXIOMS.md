@@ -216,11 +216,12 @@ are:
   `C13SeedNamedAcceptParsedObligations` /
   `C13SeedNamedAcceptGuardedLayerObligations` /
   `C13SeedNamedAcceptGuardedObligations` /
-  `C13SeedNamedAcceptConcreteLayerObligations` /
-  `no_concrete_layer_obligations_of_parse` /
-  `seed_named_pk_root_size_obligations_of_concrete_layer_obligations` /
-  `accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of_bytes`:
-  `[propext, Classical.choice, Quot.sound]`.
+	  `C13SeedNamedAcceptConcreteLayerObligations` /
+	  `no_concrete_layer_obligations_of_parse` /
+	  `seed_named_pk_root_size_obligations_of_concrete_layer_obligations` /
+	  `accept_path_returns_verifyParsed_bool_from_layer_step_range` /
+	  `accept_path_returns_verifyParsed_bool_from_concrete_layer_obligations_of_bytes`:
+	  `[propext, Classical.choice, Quot.sound]`.
 
 - `SegmentAcceptSpec.hash16OfWord_beq_eq_decide`,
   `SegmentAcceptSpec.byteRoot_beq_eq_decide_of_wordOfHash16_roundtrip`, and

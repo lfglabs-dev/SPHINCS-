@@ -499,7 +499,9 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     all-`Nat` layer surface with the actual C13 loop range `idx < 2`; the
     generic `ClimbLoopGuarded.allGuardsPass_of_rel_range` and
     `CurrentNodeFrame.afterLayer_currentNode_wordOfHash16_of_forsPk_step_range`
-    provide the matching guarded-loop and final-`currentNode` range adapters.
+    provide the matching guarded-loop and final-`currentNode` range adapters, and
+    `accept_path_returns_verifyParsed_bool_from_layer_step_range` exposes that
+    shape at the final accept handoff.
     `specFold_c13HypertreeSpecStep_eq_of_foldHypertree_ok` closes the pure
     two-layer spec-fold side for that concrete step from a successful
     `foldHypertree` result, so the remaining layer work is model data-cell
