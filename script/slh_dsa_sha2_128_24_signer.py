@@ -502,7 +502,7 @@ def main():
     #   M' = toByte(0,1) ‖ toByte(|ctx|,1) ‖ ctx ‖ M = 0x00 ‖ 0x00 ‖ M.
     # We sign the RAW message bytes (no rjust/truncate to 32 — that was the
     # SLH-S-f1 divergence from the C reference); the on-chain bytes32 verifier
-    # is the 32-byte-M case of this and prepends the same envelope. (audit
+    # is the 32-byte-M case of this and prepends the same envelope. (review
     # SLH-S-f1 / SLH-X-f1)
     msg_bytes = b"\x00\x00" + msg_raw
 

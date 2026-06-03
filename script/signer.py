@@ -538,7 +538,7 @@ def compute_octopus_auth_set(tree_nodes, sorted_indices, tree_height):
 #  R Grinding
 # ============================================================
 
-# SECRET-KEYED randomizer (audit C13-X-f2). R is bound to the secret sk_seed and
+# SECRET-KEYED randomizer (review C13-X-f2). R is bound to the secret sk_seed and
 # the message: R = mask_n(keccak(sk_seed[32] || "R_grind" || message[32] ||
 # nonce[32])), grinding nonce until the forced-zero / octopus predicate holds.
 # Binding R to sk_seed removes public-grindability (an attacker can no longer

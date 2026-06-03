@@ -7,7 +7,7 @@ pragma solidity ^0.8.28;
 ///      message is wrapped as M' = toByte(0,1) ‖ toByte(|ctx|,1) ‖ ctx ‖ M before
 ///      H_msg; with ctx = empty this is M' = 0x00 ‖ 0x00 ‖ M. This matches
 ///      published NIST/ACVP *external* KAT vectors. Signers must apply the same
-///      envelope (prepend 0x00 0x00). (audit SLH-X-f1)
+///      envelope (prepend 0x00 0x00). (review SLH-X-f1)
 ///      Parameters (NIST SP 800-230 Table 1):
 ///        n  = 16   h = 22   d = 1   h' = 22
 ///        a  = 24   k = 6    w = 4 (lgw=2)   m = 21
@@ -32,7 +32,7 @@ pragma solidity ^0.8.28;
 ///          FORS_ROOTS(4): kp(4) ‖ 0(8)
 ///        For d=1 the layer and tree fields are always zero.
 ///
-///      ADRSc FIELD-WIDTH NOTE (audit SLH-V-f3): this verifier (and the Python
+///      ADRSc FIELD-WIDTH NOTE (review SLH-V-f3): this verifier (and the Python
 ///      signer) write `chain`, `hash`, and `tree_height` as full 4-byte
 ///      big-endian fields, whereas the sphincs/sphincsplus C reference writes
 ///      them as single bytes with the adjacent 3 bytes left zero. The SHA-256

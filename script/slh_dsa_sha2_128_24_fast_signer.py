@@ -59,7 +59,7 @@ def cache_key(master_sk_hex: str, message_hex: str, sig_counter: int) -> str:
     # external empty-ctx envelope) breaks the cache for any pre-existing
     # fixtures. It also folds in the C binary's mtime so a rebuild (e.g. a
     # reduced-height dev build) cannot silently serve a stale fixture under
-    # different params. (audit SLH-X-f1 / SLH-S-f3)
+    # different params. (review SLH-X-f1 / SLH-S-f3)
     CONVENTION_TAG = b"fips205-external-empty-ctx-v2"
     h = hashlib.sha256()
     h.update(CONVENTION_TAG)
@@ -106,7 +106,7 @@ def main():
     # FIPS 205 EXTERNAL SLH-DSA.Sign with empty context: the C binary is
     # slh_sign_internal (signs raw bytes), so we apply the envelope here by
     # prepending M' = toByte(0,1) ‖ toByte(0,1) ‖ M = 0x00 0x00 ‖ M. The
-    # on-chain verifier prepends the same two bytes internally. (audit SLH-X-f1)
+    # on-chain verifier prepends the same two bytes internally. (review SLH-X-f1)
     msg_hex_signed = "0000" + msg_hex
 
     # In hedged mode (default) we pass --hedged through to the C binary so

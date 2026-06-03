@@ -1,7 +1,7 @@
 # Security analysis — C13 (FORS+C / WOTS+C) and SLH-DSA-SHA2-128-24
 
 > Status: informal security argument, not a machine-checked proof. It records the
-> few-time / subset-resilience accounting behind two audit remediations
+> few-time / subset-resilience accounting behind two review remediations
 > (C13-X-f2 secret-keyed `R`; C13-X-f3 WOTS+C reuse) and documents the
 > SLH-DSA-SHA2 usage budget (SLH-X-f2cap). Probabilistic bounds are order-of-
 > magnitude (base-2 log) estimates in the random-oracle model for keccak256 /
@@ -38,7 +38,7 @@ Two facts drive the analysis:
 
 ---
 
-## 2. C13 message randomizer `R` — public-grindable → secret-keyed (audit C13-X-f2)
+## 2. C13 message randomizer `R` — public-grindable → secret-keyed (review C13-X-f2)
 
 ### 2.1 The two attack avenues
 
@@ -118,7 +118,7 @@ eliminates Avenue B (the `~2^41` chosen-message concentration break that public
 
 ---
 
-## 3. FORS+C forced-zero — effective `k = 6` (audit C13-X-f1, not a defect)
+## 3. FORS+C forced-zero — effective `k = 6` (review C13-X-f1, not a defect)
 
 C13 forces the last (`k-1 = 6`) FORS tree's index to `0` by grinding `R`, and the
 verifier reveals that tree's leaf-0 root directly (saving one auth path, shrinking
@@ -134,7 +134,7 @@ appear explicitly in the proven bound, which §2.3 does.
 
 ---
 
-## 4. WOTS+C target-sum reuse under `ht_idx` collisions (audit C13-X-f3)
+## 4. WOTS+C target-sum reuse under `ht_idx` collisions (review C13-X-f3)
 
 ### 4.1 Why bottom-layer WOTS keys are reused
 
@@ -192,7 +192,7 @@ the analytic bound.
 
 ## 5. SLH-DSA-SHA2-128-24 — external mode and the `2^22` leaf budget
 
-### 5.1 External FIPS 205 (audit SLH-X-f1)
+### 5.1 External FIPS 205 (review SLH-X-f1)
 
 The verifier implements **FIPS 205 external `SLH-DSA.Verify` with an empty
 context**: the message is wrapped as `M' = toByte(0,1) ‖ toByte(|ctx|,1) ‖ ctx ‖ M`
@@ -202,7 +202,7 @@ and the Python signer apply the same envelope by prepending `0x00 0x00`; the
 on-chain verifier prepends it internally before the inner SHA-256
 (`R ‖ seed ‖ root ‖ 0x00 ‖ 0x00 ‖ M`, 82 bytes).
 
-### 5.2 The signature budget (audit SLH-X-f2cap)
+### 5.2 The signature budget (review SLH-X-f2cap)
 
 With `h=22, d=1` the hypertree is a single XMSS tree of `2^22` one-time WOTS
 leaves, and the signing leaf `leafIdx` is chosen *pseudo-randomly* from the

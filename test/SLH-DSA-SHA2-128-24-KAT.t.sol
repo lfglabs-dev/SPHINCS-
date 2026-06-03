@@ -13,7 +13,7 @@ import "../src/SLH-DSA-SHA2-128-24verifier.sol";
 ///           python3 script/slh_dsa_sha2_128_24_fast_signer.py \
 ///             0x1111..1111  0xdeadbeef00..00  0        (sig_counter=0)
 ///         which prepends the 0x00 0x00 empty-ctx envelope before the C signer.
-///         (audit SLH-X-f1 / SLH-X-f4/f5)
+///         (review SLH-X-f1 / SLH-X-f4/f5)
 contract SLH_DSA_SHA2_128_24_KAT_Test is Test {
     SLH_DSA_SHA2_128_24_Verifier verifier;
 

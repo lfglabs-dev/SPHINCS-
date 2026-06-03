@@ -50,7 +50,7 @@ contract SphincsFrameAccountC13Test is Test {
 
         // 3688 zero bytes: correct length, but the FORS+C forced-zero / WOTS+C
         // target-sum / root checks all fail. The verifier now RETURNS false for
-        // these (audit C13-evm-f2), so the frame's descriptive require fires.
+        // these (review C13-evm-f2), so the frame's descriptive require fires.
         bytes memory zeroSig = new bytes(3688);
         bytes32 message = bytes32(uint256(0xdead));
         vm.expectRevert(bytes("invalid SPHINCS+ signature"));

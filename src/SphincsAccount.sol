@@ -68,7 +68,7 @@ contract SphincsAccount is BaseAccount {
     /// @dev ERC-4337 requires `_validateSignature` to be TOTAL: any signature
     ///      failure must RETURN `SIG_VALIDATION_FAILED`, never revert (a revert
     ///      becomes EntryPoint `AA23` and reverts the whole bundle). Two former
-    ///      revert paths are made total here (audit C13-acc-g1):
+    ///      revert paths are made total here (review C13-acc-g1):
     ///        (1) `abi.decode` of a malformed `userOp.signature` — wrapped in
     ///            try/catch via `decodeHybridSignature`;
     ///        (2) ECDSA recovery on a bad-length / high-`s` / bad-`v` signature —

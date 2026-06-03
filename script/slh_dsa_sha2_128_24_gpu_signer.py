@@ -56,7 +56,7 @@ def abi_encode(seed16: bytes, root16: bytes, sig: bytes) -> bytes:
 def _norm(s: str) -> str: return s.lower().removeprefix("0x")
 
 def cache_key(master_sk_hex: str, message_hex: str, sig_counter: int) -> str:
-    # Convention tag invalidates pre-envelope fixtures (audit SLH-X-f1).
+    # Convention tag invalidates pre-envelope fixtures (review SLH-X-f1).
     h = hashlib.sha256()
     h.update(b"fips205-external-empty-ctx-v2|")
     h.update(_norm(master_sk_hex).encode())
@@ -99,7 +99,7 @@ def main():
     if len(msg_hex) % 2: msg_hex = "0" + msg_hex
     # FIPS 205 external SLH-DSA.Sign, empty ctx: sign M' = 0x00 0x00 ‖ M. The GPU
     # binary is slh_sign_internal (raw bytes), so we prepend the envelope here to
-    # match the on-chain verifier. (audit SLH-X-f1)
+    # match the on-chain verifier. (review SLH-X-f1)
     msg_hex_signed = "0000" + msg_hex
 
     # In hedged mode (the default) we pass --hedged through to the GPU binary

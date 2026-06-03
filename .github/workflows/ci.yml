@@ -1,6 +1,6 @@
 name: CI
 
-# Added per audit remediation (steps 3/4/7): there was previously NO automated
+# Added per security-review remediation (steps 3/4/7): there was previously NO automated
 # test/KAT/cross-implementation check. These jobs catch:
 #   - C13 Rust↔Python signer desync and the full-param cross-impl oracle (C13-S-f1,
 #     C13-V-f4) — via cargo test, including the #[ignore]d full-height tests;

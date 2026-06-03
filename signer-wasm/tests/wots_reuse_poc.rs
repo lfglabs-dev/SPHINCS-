@@ -1,4 +1,4 @@
-//! Regression guard for WOTS+C target-sum reuse (audit C13-X-f3).
+//! Regression guard for WOTS+C target-sum reuse (review C13-X-f3).
 //!
 //! At the 2^22 signature cap, hypertree-leaf (`ht_idx`) collisions are EXPECTED
 //! (~2^21 colliding pairs by the birthday bound), so one layer-0 WOTS keypair

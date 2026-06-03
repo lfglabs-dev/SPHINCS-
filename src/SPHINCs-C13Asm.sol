@@ -39,7 +39,7 @@ contract SphincsC13Asm {
         // unconditional in-assembly `return`/`revert`, so Solidity never regains
         // control with a clobbered FMP. It is therefore NOT `memory-safe` in the
         // Yul sense — do not add the ("memory-safe") annotation and do not introduce
-        // a normal (fall-through) exit from this block. (audit C13-evm-f1)
+        // a normal (fall-through) exit from this block. (review C13-evm-f1)
         assembly {
             let N_MASK := 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00000000000000000000000000000000
 
@@ -55,7 +55,7 @@ contract SphincsC13Asm {
             // the SLH-DSA-SHA2 verifier. Without this a non-top-aligned pkRoot can
             // never equal the always-N_MASK'd `currentNode` (line ~"valid := eq"),
             // silently bricking the account; pkSeed would also diverge from the
-            // signer which always masks. Fail loudly instead. (audit C13-V-f1)
+            // signer which always masks. Fail loudly instead. (review C13-V-f1)
             if or(iszero(eq(pkSeed, and(pkSeed, N_MASK))), iszero(eq(pkRoot, and(pkRoot, N_MASK)))) {
                 mstore(0x00, 0x08c379a000000000000000000000000000000000000000000000000000000000)
                 mstore(0x04, 0x20)
@@ -78,7 +78,7 @@ contract SphincsC13Asm {
 
             // htIdx = (digest >> 133) & (2^22-1)
             // PARAM IDENTITIES (must hold or signer/verifier desync silently —
-            // audit C13-V-f4): 133 = K*A = 7*19 ; 0x3FFFFF = 2^H-1 = 2^22-1.
+            // review C13-V-f4): 133 = K*A = 7*19 ; 0x3FFFFF = 2^H-1 = 2^22-1.
             let htIdx := and(shr(133, digest), 0x3FFFFF)
 
             // FORS+C (K=7, A=19)
@@ -96,17 +96,17 @@ contract SphincsC13Asm {
             // mirrors this and derives the leaf secrets from the same leaf.
             let dVal := digest
             // Forced-zero: last FORS index (i=K-1=6) occupies bits [114,133)
-            // (19-bit field). PARAM IDENTITIES (audit C13-V-f4): 114 = (K-1)*A =
+            // (19-bit field). PARAM IDENTITIES (review C13-V-f4): 114 = (K-1)*A =
             // 6*19 ; 0x7FFFF = 2^A-1 = 2^19-1.
             // A well-formed-but-invalid signature is rejected by returning `false`
             // (the bool contract), NOT by an empty revert — so all soundness
-            // rejections are uniform across callers. (audit C13-V-f2 / C13-evm-f2)
+            // rejections are uniform across callers. (review C13-V-f2 / C13-evm-f2)
             if and(shr(114, dVal), 0x7FFFF) { mstore(0x00, 0) return(0x00, 0x20) }
 
             let sigBase := sig.offset
 
             // SUBTREE_H = 11 (h/d = 22/2): split htIdx into bottom subtree + leaf.
-            // PARAM IDENTITIES (audit C13-V-f4): 0x7FF = 2^SUBTREE_H-1 = 2^11-1 ;
+            // PARAM IDENTITIES (review C13-V-f4): 0x7FF = 2^SUBTREE_H-1 = 2^11-1 ;
             // shift 11 = SUBTREE_H.
             let idxLeaf0 := and(htIdx, 0x7FF)
             let idxTree0 := shr(11, htIdx)
@@ -118,7 +118,7 @@ contract SphincsC13Asm {
                 let treeIdx := and(shr(mul(i, 19), dVal), 0x7FFFF) // 19=A-bit indices, shift i*A
                 let secretVal := and(calldataload(add(sigBase, add(16, shl(4, i)))), N_MASK)
                 // Leaf hash (height 0): word3 = (i << A) | treeIdx, A=19 (folds the k
-                // FORS trees into one tree_index space; audit C13-V-f4)
+                // FORS trees into one tree_index space; review C13-V-f4)
                 let leafAdrs := or(forsBase, or(shl(19, i), treeIdx))
                 mstore(0x20, leafAdrs)
                 mstore(0x40, secretVal)
@@ -133,7 +133,7 @@ contract SphincsC13Asm {
                     let sibling := and(calldataload(add(authPtr, shl(4, h))), N_MASK)
                     let parentIdx := shr(1, pathIdx)
                     // word2=height=h+1; word3 = (i << (A-1-h)) | parentIdx.
-                    // PARAM IDENTITY (audit C13-V-f4): 18 = A-1; sub(18,h) stays
+                    // PARAM IDENTITY (review C13-V-f4): 18 = A-1; sub(18,h) stays
                     // >= 0 for h in [0,18] (the A=19 auth levels).
                     mstore(0x20, or(forsBase, or(shl(32, add(h, 1)), or(shl(sub(18, h), i), parentIdx))))
                     // Branchless Merkle swap (Solady)
@@ -150,7 +150,7 @@ contract SphincsC13Asm {
             {
                 let lastSecret := and(calldataload(add(sigBase, add(16, shl(4, 6)))), N_MASK) // 16+(K-1)*16=112
                 // Forced-zero tree (forsTree=K-1=6) as leaf node 0: word3 = (6 << A).
-                // PARAM IDENTITY (audit C13-V-f4): 19 = A, 6 = K-1.
+                // PARAM IDENTITY (review C13-V-f4): 19 = A, 6 = K-1.
                 mstore(0x20, or(forsBase, shl(19, 6)))
                 mstore(0x40, lastSecret)
                 // 0x80 + 6*0x20 = 0x80 + 0xC0 = 0x140
@@ -199,10 +199,10 @@ contract SphincsC13Asm {
                 let d := keccak256(0x00, 0x80)
 
                 // Validate WOTS+C digit sum == TARGET_SUM (43 base-8 digits, 3 bits
-                // each). PARAM IDENTITIES (audit C13-V-f4): loop bound 43 = L ;
+                // each). PARAM IDENTITIES (review C13-V-f4): loop bound 43 = L ;
                 // digit shift 3 = LOG_W ; mask 0x7 = W-1 = 2^LOG_W-1 ; 208 = TARGET_SUM.
                 // A digit-sum mismatch is a well-formed-but-invalid signature ->
-                // return `false` (uniform with the forced-zero path; audit
+                // return `false` (uniform with the forced-zero path; review
                 // C13-V-f2 / C13-evm-f2), not an empty revert.
                 let digitSum := 0
                 for { let ii := 0 } lt(ii, 43) { ii := add(ii, 1) } {

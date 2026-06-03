@@ -1,4 +1,9 @@
-# Security Audit Report — SPHINCs- C13 & SLH-DSA-SHA2-128-24
+# Agent-Assisted Security Review — SPHINCs- C13 & SLH-DSA-SHA2-128-24
+
+> **What this is (and is not):** this review was produced with AI-agent assistance
+> (automated source reading plus adversarial verification passes), driven and checked
+> by the maintainer. It is **not an independent professional security audit** and
+> confers no audit-grade assurance. Treat it as a best-effort engineering review.
 
 **Scope:** Two cryptographic families, signer side and on-chain verifier side.
 1. **C13** — custom lightweight SPHINCS+ "+C" variant (ePrint 2025/2203 family), FIPS 205 §11.2.2 uncompressed 32-byte ADRS + keccak256. Verifier `src/SPHINCs-C13Asm.sol`; signers `signer-wasm/` (Rust), `script/signer.py`.
@@ -373,7 +378,7 @@ No candidate findings were left in an unadjudicated state — the adversarial ve
 | Full-parameter C13 byte-equality (Py vs Rust vs verifier) | Run the three-way crosscheck at real C13 height (A=19, SUBTREE_H=11). A Python-signer-specific bug (count-grind or ADRS edge that only manifests at full params) would not be caught by anything that runs by default. The `cross_validate.rs` unit oracle is broken (C13-S-f1/f2). | `signers/c13-crosscheck/crosscheck.py`; `signer-wasm/tests/cross_validate.rs`, `fors_reuse_poc.rs` (`#[ignore]`d) |
 | C13 Python vs Rust key-derivation chains | Confirm production always injects the account's *actual* fixed pkRoot via `sign_with_known_keys` — `signer.py main()/derive_keys` uses a *different* derivation and produces message-derived keys that will NOT match a deployed account. | `script/signer.py` (`derive_keys`, `sign_with_known_keys`) |
 | Off-chain key-handling / non-canonical key origination | Verify deploy/send scripts cannot ship a non-canonical (non-top-128) pkSeed/pkRoot to an account — which (per C13-V-f1) would silently brick it. The on-chain accounts store keys verbatim. | `legacy/script/deploy_frame_account.py`, `send_userop_c13.py`, `send_frame_tx_c13.py` |
-| SLH-DSA-Keccak twin & slhvk Vulkan signer | **Out of audit scope, not examined.** No automated test guards that the Keccak verifier and its signer agree byte-for-byte at full params; the LSB-first convention is documented as intentionally incompatible with the SHA-2 BE family. | `src/SLH-DSA-keccak-128-24verifier.sol`, `signers/slhvk-sha2-128-24/` |
+| SLH-DSA-Keccak twin & slhvk Vulkan signer | **Out of review scope, not examined.** No automated test guards that the Keccak verifier and its signer agree byte-for-byte at full params; the LSB-first convention is documented as intentionally incompatible with the SHA-2 BE family. | `src/SLH-DSA-keccak-128-24verifier.sol`, `signers/slhvk-sha2-128-24/` |
 | SphincsFrameAccount APPROVE step | The approve step is an empty placeholder assembly block (deferred to off-chain `frame_tx.py`); the `sigHash` is caller-supplied with no in-contract binding to transaction parameters. Scaffold-by-design — note for productionization. | `src/SphincsFrameAccount.sol` |
 
 ---

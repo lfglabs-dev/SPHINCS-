@@ -39,7 +39,7 @@ contract SphincsFrameAccount {
                 sig
             )
         );
-        // Error-surface contract (audit C13-evm-f2): the C13 verifier RETURNS
+        // Error-surface contract (review C13-evm-f2): the C13 verifier RETURNS
         // `false` for every soundness rejection — invalid Merkle root, FORS+C
         // forced-zero violation, and WOTS+C target-sum violation — so those all
         // land on the descriptive "invalid SPHINCS+ signature" path below. The

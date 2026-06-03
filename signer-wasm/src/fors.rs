@@ -59,7 +59,7 @@ fn build_fors_tree(seed: U256, sk_seed: U256, tree_idx: u32, ht_idx: u32) -> (Ve
 
 /// Grind R until the last FORS index is zero (FORS+C forced-zero).
 ///
-/// SECRET-KEYED randomizer (audit C13-X-f2). `R` is bound to the secret
+/// SECRET-KEYED randomizer (review C13-X-f2). `R` is bound to the secret
 /// `sk_seed` and the message:
 ///   `R = mask_n(keccak256(sk_seed ‖ "R_grind" ‖ message ‖ nonce))`,
 /// grinding `nonce` until the forced-zero predicate holds. Binding `R` to
