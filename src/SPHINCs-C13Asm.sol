@@ -60,29 +60,40 @@ contract SphincsC13Asm {
             let htIdx := and(shr(133, digest), 0x3FFFFF)
 
             // FORS+C (K=7, A=19)
+            //
+            // FORS addressing — exact FIPS 205 FORS field split: the FORS
+            // instance is keyed by the per-message hypertree leaf via the
+            // canonical address fields —
+            //   tree address      = idxTree0 = htIdx >> SUBTREE_H (bottom subtree)
+            //   word1/kp           = idxLeaf0 = htIdx & (2^SUBTREE_H-1) (bottom leaf)
+            //   word3/tree_index   = (forsTree << (A-height)) | node  (k FORS trees
+            //                        indexed as one forest, FIPS 205 Alg. 17)
+            //   word2/tree_height  = height
+            // so each of the 2^h hypertree leaves selects a distinct FORS
+            // instance. Matches C12 / SLH-DSA-SHA2 field semantics; the signer
+            // mirrors this and derives the leaf secrets from the same leaf.
             let dVal := digest
             // Forced-zero: last index (i=6) at bits 114..132 (mask = 2^19-1)
             if and(shr(114, dVal), 0x7FFFF) { revert(0, 0) }
 
             let sigBase := sig.offset
 
-            // FIPS ADRS bit positions for FORS_TREE (layer=0, tree=0):
-            //   type=3       at shl(96, …)
-            //   word1=kp     at shl(64, …)
-            //   word2=height at shl(32, …)
-            //   word3=index  at shl( 0, …)
+            // SUBTREE_H = 11 (h/d = 22/2): split htIdx into bottom subtree + leaf.
+            let idxLeaf0 := and(htIdx, 0x7FF)
+            let idxTree0 := shr(11, htIdx)
+            // forsBase: tree=idxTree0 (shl 128), type=3 (shl 96), kp=idxLeaf0 (shl 64).
+            // Per-site we OR in word2=height (shl 32) and word3=tree_index (shl 0).
+            let forsBase := or(shl(128, idxTree0), or(shl(96, 3), shl(64, idxLeaf0)))
             // K-1=6 normal trees
             for { let i := 0 } lt(i, 6) { i := add(i, 1) } {
                 let treeIdx := and(shr(mul(i, 19), dVal), 0x7FFFF) // 19-bit indices
                 let secretVal := and(calldataload(add(sigBase, add(16, shl(4, i)))), N_MASK)
-                // Leaf hash: type=3, word1=i (FORS tree idx), word2=0, word3=treeIdx (leaf)
-                let leafAdrs := or(shl(96, 3), or(shl(64, i), treeIdx))
+                // Leaf hash (height 0): word3 = (i << A) | treeIdx, A=19
+                let leafAdrs := or(forsBase, or(shl(19, i), treeIdx))
                 mstore(0x20, leafAdrs)
                 mstore(0x40, secretVal)
                 let node := and(keccak256(0x00, 0x60), N_MASK)
 
-                // Auth-path base: type=3, word1=i, word2 and word3 supplied per level
-                let treeAdrsBase := or(shl(96, 3), shl(64, i))
                 let pathIdx := treeIdx
                 // AUTH_START = 16 + K*N = 128, auth per tree = A*N = 19*16 = 304
                 let authPtr := add(sigBase, add(128, mul(i, 304)))
@@ -91,8 +102,8 @@ contract SphincsC13Asm {
                 for { let h := 0 } lt(h, 19) { h := add(h, 1) } {
                     let sibling := and(calldataload(add(authPtr, shl(4, h))), N_MASK)
                     let parentIdx := shr(1, pathIdx)
-                    // word2=tree_height=h+1, word3=tree_index=parentIdx
-                    mstore(0x20, or(treeAdrsBase, or(shl(32, add(h, 1)), parentIdx)))
+                    // word2=height=h+1; word3 = (i << (A-1-h)) | parentIdx, A-1=18
+                    mstore(0x20, or(forsBase, or(shl(32, add(h, 1)), or(shl(sub(18, h), i), parentIdx))))
                     // Branchless Merkle swap (Solady)
                     let s := shl(5, and(pathIdx, 1))
                     mstore(xor(0x40, s), node)
@@ -106,17 +117,17 @@ contract SphincsC13Asm {
             // Last tree (forced-zero): secret is the revealed root, hashed under FORS_TREE leaf ADRS
             {
                 let lastSecret := and(calldataload(add(sigBase, add(16, shl(4, 6)))), N_MASK) // 16+6*16=112
-                // Leaf ADRS for forced-zero tree: type=3, word1=6, word2=0, word3=0
-                mstore(0x20, or(shl(96, 3), shl(64, 6)))
+                // Forced-zero tree (forsTree=6) as leaf node 0: word3 = (6 << A)
+                mstore(0x20, or(forsBase, shl(19, 6)))
                 mstore(0x40, lastSecret)
                 // 0x80 + 6*0x20 = 0x80 + 0xC0 = 0x140
                 mstore(0x140, and(keccak256(0x00, 0x60), N_MASK))
             }
 
             // Compress K=7 roots: keccak256(seed || FORS_ROOTS-ADRS || 7 roots)
-            // FORS_ROOTS: type=4 at shl(96, …); word1/word2/word3 all 0.
+            // FORS_ROOTS: tree=idxTree0, type=4 (shl 96), kp=idxLeaf0 (shl 64).
             // = 32 + 32 + 7*32 = 288 = 0x120
-            mstore(0x20, shl(96, 4))
+            mstore(0x20, or(shl(128, idxTree0), or(shl(96, 4), shl(64, idxLeaf0))))
             for { let i := 0 } lt(i, 7) { i := add(i, 1) } {
                 mstore(add(0x40, shl(5, i)), mload(add(0x80, shl(5, i))))
             }

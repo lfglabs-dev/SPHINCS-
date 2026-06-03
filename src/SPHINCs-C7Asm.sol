@@ -5,7 +5,11 @@ pragma solidity ^0.8.28;
 /// @notice C7: W+C_F+C h=24 d=2 a=16 k=8 w=8 l=43 target_sum=151 sig=3704
 ///         Same FORS+C as C6 but with w=8 WOTS chains: fewer hash steps per chain (7 vs 15),
 ///         more chains (43 vs 32), trading +352 bytes sig for ~20% less compute.
-/// @dev Domain-separated H_msg (160 bytes). Shared verifier pattern.
+/// @dev    Uses the FIPS 205 §11.2.2 uncompressed 32-byte ADRS (as C13). FORS is keyed by the
+///         per-message hypertree leaf via the exact FIPS field split — tree=idxTree0,
+///         kp=idxLeaf0, tree_index folds in the FORS tree number ((forsTree<<(A-height))|node).
+///         Domain-separated H_msg (160 bytes).
+///         ADRS: layer(4) ‖ tree(12) ‖ type(4) ‖ word1 ‖ word2 ‖ word3.
 contract SphincsC7Asm {
 
     function verify(bytes32 pkSeed, bytes32 pkRoot, bytes32 message, bytes calldata sig)
@@ -36,27 +40,35 @@ contract SphincsC7Asm {
 
             let htIdx := and(shr(128, digest), 0xFFFFFF)
 
-            // FORS+C (K=8, A=16) — identical to C6
+            // FORS+C (K=8, A=16) — FIPS 205 FORS field split (per-message leaf keying):
+            //   tree=idxTree0 (htIdx>>SUBTREE_H), kp=idxLeaf0 (htIdx&(2^SUBTREE_H-1)),
+            //   tree_index=(forsTree<<(A-height))|node, tree_height=height.
             let dVal := digest
             if and(shr(112, dVal), 0xFFFF) { revert(0, 0) }
 
             let sigBase := sig.offset
+            // SUBTREE_H = 12 (h/d = 24/2): split htIdx into bottom subtree + leaf.
+            let idxLeaf0 := and(htIdx, 0xFFF)
+            let idxTree0 := shr(12, htIdx)
+            // forsBase: tree=idxTree0 (shl 128), type=3 (shl 96), kp=idxLeaf0 (shl 64).
+            let forsBase := or(shl(128, idxTree0), or(shl(96, 3), shl(64, idxLeaf0)))
             for { let i := 0 } lt(i, 7) { i := add(i, 1) } {
                 let treeIdx := and(shr(shl(4, i), dVal), 0xFFFF)
                 let secretVal := and(calldataload(add(sigBase, add(16, shl(4, i)))), N_MASK)
-                let leafAdrs := or(shl(128, 3), or(shl(96, i), treeIdx))
+                // Leaf hash (height 0): word3 = (i << A) | treeIdx, A=16
+                let leafAdrs := or(forsBase, or(shl(16, i), treeIdx))
                 mstore(0x20, leafAdrs)
                 mstore(0x40, secretVal)
                 let node := and(keccak256(0x00, 0x60), N_MASK)
 
-                let treeAdrsBase := or(shl(128, 3), shl(96, i))
                 let pathIdx := treeIdx
                 let authPtr := add(sigBase, add(144, shl(8, i)))
 
                 for { let h := 0 } lt(h, 16) { h := add(h, 1) } {
                     let sibling := and(calldataload(add(authPtr, shl(4, h))), N_MASK)
                     let parentIdx := shr(1, pathIdx)
-                    mstore(0x20, or(treeAdrsBase, or(shl(32, add(h, 1)), parentIdx)))
+                    // word2=height=h+1; word3 = (i << (A-1-h)) | parentIdx, A-1=15
+                    mstore(0x20, or(forsBase, or(shl(32, add(h, 1)), or(shl(sub(15, h), i), parentIdx))))
                     // Branchless Merkle swap (Solady pattern)
                     let s := shl(5, and(pathIdx, 1))
                     mstore(xor(0x40, s), node)
@@ -69,12 +81,14 @@ contract SphincsC7Asm {
 
             {
                 let lastSecret := and(calldataload(add(sigBase, 128)), N_MASK)
-                mstore(0x20, or(shl(128, 3), shl(96, 7)))
+                // Forced-zero tree (forsTree=7) as leaf node 0: word3 = (7 << A)
+                mstore(0x20, or(forsBase, shl(16, 7)))
                 mstore(0x40, lastSecret)
                 mstore(0x160, and(keccak256(0x00, 0x60), N_MASK))
             }
 
-            mstore(0x20, shl(128, 4))
+            // FORS_ROOTS: tree=idxTree0, type=4 (shl 96), kp=idxLeaf0 (shl 64).
+            mstore(0x20, or(shl(128, idxTree0), or(shl(96, 4), shl(64, idxLeaf0))))
             for { let i := 0 } lt(i, 8) { i := add(i, 1) } {
                 mstore(add(0x40, shl(5, i)), mload(add(0x80, shl(5, i))))
             }
@@ -91,7 +105,7 @@ contract SphincsC7Asm {
                 let idxLeaf := and(idxTree, 0xFFF)
                 idxTree := shr(12, idxTree)
 
-                let wotsAdrs := or(shl(224, layer), or(shl(160, idxTree), shl(96, idxLeaf)))
+                let wotsAdrs := or(shl(224, layer), or(shl(128, idxTree), shl(64, idxLeaf)))
 
                 // Count at sigOff + l*N = sigOff + 43*16 = sigOff + 688
                 let countOff := add(sigOff, 688)
@@ -115,14 +129,11 @@ contract SphincsC7Asm {
                     let digit := and(shr(mul(i, 3), d), 0x7)
                     let steps := sub(7, digit)
                     let val := and(calldataload(add(wotsPtr, shl(4, i))), N_MASK)
-                    // Pre-compute loop-invariant masked chain address
-                    let chainBase := and(
-                        or(wotsAdrs, shl(64, i)),
-                        0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00000000FFFFFFFF
-                    )
+                    // FIPS WOTS_HASH: chain_address=word2 (shl 32), hash_address=word3 (shl 0)
+                    let chainBase := or(wotsAdrs, shl(32, i))
 
                     for { let step := 0 } lt(step, steps) { step := add(step, 1) } {
-                        mstore(0x20, or(chainBase, shl(32, add(digit, step))))
+                        mstore(0x20, or(chainBase, add(digit, step)))
                         mstore(0x40, val)
                         val := and(keccak256(0x00, 0x60), N_MASK)
                     }
@@ -131,7 +142,7 @@ contract SphincsC7Asm {
 
                 // PK compression: keccak256(seed || pkAdrs || 43 endpoints)
                 // = 32 + 32 + 43*32 = 1440 = 0x5A0
-                let pkAdrs := or(shl(224, layer), or(shl(160, idxTree), or(shl(128, 1), shl(96, idxLeaf))))
+                let pkAdrs := or(shl(224, layer), or(shl(128, idxTree), or(shl(96, 1), shl(64, idxLeaf))))
                 mstore(0x20, pkAdrs)
                 for { let i := 0 } lt(i, 43) { i := add(i, 1) } {
                     mstore(add(0x40, shl(5, i)), mload(add(0x80, shl(5, i))))
@@ -140,7 +151,7 @@ contract SphincsC7Asm {
 
                 // Merkle auth path (12 levels)
                 let authOff := add(countOff, 4)
-                let treeAdrs := or(shl(224, layer), or(shl(160, idxTree), shl(128, 2)))
+                let treeAdrs := or(shl(224, layer), or(shl(128, idxTree), shl(96, 2)))
                 let merkleNode := wotsPk
                 let mIdx := idxLeaf
                 let merklePtr := add(sigBase, authOff)
@@ -148,10 +159,8 @@ contract SphincsC7Asm {
                 for { let h := 0 } lt(h, 12) { h := add(h, 1) } {
                     let sibling := and(calldataload(add(merklePtr, shl(4, h))), N_MASK)
                     let parentIdx := shr(1, mIdx)
-                    mstore(0x20, or(
-                        and(treeAdrs, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF0000000000000000),
-                        or(shl(32, add(h, 1)), parentIdx)
-                    ))
+                    // type=2, word2=height=h+1, word3=tree_index=parentIdx
+                    mstore(0x20, or(treeAdrs, or(shl(32, add(h, 1)), parentIdx)))
                     // Branchless Merkle swap (Solady pattern)
                     let s := shl(5, and(mIdx, 1))
                     mstore(xor(0x40, s), merkleNode)
