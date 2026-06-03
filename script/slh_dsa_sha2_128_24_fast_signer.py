@@ -55,9 +55,12 @@ def _norm(s: str) -> str: return s.lower().removeprefix("0x")
 
 def cache_key(master_sk_hex: str, message_hex: str, sig_counter: int) -> str:
     # Cache key includes a convention tag so that bumping signature
-    # conventions (e.g. the FORS digest LE→BE switch for FIPS 205) breaks
-    # the cache for any pre-existing fixtures.
-    CONVENTION_TAG = b"fips205-be-fors-v1"
+    # conventions (e.g. the FORS digest LE→BE switch for FIPS 205, or the
+    # external empty-ctx envelope) breaks the cache for any pre-existing
+    # fixtures. It also folds in the C binary's mtime so a rebuild (e.g. a
+    # reduced-height dev build) cannot silently serve a stale fixture under
+    # different params. (audit SLH-X-f1 / SLH-S-f3)
+    CONVENTION_TAG = b"fips205-external-empty-ctx-v2"
     h = hashlib.sha256()
     h.update(CONVENTION_TAG)
     h.update(b"|")
@@ -66,6 +69,8 @@ def cache_key(master_sk_hex: str, message_hex: str, sig_counter: int) -> str:
     h.update(_norm(message_hex).encode())
     h.update(b"|")
     h.update(str(sig_counter).encode())
+    h.update(b"|")
+    h.update(str(os.path.getmtime(BIN_PATH)).encode())
     return h.hexdigest()
 
 def main():
@@ -98,7 +103,11 @@ def main():
 
     msg_hex = args.message_hex.removeprefix("0x")
     if len(msg_hex) % 2: msg_hex = "0" + msg_hex
-    # C CLI takes message as raw hex bytes; pass through as-is.
+    # FIPS 205 EXTERNAL SLH-DSA.Sign with empty context: the C binary is
+    # slh_sign_internal (signs raw bytes), so we apply the envelope here by
+    # prepending M' = toByte(0,1) ‖ toByte(0,1) ‖ M = 0x00 0x00 ‖ M. The
+    # on-chain verifier prepends the same two bytes internally. (audit SLH-X-f1)
+    msg_hex_signed = "0000" + msg_hex
 
     # In hedged mode (default) we pass --hedged through to the C binary so
     # opt_rand is drawn inside via getrandom(2).
@@ -124,9 +133,9 @@ def main():
 
     eprint(f"  invoking C signer (h=22, a=24 — ~1-3 min)...")
     if args.hedged:
-        cmd = [BIN_PATH, "--hedged", seed48.hex(), msg_hex]
+        cmd = [BIN_PATH, "--hedged", seed48.hex(), msg_hex_signed]
     else:
-        cmd = [BIN_PATH, seed48.hex(), msg_hex, optrand.hex()]
+        cmd = [BIN_PATH, seed48.hex(), msg_hex_signed, optrand.hex()]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if args.hedged:
         for line in result.stderr.splitlines():

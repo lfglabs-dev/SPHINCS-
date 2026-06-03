@@ -56,7 +56,9 @@ def abi_encode(seed16: bytes, root16: bytes, sig: bytes) -> bytes:
 def _norm(s: str) -> str: return s.lower().removeprefix("0x")
 
 def cache_key(master_sk_hex: str, message_hex: str, sig_counter: int) -> str:
+    # Convention tag invalidates pre-envelope fixtures (audit SLH-X-f1).
     h = hashlib.sha256()
+    h.update(b"fips205-external-empty-ctx-v2|")
     h.update(_norm(master_sk_hex).encode())
     h.update(b"|")
     h.update(_norm(message_hex).encode())
@@ -95,6 +97,10 @@ def main():
 
     msg_hex = args.message_hex.removeprefix("0x")
     if len(msg_hex) % 2: msg_hex = "0" + msg_hex
+    # FIPS 205 external SLH-DSA.Sign, empty ctx: sign M' = 0x00 0x00 ‖ M. The GPU
+    # binary is slh_sign_internal (raw bytes), so we prepend the envelope here to
+    # match the on-chain verifier. (audit SLH-X-f1)
+    msg_hex_signed = "0000" + msg_hex
 
     # In hedged mode (the default) we pass --hedged through to the GPU binary
     # so opt_rand is drawn inside the C binary via getrandom(2). Python only
@@ -122,9 +128,9 @@ def main():
     # fix in src/keygen.c — see signers/slhvk-sha2-128-24/STATUS.md). One call
     # suffices; no retry needed.
     if args.hedged:
-        cmd = [BIN_PATH, "--hedged", seed48.hex(), msg_hex]
+        cmd = [BIN_PATH, "--hedged", seed48.hex(), msg_hex_signed]
     else:
-        cmd = [BIN_PATH, seed48.hex(), msg_hex, optrand.hex()]
+        cmd = [BIN_PATH, seed48.hex(), msg_hex_signed, optrand.hex()]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if args.hedged:
         # Forward the C binary's "mode: hedged (opt_rand=…)" line so the
