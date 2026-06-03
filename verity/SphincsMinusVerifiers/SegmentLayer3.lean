@@ -563,6 +563,181 @@ theorem beforeWotsDigestAdrsSlot_eq (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
   rfl
 
+/-- The WOTS_HASH ADRS expression evaluates to the concrete address word once
+the split layer/tree/leaf bindings are known and bounded. -/
+theorem wotsAdrs_eval_eq_adrsWotsHashBase
+    (st : RuntimeState) (layer idxTree idxLeaf : Nat)
+    (hlayer : lookupValue st.bindings "layer" = layer)
+    (hidxTree : lookupValue st.bindings "idxTree" = idxTree)
+    (hidxLeaf : lookupValue st.bindings "idxLeaf" = idxLeaf)
+    (hlayerLt : layer < 2 ^ 32)
+    (hidxTreeLt : idxTree < 2 ^ 128)
+    (hidxLeafLt : idxLeaf < 2 ^ 192) :
+    evalExpr [] st
+        (orE (shlE (u 224) (v "layer"))
+          (orE (shlE (u 128) (v "idxTree")) (shlE (u 64) (v "idxLeaf"))))
+      = some (SphincsMinusVerifierSpec.C13Concrete.adrsWotsHashBase
+          layer idxTree idxLeaf) := by
+  have hlayerEval : evalExpr [] st (v "layer") = some layer := by
+    show some (lookupValue st.bindings "layer") = some layer
+    rw [hlayer]
+  have htreeEval : evalExpr [] st (v "idxTree") = some idxTree := by
+    show some (lookupValue st.bindings "idxTree") = some idxTree
+    rw [hidxTree]
+  have hleafEval : evalExpr [] st (v "idxLeaf") = some idxLeaf := by
+    show some (lookupValue st.bindings "idxLeaf") = some idxLeaf
+    rw [hidxLeaf]
+  have h224 :
+      evalExpr [] st (shlE (u 224) (v "layer")) = some (layer <<< 224) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st (u 224) (v "layer") 224 layer rfl hlayerEval
+      (by decide)
+      (lt_trans hlayerLt (by decide : 2 ^ 32 < 2 ^ 256))
+      (by
+        rw [Nat.shiftLeft_eq]
+        calc
+          layer * 2 ^ 224 < 2 ^ 32 * 2 ^ 224 :=
+            (Nat.mul_lt_mul_right (by decide : 0 < 2 ^ 224)).mpr hlayerLt
+          _ = 2 ^ 256 := by norm_num [pow_add])
+  have h128 :
+      evalExpr [] st (shlE (u 128) (v "idxTree")) = some (idxTree <<< 128) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st (u 128) (v "idxTree") 128 idxTree rfl htreeEval
+      (by decide)
+      (lt_trans hidxTreeLt (by decide : 2 ^ 128 < 2 ^ 256))
+      (by
+        rw [Nat.shiftLeft_eq]
+        calc
+          idxTree * 2 ^ 128 < 2 ^ 128 * 2 ^ 128 :=
+            (Nat.mul_lt_mul_right (by decide : 0 < 2 ^ 128)).mpr hidxTreeLt
+          _ = 2 ^ 256 := by norm_num [pow_add])
+  have h64 :
+      evalExpr [] st (shlE (u 64) (v "idxLeaf")) = some (idxLeaf <<< 64) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st (u 64) (v "idxLeaf") 64 idxLeaf rfl hleafEval
+      (by decide)
+      (lt_trans hidxLeafLt (by decide : 2 ^ 192 < 2 ^ 256))
+      (by
+        rw [Nat.shiftLeft_eq]
+        calc
+          idxLeaf * 2 ^ 64 < 2 ^ 192 * 2 ^ 64 :=
+            (Nat.mul_lt_mul_right (by decide : 0 < 2 ^ 64)).mpr hidxLeafLt
+          _ = 2 ^ 256 := by norm_num [pow_add])
+  have h224lt : layer <<< 224 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      layer * 2 ^ 224 < 2 ^ 32 * 2 ^ 224 :=
+        (Nat.mul_lt_mul_right (by decide : 0 < 2 ^ 224)).mpr hlayerLt
+      _ = 2 ^ 256 := by norm_num [pow_add]
+  have h128lt : idxTree <<< 128 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      idxTree * 2 ^ 128 < 2 ^ 128 * 2 ^ 128 :=
+        (Nat.mul_lt_mul_right (by decide : 0 < 2 ^ 128)).mpr hidxTreeLt
+      _ = 2 ^ 256 := by norm_num [pow_add]
+  have h64lt : idxLeaf <<< 64 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      idxLeaf * 2 ^ 64 < 2 ^ 192 * 2 ^ 64 :=
+        (Nat.mul_lt_mul_right (by decide : 0 < 2 ^ 64)).mpr hidxLeafLt
+      _ = 2 ^ 256 := by norm_num [pow_add]
+  have hinner :
+      evalExpr [] st
+          (orE (shlE (u 128) (v "idxTree")) (shlE (u 64) (v "idxLeaf")))
+        = some ((idxTree <<< 128) ||| (idxLeaf <<< 64)) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+      st (shlE (u 128) (v "idxTree")) (shlE (u 64) (v "idxLeaf"))
+      (idxTree <<< 128) (idxLeaf <<< 64) h128 h64 h128lt h64lt
+  have hinnerLt : (idxTree <<< 128) ||| (idxLeaf <<< 64) < 2 ^ 256 :=
+    Nat.bitwise_lt_two_pow h128lt h64lt
+  have hfull :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+      st (shlE (u 224) (v "layer"))
+        (orE (shlE (u 128) (v "idxTree")) (shlE (u 64) (v "idxLeaf")))
+      (layer <<< 224) ((idxTree <<< 128) ||| (idxLeaf <<< 64))
+      h224 hinner h224lt hinnerLt
+  simpa [SphincsMinusVerifierSpec.C13Concrete.adrsWotsHashBase, Nat.lor_assoc] using hfull
+
+/-- The WOTS-digest prefix binds `"wotsAdrs"` to the concrete WOTS_HASH ADRS
+word obtained by splitting the incoming hypertree index. -/
+theorem beforeWotsDigestAdrsSlot_wotsAdrs_lookup_eq
+    (ls : RuntimeState) (layer rawIdxTree : Nat)
+    (hlayer : lookupValue ls.bindings "layer" = layer)
+    (hidxTree : lookupValue ls.bindings "idxTree" = rawIdxTree)
+    (hlayerLt : layer < 2 ^ 32)
+    (hrawLt : rawIdxTree < 2 ^ 256)
+    (hshiftLt : rawIdxTree >>> 11 < 2 ^ 128) :
+    lookupValue (beforeWotsDigestAdrsSlot ls).bindings "wotsAdrs" =
+      SphincsMinusVerifierSpec.C13Concrete.adrsWotsHashBase
+        layer (rawIdxTree >>> 11) (Nat.land rawIdxTree 0x7FF) := by
+  have hidxEval : evalExpr [] ls (v "idxTree") = some rawIdxTree := by
+    show some (lookupValue ls.bindings "idxTree") = some rawIdxTree
+    rw [hidxTree]
+  have hleafEval :
+      evalExpr [] ls (andE (v "idxTree") (u 0x7FF)) =
+        some (Nat.land rawIdxTree 0x7FF) := by
+    unfold andE u
+    rw [SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitAnd_literal
+      ls (v "idxTree") rawIdxTree 0x7FF hidxEval hrawLt (by decide)]
+  let sLeaf : RuntimeState :=
+    { ls with bindings := bindValue ls.bindings "idxLeaf" (Nat.land rawIdxTree 0x7FF) }
+  have hidxEvalLeaf : evalExpr [] sLeaf (v "idxTree") = some rawIdxTree := by
+    dsimp [sLeaf]
+    show some (lookupValue (bindValue ls.bindings "idxLeaf" (Nat.land rawIdxTree 0x7FF))
+        "idxTree") = some rawIdxTree
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne _ "idxLeaf" "idxTree" _
+      (by decide)]
+    rw [hidxTree]
+  have hshrEval :
+      evalExpr [] sLeaf (shrE (u 11) (v "idxTree")) = some (rawIdxTree >>> 11) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shr_bounded
+      sLeaf (u 11) (v "idxTree") 11 rawIdxTree rfl hidxEvalLeaf (by decide) hrawLt
+  let sTree : RuntimeState :=
+    { sLeaf with bindings := bindValue sLeaf.bindings "idxTree" (rawIdxTree >>> 11) }
+  have hlayerTree : lookupValue sTree.bindings "layer" = layer := by
+    dsimp [sTree, sLeaf]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne _ "idxTree" "layer" _
+      (by decide)]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne _ "idxLeaf" "layer" _
+      (by decide)]
+    exact hlayer
+  have hidxTreeTree : lookupValue sTree.bindings "idxTree" = rawIdxTree >>> 11 := by
+    dsimp [sTree]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+  have hidxLeafTree : lookupValue sTree.bindings "idxLeaf" = Nat.land rawIdxTree 0x7FF := by
+    dsimp [sTree, sLeaf]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne _ "idxTree" "idxLeaf" _
+      (by decide)]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+  have hleafLt : Nat.land rawIdxTree 0x7FF < 2 ^ 192 := by
+    exact Nat.lt_of_le_of_lt Nat.and_le_right (by decide)
+  have hwotsEval :
+      evalExpr [] sTree
+        (orE (shlE (u 224) (v "layer"))
+          (orE (shlE (u 128) (v "idxTree")) (shlE (u 64) (v "idxLeaf"))))
+        = some (SphincsMinusVerifierSpec.C13Concrete.adrsWotsHashBase
+          layer (rawIdxTree >>> 11) (Nat.land rawIdxTree 0x7FF)) :=
+    wotsAdrs_eval_eq_adrsWotsHashBase
+      sTree layer (rawIdxTree >>> 11) (Nat.land rawIdxTree 0x7FF)
+      hlayerTree hidxTreeTree hidxLeafTree hlayerLt hshiftLt hleafLt
+  unfold beforeWotsDigestAdrsSlot prefixBeforeWotsDigestAdrsSlot
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_letVar_continue ls "idxLeaf" _ (Nat.land rawIdxTree 0x7FF) hleafEval)]
+  rw [execStmtList_cons_continue _ _ _ _
+    (assignVar_continue sLeaf "idxTree" _ (rawIdxTree >>> 11) hshrEval)]
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_letVar_continue sTree "wotsAdrs" _
+      (SphincsMinusVerifierSpec.C13Concrete.adrsWotsHashBase
+        layer (rawIdxTree >>> 11) (Nat.land rawIdxTree 0x7FF)) hwotsEval)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "countOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
+  simp only [execStmtList]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne _ "count" "wotsAdrs" _
+    (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne _ "countOff" "wotsAdrs" _
+    (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+
 /-- The WOTS-digest setup writes the computed `"wotsAdrs"` binding to the
 `0x20` scratch slot. -/
 theorem beforeWotsDigest_wotsAdrs_slot_eq (ls : RuntimeState) :
@@ -1186,6 +1361,8 @@ theorem execLayerLoop (state : RuntimeState)
 #print axioms digitSumFold_zero_eq_wotsDigitSum
 #print axioms beforeWotsDigest_eq
 #print axioms beforeWotsDigest_seed_slot_eq
+#print axioms wotsAdrs_eval_eq_adrsWotsHashBase
+#print axioms beforeWotsDigestAdrsSlot_wotsAdrs_lookup_eq
 #print axioms beforeWotsDigest_wotsAdrs_slot_eq
 #print axioms beforeWotsDigest_wotsAdrs_slot_eq_of_lookup
 #print axioms beforeWotsDigest_currentNode_slot_eq

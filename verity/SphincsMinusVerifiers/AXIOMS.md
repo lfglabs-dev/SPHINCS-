@@ -422,6 +422,8 @@ are:
   `SegmentLayer3.digitSumFold_zero_eq_wotsDigitSum`,
   `SegmentLayer3.beforeWotsDigest_eq`,
   `SegmentLayer3.beforeWotsDigest_seed_slot_eq`,
+  `SegmentLayer3.wotsAdrs_eval_eq_adrsWotsHashBase`,
+  `SegmentLayer3.beforeWotsDigestAdrsSlot_wotsAdrs_lookup_eq`,
   `SegmentLayer3.beforeWotsDigest_wotsAdrs_slot_eq`,
   `SegmentLayer3.beforeWotsDigest_wotsAdrs_slot_eq_of_lookup`,
   `SegmentLayer3.beforeWotsDigest_currentNode_slot_eq`,

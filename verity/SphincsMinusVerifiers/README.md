@@ -518,6 +518,8 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     suffix.  The remaining digit-cell work is the prefix correspondence proving
     that scratch frame from the parsed layer seed/ADRS/current-node/count
     (`beforeWotsDigest_seed_slot_eq` closes the seed-slot preservation part, and
+    `beforeWotsDigestAdrsSlot_wotsAdrs_lookup_eq` closes the pure WOTS_HASH ADRS
+    assembly once the incoming split/bounds are known, while
     `beforeWotsDigest_wotsAdrs_slot_eq_of_lookup`,
     `beforeWotsDigest_currentNode_slot_eq_of_lookup`, and
     `beforeWotsDigest_count_slot_eq_of_lookup` close the bounded

@@ -103,7 +103,9 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   `afterDigit_digitSum_eq_wotsDigitSum_wotsDigest_of_beforeWotsDigest_memory`
   expose the exact executable `"d"` and post-prefix `"digitSum"` handoff from a
   four-word WOTS-digest scratch-frame hypothesis; `beforeWotsDigest_seed_slot_eq`
-  closes the seed-slot preservation part of that frame, and
+  closes the seed-slot preservation part of that frame,
+  `beforeWotsDigestAdrsSlot_wotsAdrs_lookup_eq` closes the pure WOTS_HASH ADRS
+  assembly once the incoming layer/tree split and bounds are available, and
   `beforeWotsDigest_wotsAdrs_slot_eq_of_lookup`,
   `beforeWotsDigest_currentNode_slot_eq_of_lookup`, and
   `beforeWotsDigest_count_slot_eq_of_lookup` close the bounded
@@ -544,13 +546,15 @@ The current narrow C13 accept handoff still has real residual obligations:
   bridge now proves executable `"d" = wotsDigest ...` and the post-prefix
   `"digitSum" = wotsDigitSum (wotsDigest ...)` once memory `[0x00,0x80)` is
   identified with seed, WOTS_HASH ADRS, current node, and count; the seed slot is
-  now preserved by `beforeWotsDigest_seed_slot_eq`, while the ADRS/current-node
-  slots are written back by `beforeWotsDigest_wotsAdrs_slot_eq_of_lookup`,
+  now preserved by `beforeWotsDigest_seed_slot_eq`, the pure WOTS_HASH ADRS word
+  is assembled by `beforeWotsDigestAdrsSlot_wotsAdrs_lookup_eq` once the
+  incoming split/bounds are known, and the ADRS/current-node/count slots are
+  written back by `beforeWotsDigest_wotsAdrs_slot_eq_of_lookup`,
   `beforeWotsDigest_currentNode_slot_eq_of_lookup`, and
   `beforeWotsDigest_count_slot_eq_of_lookup` once the corresponding bindings and
   bounds are available.  The remaining digit-cell gap is therefore proving the
-  pure WOTS_HASH ADRS binding identification and the parsed-count binding
-  identification, followed by concrete
+  layer-start facts that supply the WOTS_HASH ADRS split/bounds and the
+  parsed-count binding identification, followed by concrete
   WOTS/XMSS success and exact `"merkleNode"` model-cell facts through the
   bounded boundary.  The older
   concrete-layer packages still quantify
