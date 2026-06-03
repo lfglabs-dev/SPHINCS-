@@ -106,9 +106,10 @@ bricks that do not define `execC13` and do not use the bridge axiom:
   closes the seed-slot preservation part of that frame,
   `beforeWotsDigestAdrsSlot_wotsAdrs_lookup_eq` closes the pure WOTS_HASH ADRS
   assembly once the incoming layer/tree split and bounds are available, and
-  `countExpr_eval_eq_shifted_calldata` closes the local executable count
-  expression once the `sigBase`/`countOff` bindings and raw calldata read are
-  identified;
+  `beforeWotsDigestAdrsSlot_countOff_lookup_eq` and
+  `beforeWotsDigestAdrsSlot_count_lookup_eq_shifted_calldata` close the local
+  executable count-offset and count binding once `sigBase`/`sigOff`, bounds, and
+  the raw calldata read are identified;
   `beforeWotsDigest_wotsAdrs_slot_eq_of_lookup`,
   `beforeWotsDigest_currentNode_slot_eq_of_lookup`, and
   `beforeWotsDigest_count_slot_eq_of_lookup` close the bounded
@@ -551,15 +552,16 @@ The current narrow C13 accept handoff still has real residual obligations:
   identified with seed, WOTS_HASH ADRS, current node, and count; the seed slot is
   now preserved by `beforeWotsDigest_seed_slot_eq`, the pure WOTS_HASH ADRS word
   is assembled by `beforeWotsDigestAdrsSlot_wotsAdrs_lookup_eq` once the
-  incoming split/bounds are known, `countExpr_eval_eq_shifted_calldata` evaluates
-  the local executable count expression from `sigBase`/`countOff` and a raw
-  calldata read, and the ADRS/current-node/count slots are written back by
+  incoming split/bounds are known,
+  `beforeWotsDigestAdrsSlot_count_lookup_eq_shifted_calldata` evaluates the
+  local executable count binding from `sigBase`/`sigOff` and a raw calldata read,
+  and the ADRS/current-node/count slots are written back by
   `beforeWotsDigest_wotsAdrs_slot_eq_of_lookup`,
   `beforeWotsDigest_currentNode_slot_eq_of_lookup`, and
   `beforeWotsDigest_count_slot_eq_of_lookup` once the corresponding bindings and
   bounds are available.  The remaining digit-cell gap is therefore proving the
   layer-start facts that supply the WOTS_HASH ADRS split/bounds and the
-  `sigBase`/`countOff`/raw-read facts for parsed count, followed by concrete
+  `sigBase`/`sigOff`/raw-read facts for parsed count, followed by concrete
   WOTS/XMSS success and exact `"merkleNode"` model-cell facts through the
   bounded boundary.  The older
   concrete-layer packages still quantify

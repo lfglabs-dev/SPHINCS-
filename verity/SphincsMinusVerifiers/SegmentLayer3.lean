@@ -348,6 +348,20 @@ def prefixBeforeWotsDigestAdrsSlot : List Stmt :=
   , .letVar "count" (shrE (u 224) (cdload (addE (v "sigBase") (v "countOff"))))
   ]
 
+/-- Prefix just before the WOTS count-offset binding. -/
+def prefixBeforeWotsDigestCountOff : List Stmt :=
+  [ .letVar "idxLeaf" (andE (v "idxTree") (u 0x7FF))
+  , .assignVar "idxTree" (shrE (u 11) (v "idxTree"))
+  , .letVar "wotsAdrs" (orE (shlE (u 224) (v "layer")) (orE (shlE (u 128) (v "idxTree")) (shlE (u 64) (v "idxLeaf"))))
+  ]
+
+theorem prefixBeforeWotsDigestAdrsSlot_eq_countOff_append :
+    prefixBeforeWotsDigestAdrsSlot =
+      prefixBeforeWotsDigestCountOff ++
+        [ .letVar "countOff" (addE (v "sigOff") (u 688))
+        , .letVar "count" (shrE (u 224) (cdload (addE (v "sigBase") (v "countOff")))) ] :=
+  rfl
+
 theorem prefixBeforeWotsDigestCurrentNodeSlot_eq_adrsSlot_append :
     prefixBeforeWotsDigestCurrentNodeSlot =
       prefixBeforeWotsDigestAdrsSlot ++ [mstore 0x20 (v "wotsAdrs")] := rfl
@@ -562,6 +576,94 @@ theorem beforeWotsDigestAdrsSlot_eq (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "countOff" _ _ rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
   rfl
+
+/-- State just before binding the WOTS count offset. -/
+def beforeWotsDigestCountOff (ls : RuntimeState) : RuntimeState :=
+  match execStmtList [] ls prefixBeforeWotsDigestCountOff with
+  | .continue s' => s'
+  | _ => ls
+
+theorem beforeWotsDigestCountOff_eq (ls : RuntimeState) :
+    execStmtList [] ls prefixBeforeWotsDigestCountOff =
+      .continue (beforeWotsDigestCountOff ls) := by
+  unfold beforeWotsDigestCountOff prefixBeforeWotsDigestCountOff u
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "idxLeaf" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "idxTree" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsAdrs" _ _ rfl)]
+  rfl
+
+/-- The layer prefix before `"countOff"` only splits the tree index and assembles
+WOTS_HASH ADRS, so it leaves `"sigOff"` unchanged. -/
+theorem beforeWotsDigestCountOff_sigOff_lookup_eq (ls : RuntimeState) :
+    lookupValue (beforeWotsDigestCountOff ls).bindings "sigOff" =
+      lookupValue ls.bindings "sigOff" := by
+  exact SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    "sigOff" prefixBeforeWotsDigestCountOff ls (beforeWotsDigestCountOff ls)
+    (by
+      intro s s'' stmt hmem hexec
+      unfold prefixBeforeWotsDigestCountOff at hmem
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+      rcases hmem with rfl | rfl | rfl
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          s s'' "idxLeaf" "sigOff" _ (by decide) hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+          s s'' "idxTree" "sigOff" _ (by decide) hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          s s'' "wotsAdrs" "sigOff" _ (by decide) hexec)
+    (beforeWotsDigestCountOff_eq ls)
+
+/-- The same count-offset prefix does not rebind `"sigBase"`. -/
+theorem beforeWotsDigestCountOff_sigBase_lookup_eq (ls : RuntimeState) :
+    lookupValue (beforeWotsDigestCountOff ls).bindings "sigBase" =
+      lookupValue ls.bindings "sigBase" := by
+  exact SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    "sigBase" prefixBeforeWotsDigestCountOff ls (beforeWotsDigestCountOff ls)
+    (by
+      intro s s'' stmt hmem hexec
+      unfold prefixBeforeWotsDigestCountOff at hmem
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+      rcases hmem with rfl | rfl | rfl
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          s s'' "idxLeaf" "sigBase" _ (by decide) hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+          s s'' "idxTree" "sigBase" _ (by decide) hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          s s'' "wotsAdrs" "sigBase" _ (by decide) hexec)
+    (beforeWotsDigestCountOff_eq ls)
+
+/-- The WOTS-digest prefix binds `"countOff"` to the layer signature offset plus
+the four-byte checksum location.  Later bindings in the same prefix preserve
+that cell. -/
+theorem beforeWotsDigestAdrsSlot_countOff_lookup_eq
+    (ls : RuntimeState) (sigOff : Nat)
+    (hsigOff : lookupValue ls.bindings "sigOff" = sigOff)
+    (hsigOffLt : sigOff < 2 ^ 256)
+    (hsum : sigOff + 688 < 2 ^ 256) :
+    lookupValue (beforeWotsDigestAdrsSlot ls).bindings "countOff" =
+      sigOff + 688 := by
+  unfold beforeWotsDigestAdrsSlot
+  rw [prefixBeforeWotsDigestAdrsSlot_eq_countOff_append]
+  rw [SphincsMinusVerifiers.MemoryKit.execStmtList_append_continue _ _ _ _
+    (beforeWotsDigestCountOff_eq ls)]
+  let pre := beforeWotsDigestCountOff ls
+  have hsigOffPre : lookupValue pre.bindings "sigOff" = sigOff := by
+    dsimp [pre]
+    rw [beforeWotsDigestCountOff_sigOff_lookup_eq ls, hsigOff]
+  have hsigOffEval : evalExpr [] pre (v "sigOff") = some sigOff := by
+    show some (lookupValue pre.bindings "sigOff") = some sigOff
+    rw [hsigOffPre]
+  have hcountOffEval :
+      evalExpr [] pre (addE (v "sigOff") (u 688)) = some (sigOff + 688) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      pre (v "sigOff") (u 688) sigOff 688
+      hsigOffEval rfl hsigOffLt (by decide) hsum
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_letVar_continue pre "countOff" _ (sigOff + 688) hcountOffEval)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
+  simp only [execStmtList]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne _ "count" "countOff" _
+    (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
 
 /-- The WOTS_HASH ADRS expression evaluates to the concrete address word once
 the split layer/tree/leaf bindings are known and bounded. -/
@@ -965,6 +1067,73 @@ theorem countExpr_eval_eq_shifted_calldata
   exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shr_bounded
     st (u 224) (cdload (addE (v "sigBase") (v "countOff"))) 224 raw
     rfl hcd (by decide) hrawLt
+
+/-- The WOTS-digest prefix binds `"count"` to the high 32 bits of the frozen
+calldata word at `sigBase + (sigOff + 688)`.  This is the local executable
+handoff from the parsed signature offset to the checksum count cell. -/
+theorem beforeWotsDigestAdrsSlot_count_lookup_eq_shifted_calldata
+    (ls : RuntimeState) (sigBase sigOff raw : Nat)
+    (hsigBase : lookupValue ls.bindings "sigBase" = sigBase)
+    (hsigOff : lookupValue ls.bindings "sigOff" = sigOff)
+    (hsigBaseLt : sigBase < 2 ^ 256)
+    (hsigOffLt : sigOff < 2 ^ 256)
+    (hcountOffLt : sigOff + 688 < 2 ^ 256)
+    (hsum : sigBase + (sigOff + 688) < 2 ^ 256)
+    (hread :
+      Compiler.Proofs.YulGeneration.calldataloadWord ls.selector ls.world.calldata
+        (sigBase + (sigOff + 688)) = raw)
+    (hrawLt : raw < 2 ^ 256) :
+    lookupValue (beforeWotsDigestAdrsSlot ls).bindings "count" = raw >>> 224 := by
+  unfold beforeWotsDigestAdrsSlot
+  rw [prefixBeforeWotsDigestAdrsSlot_eq_countOff_append]
+  rw [SphincsMinusVerifiers.MemoryKit.execStmtList_append_continue _ _ _ _
+    (beforeWotsDigestCountOff_eq ls)]
+  let pre := beforeWotsDigestCountOff ls
+  have hsigOffPre : lookupValue pre.bindings "sigOff" = sigOff := by
+    dsimp [pre]
+    rw [beforeWotsDigestCountOff_sigOff_lookup_eq ls, hsigOff]
+  have hsigBasePre : lookupValue pre.bindings "sigBase" = sigBase := by
+    dsimp [pre]
+    rw [beforeWotsDigestCountOff_sigBase_lookup_eq ls, hsigBase]
+  have hsigOffEval : evalExpr [] pre (v "sigOff") = some sigOff := by
+    show some (lookupValue pre.bindings "sigOff") = some sigOff
+    rw [hsigOffPre]
+  have hcountOffEval :
+      evalExpr [] pre (addE (v "sigOff") (u 688)) = some (sigOff + 688) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      pre (v "sigOff") (u 688) sigOff 688
+      hsigOffEval rfl hsigOffLt (by decide) hcountOffLt
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_letVar_continue pre "countOff" _ (sigOff + 688) hcountOffEval)]
+  let countOffState : RuntimeState :=
+    { pre with bindings := bindValue pre.bindings "countOff" (sigOff + 688) }
+  have hsigBaseCountOff : lookupValue countOffState.bindings "sigBase" = sigBase := by
+    dsimp [countOffState]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne _ "countOff" "sigBase" _
+      (by decide)]
+    exact hsigBasePre
+  have hcountOffCountOff :
+      lookupValue countOffState.bindings "countOff" = sigOff + 688 := by
+    dsimp [countOffState]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+  have hreadCountOff :
+      Compiler.Proofs.YulGeneration.calldataloadWord
+          countOffState.selector countOffState.world.calldata
+          (sigBase + (sigOff + 688)) = raw := by
+    dsimp [countOffState]
+    exact hread
+  have hcountEval :
+      evalExpr [] countOffState
+        (shrE (u 224) (cdload (addE (v "sigBase") (v "countOff")))) =
+          some (raw >>> 224) :=
+    countExpr_eval_eq_shifted_calldata
+      countOffState sigBase (sigOff + 688) raw
+      hsigBaseCountOff hcountOffCountOff hsigBaseLt hcountOffLt hsum
+      hreadCountOff hrawLt
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_letVar_continue countOffState "count" _ (raw >>> 224) hcountEval)]
+  simp only [execStmtList]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
 
 /-- The state after the straight-line prefix that sets up `"d"` and initializes
 `"digitSum"`, just before the 43-step checksum loop. -/
@@ -1402,6 +1571,10 @@ theorem execLayerLoop (state : RuntimeState)
 #print axioms digitSumFold_zero_eq_wotsDigitSum
 #print axioms beforeWotsDigest_eq
 #print axioms beforeWotsDigest_seed_slot_eq
+#print axioms beforeWotsDigestCountOff_eq
+#print axioms beforeWotsDigestCountOff_sigOff_lookup_eq
+#print axioms beforeWotsDigestCountOff_sigBase_lookup_eq
+#print axioms beforeWotsDigestAdrsSlot_countOff_lookup_eq
 #print axioms wotsAdrs_eval_eq_adrsWotsHashBase
 #print axioms beforeWotsDigestAdrsSlot_wotsAdrs_lookup_eq
 #print axioms beforeWotsDigest_wotsAdrs_slot_eq
@@ -1411,6 +1584,7 @@ theorem execLayerLoop (state : RuntimeState)
 #print axioms beforeWotsDigest_count_slot_eq
 #print axioms beforeWotsDigest_count_slot_eq_of_lookup
 #print axioms countExpr_eval_eq_shifted_calldata
+#print axioms beforeWotsDigestAdrsSlot_count_lookup_eq_shifted_calldata
 #print axioms beforeDigitSum_eq
 #print axioms beforeDigitSum_digitSum_eq_zero
 #print axioms beforeDigitSum_d_eq_keccakWords_of_beforeWotsDigest_memory

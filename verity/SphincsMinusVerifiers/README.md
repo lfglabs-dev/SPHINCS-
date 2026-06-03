@@ -520,8 +520,10 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     (`beforeWotsDigest_seed_slot_eq` closes the seed-slot preservation part, and
     `beforeWotsDigestAdrsSlot_wotsAdrs_lookup_eq` closes the pure WOTS_HASH ADRS
     assembly once the incoming split/bounds are known, while
-    `countExpr_eval_eq_shifted_calldata` closes the local executable count
-    expression from `sigBase`/`countOff` plus the raw calldata read, and
+    `beforeWotsDigestAdrsSlot_countOff_lookup_eq` and
+    `beforeWotsDigestAdrsSlot_count_lookup_eq_shifted_calldata` close the local
+    executable count-offset and count binding from `sigBase`/`sigOff` plus the
+    raw calldata read, and
     `beforeWotsDigest_wotsAdrs_slot_eq_of_lookup`,
     `beforeWotsDigest_currentNode_slot_eq_of_lookup`, and
     `beforeWotsDigest_count_slot_eq_of_lookup` close the bounded
