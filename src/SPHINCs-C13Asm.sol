@@ -5,10 +5,11 @@ pragma solidity ^0.8.28;
 /// @notice C13: W+C_F+C h=22 d=2 a=19 k=7 w=8 l=43 target_sum=208 sig=3688
 /// @dev    Address layout: **FIPS 205 §4.2 / §11.2.2 uncompressed 32-byte ADRS**
 ///         (the SHAKE-instantiation form), with keccak256 substituted for
-///         SHAKE-256 to stay native on EVM. C13 is the first verifier in this
-///         repo using the FIPS ADRS layout; C7/C11/C12/SLH-DSA-keccak still use
-///         the JARDIN 8-byte-tree / 4-word variant. See README "ADRS layout"
-///         for the migration plan.
+///         SHAKE-256 to stay native on EVM. C13 was the first verifier in this
+///         repo on the FIPS ADRS layout; C7/C9 have since migrated to it, so every
+///         live src/ keccak verifier now shares this layout. The JARDIN 8-byte-tree
+///         / 4-word variants (C11, C12, SLH-DSA-keccak) are retired to legacy/.
+///         See README "ADRS layout discipline".
 ///
 ///         ADRS layout (32 bytes, big-endian, FIPS 205 §4.2 Algorithm 1):
 ///           bytes  0.. 4   layer address          (uint32)
