@@ -2319,6 +2319,82 @@ theorem c13_refines_byte_spec_of_current_node_wordcmp_and_reverted_digest_scratc
       (hRevertedScratchData pkSeed pkRoot message sig sigParsed forsPk
         hParse hZero hFors hFold)
 
+/-- C13 bridge reducer at the concrete two-layer current-node boundary, with the
+final comparison discharged by the C13 word-roundtrip rather than by any
+public-key-root byte-size premise.  The accept branch asks only for the two
+guards and post-step `"currentNode"` facts that the concrete C13 loop actually
+executes. -/
+theorem c13_refines_byte_spec_of_current_node_facts_and_reverted_digest_scratch_cover
+    (hOkFacts :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        SegmentLayer3.layerGuard
+          (CurrentNodeFrame.c13LayerLoopState0
+            (mkC13State pkSeed pkRoot message sig)) = true ∧
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (CurrentNodeFrame.c13LayerLoopState0
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "currentNode"
+          =
+            C13Concrete.wordOfHash16
+              (SegmentAcceptSpec.c13HypertreeSpecStepAtLayer
+                { pkSeed := pkSeed, pkRoot := pkRoot }
+                (C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+                sigParsed.layers 0 forsPk) ∧
+        SegmentLayer3.layerGuard
+          (CurrentNodeFrame.c13LayerLoopState1
+            (mkC13State pkSeed pkRoot message sig)) = true ∧
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (CurrentNodeFrame.c13LayerLoopState1
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "currentNode"
+          = C13Concrete.wordOfHash16 specRoot)
+    (hRevertedScratchData :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .reverted →
+        C13FoldRevertedDigestScratchData pkSeed pkRoot message sig sigParsed forsPk) :
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
+  refine
+    c13_refines_byte_spec_of_current_node_wordcmp_and_reverted_digest_scratch_cover
+      ?_ hRevertedScratchData
+  intro pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold
+  rcases hOkFacts pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hZero hFors hFold with
+    ⟨hGuard0, hCurrent0, hGuard1, hCurrent1⟩
+  exact
+    c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hFors hFold
+      hGuard0 hCurrent0 hGuard1 hCurrent1
+
 /-- C13 bridge reducer with the accept branch using the bounded two-step
 current-node observation package and the reverted branch reduced to WOTS digest
 scratch cells.  This keeps the final comparison at the C13 wordcmp boundary and
@@ -2580,6 +2656,7 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13_refines_byte_spec_of_current_node_wordcmp_and_reverted_before_digit_cover
 #print axioms c13FoldRevertedDigestScratchData_of_layer_facts
 #print axioms c13_refines_byte_spec_of_current_node_wordcmp_and_reverted_digest_scratch_cover
+#print axioms c13_refines_byte_spec_of_current_node_facts_and_reverted_digest_scratch_cover
 #print axioms c13_refines_byte_spec_of_two_step_current_node_and_reverted_digest_scratch_cover
 #print axioms c12_refines_byte_spec_of_good_length_cover
 #print axioms c12_refines_byte_spec_of_parsed_cover
