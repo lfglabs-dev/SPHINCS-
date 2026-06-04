@@ -185,10 +185,18 @@ The current narrow C13 accept handoff still has real residual obligations:
   `idxTree0`, `forsBase`, `adrsForsLeaf`, `adrsForsNode`, and `adrsForsRoots`
   equal the concrete spec constructors threaded by `digest.hyperIndex`;
 - explicit compose/control-flow debt introduced by the 2026-06-04 sync:
-  discharge `SegmentCompose.c13VerifyBody_passes_preflight_guards`,
-  `SegmentCompose.body_reshape`, `SegmentS4Fors.forsOuterStmt_eq_slice`, and
-  `SegmentS4Finalize.forsFinalizeBody_eq_slice` after the S4 FORS bodies are
-  migrated from the legacy unkeyed address reconstruction to `forsBase`;
+  `SegmentS4Fors.forsOuterStmt_eq_slice`,
+  `SegmentS4Finalize.forsFinalizeBody_eq_slice`, and
+  `SegmentCompose.body_reshape` are now theorem-backed against the hardened
+  `forsBase` body.  Remaining compose debt is
+  `SegmentCompose.c13VerifyBody_passes_preflight_guards`, whose old
+  length-only statement is too weak because the public-key canonicality guard can
+  still reject;
+- dynamic FORS_ROOTS compression address handoff: downstream compression lemmas
+  in `CurrentNodeFrame`/`SegmentAcceptSpec` still use the legacy constant
+  `adrsForsRoots`; they must be generalized to
+  `C13Concrete.adrsForsRootsC13 digest` using the `idxTree0`/`idxLeaf0` binding
+  facts produced by S3;
 - high-level accept handoff: `SegmentAcceptSpec` currently exceeds the default
   heartbeat budget after the C13 body shift and should be refactored around the
   named compose/FORS obligations before re-enabling it in the passing target set;

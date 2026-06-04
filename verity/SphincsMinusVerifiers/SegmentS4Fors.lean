@@ -5,15 +5,14 @@
   This is the S4 double-loop's *outer* per-iteration body.  Its structure is:
 
   ```
-  117..125  leaf setup        (7 letVar + 2 mstore — pure binder/memory writes)
-  126       forEach "h" (u 19)  ← inner Merkle climb = ClimbKit.merkleClimbBody
-                                   "node" "pathIdx" "treeAdrsBase" "authPtr"
+  117..125  leaf setup        (6 letVar + 2 mstore — pure binder/memory writes)
+  126       forEach "h" (u 19)  ← FORS-specific Merkle climb using `forsBase`
   136       mstore  scratch[i]  := node           (store the reconstructed leaf)
   ```
 
   We prove the whole body runs to a `.continue` of a pure transformer
-  (`forsLeafStep`), dispatching the inner climb in a single rewrite via
-  `ClimbLoop.execStmt_forEach_merkleClimb`, and then thread the *outer*
+  (`forsLeafStep`), dispatching the inner climb via a local
+  `ClimbLoop.execStmt_forEach_of_step`, and then thread the *outer*
   `forEach "i" (u 6)` through `ClimbLoop.execStmt_forEach_of_step`, giving the
   full statement-14 reduction `execForsOuter`.
 
@@ -33,7 +32,7 @@ namespace SphincsMinusVerifiers.SegmentS4Fors
 
 open Compiler.Proofs.IRGeneration.SourceSemantics
 open Compiler.CompilationModel (Expr Stmt)
-open SphincsMinusVerifiers.ClimbKit (N_MASK merkleClimbBody stepMerkle)
+open SphincsMinusVerifiers.ClimbKit (N_MASK)
 open SphincsMinusVerifiers.ClimbLoop (foldLoop)
 
 /-! ## 0. EDSL constructors (matching `Model.lean`'s private helpers). -/
@@ -47,44 +46,59 @@ private def andE (a b : Expr) : Expr := .bitAnd a b
 private def orE (a b : Expr) : Expr := .bitOr a b
 private def shlE (a b : Expr) : Expr := .shl a b
 private def shrE (a b : Expr) : Expr := .shr a b
+private def xorE (a b : Expr) : Expr := .bitXor a b
 private def keccak (off size : Nat) : Expr := .keccak256 (u off) (u size)
 private def cdload (off : Expr) : Expr := .calldataload off
 private def mstore (off : Nat) (val : Expr) : Stmt := .mstore (u off) val
 private def mstoreE (off val : Expr) : Stmt := .mstore off val
 
-/-! ## 1. The FORS outer-loop body (statement 14's body), with the inner Merkle
-climb written as `merkleClimbBody …` so `execStmt_forEach_merkleClimb` applies. -/
+/-! ## 1. The FORS outer-loop body (statement 18's body). -/
+
+/-- FORS-specific inner Merkle climb body.  Upstream C13 folds the FORS instance
+address through `forsBase` and injects the tree index bits as `i << (18-h)`, so
+the old shared `merkleClimbBody` address expression no longer applies here. -/
+def forsMerkleBody : List Stmt :=
+  [ .letVar "sibling"
+      (andE (cdload (addE (v "authPtr") (shlE (u 4) (v "h")))) (u N_MASK))
+  , .letVar "parentIdx" (shrE (u 1) (v "pathIdx"))
+  , mstore 0x20
+      (orE (v "forsBase")
+        (orE (shlE (u 32) (addE (v "h") (u 1)))
+          (orE (shlE (subE (u 18) (v "h")) (v "i")) (v "parentIdx"))))
+  , .letVar "s" (shlE (u 5) (andE (v "pathIdx") (u 1)))
+  , mstoreE (xorE (u 0x40) (v "s")) (v "node")
+  , mstoreE (xorE (u 0x60) (v "s")) (v "sibling")
+  , .assignVar "node" (andE (keccak 0x00 0x80) (u N_MASK))
+  , .assignVar "pathIdx" (v "parentIdx") ]
 
 /-- The body of `forEach "i" (u 6)` (FORS tree-root reconstruction, stmts
 117..136 of `c13VerifyBody`). -/
 def forsLeafBody : List Stmt :=
   [ .letVar "treeIdx" (andE (shrE (mulE (v "i") (u 19)) (v "dVal")) (u 0x7FFFF))
   , .letVar "secretVal" (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (v "i"))))) (u N_MASK))
-  , .letVar "leafAdrs" (orE (shlE (u 96) (u 3)) (orE (shlE (u 64) (v "i")) (v "treeIdx")))
+  , .letVar "leafAdrs" (orE (v "forsBase") (orE (shlE (u 19) (v "i")) (v "treeIdx")))
   , mstore 0x20 (v "leafAdrs")
   , mstore 0x40 (v "secretVal")
   , .letVar "node" (andE (keccak 0x00 0x60) (u N_MASK))
-  , .letVar "treeAdrsBase" (orE (shlE (u 96) (u 3)) (shlE (u 64) (v "i")))
   , .letVar "pathIdx" (v "treeIdx")
   , .letVar "authPtr" (addE (v "sigBase") (addE (u 128) (mulE (v "i") (u 304))))
-  , .forEach "h" (u 19) (merkleClimbBody "node" "pathIdx" "treeAdrsBase" "authPtr")
+  , .forEach "h" (u 19) forsMerkleBody
   , mstoreE (addE (u 0x80) (shlE (u 5) (v "i"))) (v "node") ]
 
 /-- The straight-line setup before the inner Merkle climb in one FORS tree. -/
 def forsLeafSetupBody : List Stmt :=
   [ .letVar "treeIdx" (andE (shrE (mulE (v "i") (u 19)) (v "dVal")) (u 0x7FFFF))
   , .letVar "secretVal" (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (v "i"))))) (u N_MASK))
-  , .letVar "leafAdrs" (orE (shlE (u 96) (u 3)) (orE (shlE (u 64) (v "i")) (v "treeIdx")))
+  , .letVar "leafAdrs" (orE (v "forsBase") (orE (shlE (u 19) (v "i")) (v "treeIdx")))
   , mstore 0x20 (v "leafAdrs")
   , mstore 0x40 (v "secretVal")
   , .letVar "node" (andE (keccak 0x00 0x60) (u N_MASK))
-  , .letVar "treeAdrsBase" (orE (shlE (u 96) (u 3)) (shlE (u 64) (v "i")))
   , .letVar "pathIdx" (v "treeIdx")
   , .letVar "authPtr" (addE (v "sigBase") (addE (u 128) (mulE (v "i") (u 304)))) ]
 
 /-- The inner Merkle climb statement in one FORS tree. -/
 def forsLeafInnerStmt : Stmt :=
-  .forEach "h" (u 19) (merkleClimbBody "node" "pathIdx" "treeAdrsBase" "authPtr")
+  .forEach "h" (u 19) forsMerkleBody
 
 /-- The final store of one reconstructed FORS tree root into the root array. -/
 def forsLeafStoreStmt : Stmt :=
@@ -104,12 +118,23 @@ def forsLeafSetupStep (st : RuntimeState) : RuntimeState :=
 
 open SphincsMinusVerifiers.ClimbKit (execStmtList_cons_continue)
 open SphincsMinusVerifiers.MemoryKit (execStmt_mstore_continue)
-open SphincsMinusVerifiers.ClimbLoop (execStmt_forEach_merkleClimb)
+open SphincsMinusVerifiers.ClimbLoop (execStmt_forEach_of_step)
 
 private theorem letVar_continue
     (st : RuntimeState) (name : String) (e : Expr) (val : Nat)
     (h : evalExpr [] st e = some val) :
     execStmt [] st (.letVar name e) =
+      .continue { st with bindings := bindValue st.bindings name val } := by
+  show (match evalExpr [] st e with
+        | some resolved =>
+            StmtResult.continue { st with bindings := bindValue st.bindings name resolved }
+        | none => .revert) = _
+  rw [h]
+
+private theorem assignVar_continue
+    (st : RuntimeState) (name : String) (e : Expr) (val : Nat)
+    (h : evalExpr [] st e = some val) :
+    execStmt [] st (.assignVar name e) =
       .continue { st with bindings := bindValue st.bindings name val } := by
   show (match evalExpr [] st e with
         | some resolved =>
@@ -127,7 +152,6 @@ theorem execForsLeafSetup (st : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "node" _ _ rfl)]
-  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "treeAdrsBase" _ _ rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "pathIdx" _ _ rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "authPtr" _ _ rfl)]
   rfl
@@ -142,7 +166,7 @@ theorem forsLeafSetup_preserves_seed_slot
     0 forsLeafSetupBody st s' ?_ h
   intro s s'' stmt hmem hexec
   simp [forsLeafSetupBody, mstore] at hmem
-  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
+  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
   · subst stmt
     exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
       s s'' 0 "treeIdx" _ hexec
@@ -175,9 +199,6 @@ theorem forsLeafSetup_preserves_seed_slot
       s s'' 0 "node" _ hexec
   · subst stmt
     exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
-      s s'' 0 "treeAdrsBase" _ hexec
-  · subst stmt
-    exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
       s s'' 0 "pathIdx" _ hexec
   · subst stmt
     exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
@@ -193,7 +214,7 @@ theorem forsLeafSetup_preserves_i
     "i" forsLeafSetupBody st s' ?_ h
   intro s s'' stmt hmem hexec
   simp [forsLeafSetupBody, mstore] at hmem
-  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
+  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
   · subst stmt
     exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
       s s'' "treeIdx" "i" _ (by decide) hexec
@@ -214,9 +235,6 @@ theorem forsLeafSetup_preserves_i
       s s'' "node" "i" _ (by decide) hexec
   · subst stmt
     exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
-      s s'' "treeAdrsBase" "i" _ (by decide) hexec
-  · subst stmt
-    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
       s s'' "pathIdx" "i" _ (by decide) hexec
   · subst stmt
     exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
@@ -232,9 +250,29 @@ theorem forsLeafSetupStep_preserves_i (st : RuntimeState) :
     lookupValue (forsLeafSetupStep st).bindings "i" = lookupValue st.bindings "i" :=
   forsLeafSetup_preserves_i st (forsLeafSetupStep st) (execForsLeafSetup st)
 
+/-- Pure transformer for one FORS-specific inner Merkle iteration. -/
+def forsMerkleStep (st : RuntimeState) : RuntimeState :=
+  match execStmtList [] st forsMerkleBody with
+  | .continue s' => s'
+  | _ => st
+
+/-- One FORS-specific inner Merkle iteration always continues to `forsMerkleStep`. -/
+theorem execForsMerkleStep (st : RuntimeState) :
+    execStmtList [] st forsMerkleBody = .continue (forsMerkleStep st) := by
+  unfold forsMerkleStep forsMerkleBody mstore mstoreE u
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue st "sibling" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "parentIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "s" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "node" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "pathIdx" _ _ rfl)]
+  rfl
+
 /-- Pure transformer for the inner Merkle climb statement. -/
 def forsLeafInnerStep (st : RuntimeState) : RuntimeState :=
-  foldLoop "h" (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr")
+  foldLoop "h" forsMerkleStep
     { st with bindings := bindValue st.bindings "h" (wordNormalize 0) }
     0 (wordNormalize 19)
 
@@ -242,7 +280,8 @@ def forsLeafInnerStep (st : RuntimeState) : RuntimeState :=
 theorem execForsLeafInner (st : RuntimeState) :
     execStmt [] st forsLeafInnerStmt = .continue (forsLeafInnerStep st) := by
   unfold forsLeafInnerStmt forsLeafInnerStep u
-  exact execStmt_forEach_merkleClimb "h" "node" "pathIdx" "treeAdrsBase" "authPtr" 19 st
+  exact execStmt_forEach_of_step "h" (.literal 19) forsMerkleBody st (wordNormalize 19)
+    forsMerkleStep rfl execForsMerkleStep
 
 /-- The inner Merkle climb does not modify the outer FORS loop binding `"i"`. -/
 theorem forsLeafInner_preserves_i
@@ -252,10 +291,10 @@ theorem forsLeafInner_preserves_i
   unfold forsLeafInnerStmt u at h
   refine SphincsMinusVerifiers.BindingFrame.execStmt_forEach_preserves_lookup
     "h" "i" (.literal 19)
-    (merkleClimbBody "node" "pathIdx" "treeAdrsBase" "authPtr")
+    forsMerkleBody
     st s' (by decide) ?_ h
   intro s s'' stmt hmem hexec
-  simp [merkleClimbBody] at hmem
+  simp [forsMerkleBody, mstore, mstoreE] at hmem
   rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
   · subst stmt
     exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
@@ -332,7 +371,7 @@ theorem forsLeafBody_preserves_i
   intro s s'' stmt hmem hexec
   simp [forsLeafBody, mstore, mstoreE] at hmem
   rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt |
-    hstmt | hstmt | hstmt | hstmt
+    hstmt | hstmt | hstmt
   · subst stmt
     exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
       s s'' "treeIdx" "i" _ (by decide) hexec
@@ -351,9 +390,6 @@ theorem forsLeafBody_preserves_i
   · subst stmt
     exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
       s s'' "node" "i" _ (by decide) hexec
-  · subst stmt
-    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
-      s s'' "treeAdrsBase" "i" _ (by decide) hexec
   · subst stmt
     exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
       s s'' "pathIdx" "i" _ (by decide) hexec
@@ -438,8 +474,8 @@ def forsOuterStmt : Stmt := .forEach "i" (u 6) forsLeafBody
 through `forsBase`, while this module still carries the pre-sync FORS leaf body.
 Replacing this axiom with a proof requires migrating `forsLeafBody` to the
 `idxLeaf0`/`idxTree0`/`forsBase` address shape. -/
-axiom forsOuterStmt_eq_slice :
-    [forsOuterStmt] = (c13VerifyBody.drop 18).take 1
+theorem forsOuterStmt_eq_slice :
+    [forsOuterStmt] = (c13VerifyBody.drop 18).take 1 := rfl
 
 /-! ## 3. The FORS outer-loop body step lemma. -/
 
@@ -455,7 +491,7 @@ set_option maxHeartbeats 4000000 in
 /-- **`execForsLeaf`** — running the FORS outer-loop body over the real
 interpreter continues to `forsLeafStep st`.  The leaf-setup prefix chains via
 per-statement `.continue` lemmas; the inner Merkle climb is dispatched in one
-rewrite by `execStmt_forEach_merkleClimb`; the suffix stores the leaf. -/
+  rewrite by `execStmt_forEach_of_step`; the suffix stores the leaf. -/
 theorem execForsLeaf (st : RuntimeState) :
     execStmtList [] st forsLeafBody = .continue (forsLeafStep st) := by
   unfold forsLeafStep forsLeafBody mstore mstoreE u
@@ -465,11 +501,11 @@ theorem execForsLeaf (st : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "node" _ _ rfl)]
-  rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "treeAdrsBase" _ _ rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "pathIdx" _ _ rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "authPtr" _ _ rfl)]
   rw [execStmtList_cons_continue _ _ _ _
-      (execStmt_forEach_merkleClimb "h" "node" "pathIdx" "treeAdrsBase" "authPtr" 19 _)]
+      (execStmt_forEach_of_step "h" (.literal 19) forsMerkleBody _ (wordNormalize 19)
+        forsMerkleStep rfl execForsMerkleStep)]
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rfl
 

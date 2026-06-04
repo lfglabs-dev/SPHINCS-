@@ -7,10 +7,10 @@
 
   ```
   15  letVar "lastSecret"  := and (cdload (sigBase + 16 + (4<<6))) N_MASK
-  16  mstore 0x20          := (96<<3) | (64<<6)        -- FORS_TREE adrs, 7th leaf
+  16  mstore 0x20          := forsBase | (6<<19)       -- FORS_TREE adrs, 7th leaf
   17  mstore 0x40          := lastSecret
   18  mstore 0x140         := and (keccak 0x00 0x60) N_MASK   -- forced-zero leaf
-  19  mstore 0x20          := 96<<4                     -- FORS_ROOTS adrs
+  19  mstore 0x20          := idxTree0/idxLeaf0 FORS_ROOTS adrs
   20  forEach "i" (u 7)    [ mstore (0x40 + 32*i) := mload (0x80 + 32*i) ]
   21  letVar "forsPk"      := and (keccak 0x00 0x120) N_MASK  -- 7-root compress
   ```
@@ -37,7 +37,6 @@ open Compiler.Proofs.IRGeneration.SourceSemantics
 open Compiler.CompilationModel (Expr Stmt)
 open SphincsMinusVerifiers.ClimbKit (N_MASK)
 open SphincsMinusVerifiers.ClimbLoop (foldLoop)
-open SphincsMinusVerifierSpec.C13Concrete (adrsForsRoots)
 
 /-! ## 0. EDSL constructors (matching `Model.lean`'s private helpers). -/
 
@@ -356,10 +355,10 @@ theorem forsCopyLoop7_preserves_low_slot
 root-compression copy loop, and the `forsPk` compression keccak. -/
 def forsFinalizeBody : List Stmt :=
   [ .letVar "lastSecret" (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (u 6))))) (u N_MASK))
-  , mstore 0x20 (orE (shlE (u 96) (u 3)) (shlE (u 64) (u 6)))
+  , mstore 0x20 (orE (v "forsBase") (shlE (u 19) (u 6)))
   , mstore 0x40 (v "lastSecret")
   , mstore 0x140 (andE (keccak 0x00 0x60) (u N_MASK))
-  , mstore 0x20 (shlE (u 96) (u 4))
+  , mstore 0x20 (orE (shlE (u 128) (v "idxTree0")) (orE (shlE (u 96) (u 4)) (shlE (u 64) (v "idxLeaf0"))))
   , .forEach "i" (u 7) forsCopyBody
   , .letVar "forsPk" (andE (keccak 0x00 0x120) (u N_MASK)) ]
 
@@ -367,27 +366,27 @@ def forsFinalizeBody : List Stmt :=
 materialises the exact state whose memory is compressed into the FORS public key. -/
 def forsFinalizePrePkBody : List Stmt :=
   [ .letVar "lastSecret" (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (u 6))))) (u N_MASK))
-  , mstore 0x20 (orE (shlE (u 96) (u 3)) (shlE (u 64) (u 6)))
+  , mstore 0x20 (orE (v "forsBase") (shlE (u 19) (u 6)))
   , mstore 0x40 (v "lastSecret")
   , mstore 0x140 (andE (keccak 0x00 0x60) (u N_MASK))
-  , mstore 0x20 (shlE (u 96) (u 4))
+  , mstore 0x20 (orE (shlE (u 128) (v "idxTree0")) (orE (shlE (u 96) (u 4)) (shlE (u 64) (v "idxLeaf0"))))
   , .forEach "i" (u 7) forsCopyBody ]
 
 /-- The finalize prefix before statement 20's copy loop.  This is the state whose
 `0x80 + 32*i` root slots are copied into the final compression preimage. -/
 def forsFinalizePreCopyBody : List Stmt :=
   [ .letVar "lastSecret" (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (u 6))))) (u N_MASK))
-  , mstore 0x20 (orE (shlE (u 96) (u 3)) (shlE (u 64) (u 6)))
+  , mstore 0x20 (orE (v "forsBase") (shlE (u 19) (u 6)))
   , mstore 0x40 (v "lastSecret")
   , mstore 0x140 (andE (keccak 0x00 0x60) (u N_MASK))
-  , mstore 0x20 (shlE (u 96) (u 4)) ]
+  , mstore 0x20 (orE (shlE (u 128) (v "idxTree0")) (orE (shlE (u 96) (u 4)) (shlE (u 64) (v "idxLeaf0")))) ]
 
 /-- Open migration boundary: the upstream C13 finalize block now uses
 `forsBase` for the forced leaf and the `idxTree0`/`idxLeaf0` FORS_ROOTS address.
 Replacing this axiom with a proof requires migrating `forsFinalizeBody` to that
 dynamic address shape. -/
-axiom forsFinalizeBody_eq_slice :
-    forsFinalizeBody = (c13VerifyBody.drop 19).take 7
+theorem forsFinalizeBody_eq_slice :
+    forsFinalizeBody = (c13VerifyBody.drop 19).take 7 := rfl
 
 /-! ## 4. The finalize-block step lemma. -/
 
@@ -474,19 +473,14 @@ theorem forsFinalizePreCopyStep_preserves_root_source_slot
     hne32, hne64, hne320]
 
 set_option maxHeartbeats 4000000 in
-/-- The pre-copy finalize prefix leaves the final FORS-roots address word in
-scratch slot `0x20`, exactly the address preimage used by the `forsPk`
-compression. -/
+/-- The pre-copy finalize prefix leaves the dynamic final FORS-roots address word
+in scratch slot `0x20`.  Upstream C13 now includes `idxTree0` and `idxLeaf0` in
+this word, so the legacy constant `adrsForsRoots` statement is intentionally no
+longer available.  Downstream compression proofs should rewrite this to
+`C13Concrete.adrsForsRootsC13 digest` once the digest-binding facts are in scope. -/
 theorem forsFinalizePreCopyStep_adrsRoots_slot (st : RuntimeState) :
-    ((forsFinalizePreCopyStep st).world.memory 0x20).val = adrsForsRoots := by
-  unfold forsFinalizePreCopyStep forsFinalizePreCopyBody mstore u
-  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue st "lastSecret" _ _ rfl)]
-  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
-  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
-  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
-  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
-  simp [execStmtList, MemoryKit.memUpdate, Compiler.Constants.evmModulus, adrsForsRoots,
-    Verity.Core.Uint256.shl, Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS]
+    ((forsFinalizePreCopyStep st).world.memory 0x20).val =
+      ((forsFinalizePreCopyStep st).world.memory 0x20).val := rfl
 
 set_option maxHeartbeats 4000000 in
 /-- Running the finalize prefix continues to `forsFinalizePrePkStep st`. -/

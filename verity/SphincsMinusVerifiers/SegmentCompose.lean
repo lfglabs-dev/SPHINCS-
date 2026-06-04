@@ -61,11 +61,15 @@ def afterLayer (st : RuntimeState) : RuntimeState :=
 /-! ## 2. Faithful reshape of the body into named segments (machine-checked). -/
 
 set_option maxHeartbeats 4000000 in
-axiom body_reshape :
+theorem body_reshape :
     c13VerifyBody.drop 2 =
       SegmentS2.s2Body ++ (SegmentS3.segmentS3 ++ ([SegmentS4Fors.forsOuterStmt] ++
         (SegmentS4Finalize.forsFinalizeBody ++ (SegmentSeed.segmentSeed ++
-          ([SegmentLayer3.layerStmt] ++ c13VerifyBody.drop 30)))))
+          ([SegmentLayer3.layerStmt] ++ c13VerifyBody.drop 30))))) := by
+  rw [SegmentS2.s2Body_eq_slice, SegmentS3.segmentS3_eq_slice,
+    SegmentS4Fors.forsOuterStmt_eq_slice, SegmentS4Finalize.forsFinalizeBody_eq_slice,
+    SegmentSeed.segmentSeed_eq_slice, SegmentLayer3.layerStmt_eq_slice]
+  rfl
 
 axiom c13VerifyBody_passes_preflight_guards
     (st : RuntimeState)
