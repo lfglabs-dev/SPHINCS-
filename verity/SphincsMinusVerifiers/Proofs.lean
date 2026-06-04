@@ -772,6 +772,50 @@ theorem c13FirstLayerBeforeDigest_idxTree_hyperIndex
       (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
       (by decide : 2 ^ 22 < 2 ^ 256))
 
+/-- Layer-0 pre-Merkle `"mIdx"` is the low 11 bits of the parsed C13
+hypertree index. -/
+theorem c13FirstLayerBeforeMerkle_mIdx_hyperIndex
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    lookupValue
+        (SegmentLayer3.beforeMerkle
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+        "mIdx" = digest.hyperIndex % 2048 := by
+  intro pk digest
+  exact SegmentLayer3.beforeMerkle_mIdx_eq_of_idxTree
+    (c13FirstLayerGuardState pkSeed pkRoot message sig)
+    digest.hyperIndex
+    (c13FirstLayerGuardState_idxTree_hyperIndex
+      pkSeed pkRoot message sig hParse)
+    (lt_trans
+      (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
+      (by decide : 2 ^ 22 < 2 ^ 256))
+
+/-- Layer-1 pre-Merkle `"mIdx"` is the low 11 bits of the shifted C13
+hypertree index. -/
+theorem c13SecondLayerBeforeMerkle_mIdx_hyperIndex
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    lookupValue
+        (SegmentLayer3.beforeMerkle
+          (c13SecondLayerGuardState pkSeed pkRoot message sig)).bindings
+        "mIdx" = (digest.hyperIndex / 2048) % 2048 := by
+  intro pk digest
+  exact SegmentLayer3.beforeMerkle_mIdx_eq_of_idxTree
+    (c13SecondLayerGuardState pkSeed pkRoot message sig)
+    (digest.hyperIndex / 2048)
+    (c13SecondLayerGuardState_idxTree_hyperIndex
+      pkSeed pkRoot message sig hParse)
+    (lt_of_le_of_lt
+      (Nat.div_le_self _ _)
+      (lt_trans
+        (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
+        (by decide : 2 ^ 22 < 2 ^ 256)))
+
 /-- Layer-0 pre-digest `"wotsAdrs"` is the C13 WOTS hash-base address assembled
 from layer zero and the split parsed hypertree index. -/
 theorem c13FirstLayerBeforeDigest_wotsAdrs_hyperIndex
@@ -2710,6 +2754,8 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13SecondLayerGuardState_idxTree_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_idxLeaf_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_idxTree_hyperIndex
+#print axioms c13FirstLayerBeforeMerkle_mIdx_hyperIndex
+#print axioms c13SecondLayerBeforeMerkle_mIdx_hyperIndex
 #print axioms c13FirstLayerBeforeDigest_wotsAdrs_hyperIndex
 #print axioms c13FirstLayer_wotsAdrs_hyperIndex_norm
 #print axioms c13SecondLayer_wotsAdrs_hyperIndex_norm
