@@ -2052,6 +2052,47 @@ theorem suffixBeforeAuthOff_preserves_idxLeaf (ls : RuntimeState) :
       hexec
   · exact execStmt_letVar_preserves_lookup _ _ "wotsPk" "idxLeaf" _ (by decide) hexec
 
+/-- The suffix prefix before `"authOff"` does not rebind `"sigBase"`. -/
+theorem suffixBeforeAuthOff_preserves_sigBase (ls : RuntimeState) :
+    lookupValue (beforeAuthOff ls).bindings "sigBase" =
+      lookupValue (afterDigit ls).bindings "sigBase" := by
+  refine execStmtList_preserves_lookup "sigBase" suffixBeforeAuthOff
+    (afterDigit ls) (beforeAuthOff ls) ?_ (beforeAuthOff_eq ls)
+  intro s s'' stmt hmem hexec
+  simp [suffixBeforeAuthOff, mstore] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl
+  · exact execStmt_letVar_preserves_lookup _ _ "wotsPtr" "sigBase" _ (by decide) hexec
+  · exact execStmt_forEach_preserves_lookup "i" "sigBase" _ _ _ _ (by decide)
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [wotsOuterBody, mstoreE] at hmem'
+        rcases hmem' with rfl | rfl | rfl | rfl | rfl | rfl
+        · exact execStmt_letVar_preserves_lookup _ _ "digit" "sigBase" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "steps" "sigBase" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "val" "sigBase" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "chainBase" "sigBase" _ (by decide) hexec'
+        · exact execStmt_forEach_preserves_lookup "step" "sigBase" _ _ _ _ (by decide)
+            (by
+              intro u u'' stmt'' hmem'' hexec''
+              simp [wotsChainBody] at hmem''
+              rcases hmem'' with rfl | rfl | rfl
+              · exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec''
+              · exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec''
+              · exact execStmt_assignVar_preserves_lookup _ _ "val" "sigBase" _ (by decide) hexec'')
+            hexec'
+        · exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec')
+      hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "pkAdrs" "sigBase" _ (by decide) hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec
+  · exact execStmt_forEach_preserves_lookup "i" "sigBase" _ _ _ _ (by decide)
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [copyBody, mstoreE] at hmem'
+        subst hmem'
+        exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec')
+      hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "wotsPk" "sigBase" _ (by decide) hexec
+
 /-- The state before binding `"authOff"` still carries the count offset computed
 from the incoming `"sigOff"`. -/
 theorem beforeAuthOff_countOff_eq_of_sigOff
@@ -2188,6 +2229,46 @@ theorem beforeMerkle_preserves_memory_zero_of_loop_frames
   rw [hTailMem]
   exact beforeAuthOff_preserves_memory_zero_of_loop_frames ls hWots hCopy
 
+/-- The suffix prefix leading to the Merkle loop preserves selector/calldata. -/
+theorem suffixBeforeMerkle_preserves_selector_calldata :
+    PreservesSelectorCalldataBody suffixBeforeMerkle := by
+  intro s s'' stmt hmem hexec
+  simp [suffixBeforeMerkle, mstore] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "wotsPtr" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_forEach_preserves_selector_calldata
+      "i" _ wotsOuterBody s s'' wotsOuterBody_preserves_selector_calldata hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "pkAdrs" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
+      s s'' _ _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_forEach_preserves_selector_calldata
+      "i" _ copyBody s s'' copyBody_preserves_selector_calldata hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "wotsPk" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "authOff" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "treeAdrs" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "merkleNode" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "mIdx" _ hexec
+  · exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
+      s s'' "merklePtr" _ hexec
+
+/-- The cutpoint before the Merkle loop preserves selector/calldata from the
+incoming layer state. -/
+theorem beforeMerkle_preserves_selector_calldata (ls : RuntimeState) :
+    SphincsMinusVerifiers.StateFrame.PreservesSelectorCalldata ls (beforeMerkle ls) := by
+  have hPrefix := afterDigit_preserves_selector_calldata ls
+  have hSuffix :=
+    SphincsMinusVerifiers.StateFrame.execStmtList_preserves_selector_calldata
+      suffixBeforeMerkle (afterDigit ls) (beforeMerkle ls)
+      suffixBeforeMerkle_preserves_selector_calldata (beforeMerkle_eq ls)
+  exact ⟨by rw [hSuffix.1, hPrefix.1], by rw [hSuffix.2, hPrefix.2]⟩
+
 /-- The suffix leading to the Merkle loop does not rebind `"countOff"`. -/
 theorem suffixBeforeMerkle_preserves_countOff (ls : RuntimeState) :
     lookupValue (beforeMerkle ls).bindings "countOff" =
@@ -2210,7 +2291,7 @@ theorem suffixBeforeMerkle_preserves_countOff (ls : RuntimeState) :
         · exact execStmt_forEach_preserves_lookup "step" "countOff" _ _ _ _ (by decide)
             (by
               intro u u'' stmt'' hmem'' hexec''
-              simp [wotsChainBody, mstoreE] at hmem''
+              simp [wotsChainBody] at hmem''
               rcases hmem'' with rfl | rfl | rfl
               · exact execStmt_mstore_preserves_lookup _ _ "countOff" _ _ hexec''
               · exact execStmt_mstore_preserves_lookup _ _ "countOff" _ _ hexec''
@@ -2286,6 +2367,156 @@ theorem beforeMerkle_authOff_eq_of_sigOff
   rw [MemoryKit.lookupValue_bindValue_ne _ "treeAdrs" "authOff" _ (by decide)]
   rw [MemoryKit.lookupValue_bindValue_self]
 
+/-- The state before the Merkle loop binds `"merklePtr"` to
+`"sigBase" + ("sigOff" + 692)`. -/
+theorem beforeMerkle_merklePtr_eq_of_sigBase_sigOff
+    (ls : RuntimeState) (sigBase sigOff : Nat)
+    (hSigBase : lookupValue ls.bindings "sigBase" = sigBase)
+    (hSigOff : lookupValue ls.bindings "sigOff" = sigOff)
+    (hSigBaseLt : sigBase < 2 ^ 256)
+    (hSigOffLt : sigOff < 2 ^ 256)
+    (hCountOffLt : sigOff + 688 < 2 ^ 256)
+    (hAuthOffLt : sigOff + 692 < 2 ^ 256)
+    (hMerklePtrLt : sigBase + (sigOff + 692) < 2 ^ 256) :
+    lookupValue (beforeMerkle ls).bindings "merklePtr" = sigBase + (sigOff + 692) := by
+  unfold beforeMerkle
+  rw [show suffixBeforeMerkle =
+      suffixBeforeAuthOff ++
+        [ .letVar "authOff" (addE (v "countOff") (u 4))
+        , .letVar "treeAdrs" (orE (shlE (u 224) (v "layer")) (orE (shlE (u 128) (v "idxTree")) (shlE (u 96) (u 2))))
+        , .letVar "merkleNode" (v "wotsPk")
+        , .letVar "mIdx" (v "idxLeaf")
+        , .letVar "merklePtr" (addE (v "sigBase") (v "authOff")) ] by rfl]
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeAuthOff_eq ls)]
+  rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_letVar_continue _ "authOff" _ (sigOff + 692) (by
+    have hCountOff :
+        evalExpr [] (beforeAuthOff ls) (v "countOff") = some (sigOff + 688) := by
+      change some (lookupValue (beforeAuthOff ls).bindings "countOff") = some (sigOff + 688)
+      rw [beforeAuthOff_countOff_eq_of_sigOff ls sigOff hSigOff hSigOffLt hCountOffLt]
+    have hSum : sigOff + 688 + 4 = sigOff + 692 := by omega
+    rw [← hSum]
+    exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      _ (v "countOff") (u 4) (sigOff + 688) 4 hCountOff rfl
+      hCountOffLt (by decide : 4 < 2 ^ 256) (by simpa [hSum] using hAuthOffLt)))]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "treeAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merkleNode" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "mIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_letVar_continue _ "merklePtr" _ (sigBase + (sigOff + 692)) (by
+    have hBase :
+        evalExpr []
+          { (beforeAuthOff ls) with
+            bindings :=
+              bindValue
+                (bindValue
+                  (bindValue (bindValue (beforeAuthOff ls).bindings "authOff" (sigOff + 692))
+                    "treeAdrs"
+                    ((evalExpr []
+                      { (beforeAuthOff ls) with
+                        bindings := bindValue (beforeAuthOff ls).bindings "authOff" (sigOff + 692) }
+                      (orE (shlE (u 224) (v "layer"))
+                        (orE (shlE (u 128) (v "idxTree")) (shlE (u 96) (u 2))))).getD 0))
+                  "merkleNode"
+                  (lookupValue
+                    (bindValue
+                      (bindValue (beforeAuthOff ls).bindings "authOff" (sigOff + 692))
+                      "treeAdrs"
+                      ((evalExpr []
+                        { (beforeAuthOff ls) with
+                          bindings := bindValue (beforeAuthOff ls).bindings "authOff" (sigOff + 692) }
+                        (orE (shlE (u 224) (v "layer"))
+                          (orE (shlE (u 128) (v "idxTree")) (shlE (u 96) (u 2))))).getD 0))
+                    "wotsPk"))
+                "mIdx"
+                (lookupValue
+                  (bindValue
+                    (bindValue
+                      (bindValue (beforeAuthOff ls).bindings "authOff" (sigOff + 692))
+                      "treeAdrs"
+                      ((evalExpr []
+                        { (beforeAuthOff ls) with
+                          bindings := bindValue (beforeAuthOff ls).bindings "authOff" (sigOff + 692) }
+                        (orE (shlE (u 224) (v "layer"))
+                          (orE (shlE (u 128) (v "idxTree")) (shlE (u 96) (u 2))))).getD 0))
+                    "merkleNode"
+                    (lookupValue
+                      (bindValue
+                        (bindValue (beforeAuthOff ls).bindings "authOff" (sigOff + 692))
+                        "treeAdrs"
+                        ((evalExpr []
+                          { (beforeAuthOff ls) with
+                            bindings := bindValue (beforeAuthOff ls).bindings "authOff" (sigOff + 692) }
+                          (orE (shlE (u 224) (v "layer"))
+                            (orE (shlE (u 128) (v "idxTree")) (shlE (u 96) (u 2))))).getD 0))
+                      "wotsPk"))
+                  "idxLeaf") }
+          (v "sigBase") = some sigBase := by
+      change some (lookupValue _ "sigBase") = some sigBase
+      repeat rw [MemoryKit.lookupValue_bindValue_ne _ _ "sigBase" _ (by decide)]
+      rw [suffixBeforeAuthOff_preserves_sigBase]
+      rw [afterDigit_preserves_lookup_of_ne ls "sigBase" (by decide) (by decide)]
+      rw [beforeDigitLoop_preserves_sigBase]
+      rw [hSigBase]
+    have hAuth :
+        evalExpr []
+          { (beforeAuthOff ls) with
+            bindings :=
+              bindValue
+                (bindValue
+                  (bindValue (bindValue (beforeAuthOff ls).bindings "authOff" (sigOff + 692))
+                    "treeAdrs"
+                    ((evalExpr []
+                      { (beforeAuthOff ls) with
+                        bindings := bindValue (beforeAuthOff ls).bindings "authOff" (sigOff + 692) }
+                      (orE (shlE (u 224) (v "layer"))
+                        (orE (shlE (u 128) (v "idxTree")) (shlE (u 96) (u 2))))).getD 0))
+                  "merkleNode"
+                  (lookupValue
+                    (bindValue
+                      (bindValue (beforeAuthOff ls).bindings "authOff" (sigOff + 692))
+                      "treeAdrs"
+                      ((evalExpr []
+                        { (beforeAuthOff ls) with
+                          bindings := bindValue (beforeAuthOff ls).bindings "authOff" (sigOff + 692) }
+                        (orE (shlE (u 224) (v "layer"))
+                          (orE (shlE (u 128) (v "idxTree")) (shlE (u 96) (u 2))))).getD 0))
+                    "wotsPk"))
+                "mIdx"
+                (lookupValue
+                  (bindValue
+                    (bindValue
+                      (bindValue (beforeAuthOff ls).bindings "authOff" (sigOff + 692))
+                      "treeAdrs"
+                      ((evalExpr []
+                        { (beforeAuthOff ls) with
+                          bindings := bindValue (beforeAuthOff ls).bindings "authOff" (sigOff + 692) }
+                        (orE (shlE (u 224) (v "layer"))
+                          (orE (shlE (u 128) (v "idxTree")) (shlE (u 96) (u 2))))).getD 0))
+                    "merkleNode"
+                    (lookupValue
+                      (bindValue
+                        (bindValue (beforeAuthOff ls).bindings "authOff" (sigOff + 692))
+                        "treeAdrs"
+                        ((evalExpr []
+                          { (beforeAuthOff ls) with
+                            bindings := bindValue (beforeAuthOff ls).bindings "authOff" (sigOff + 692) }
+                          (orE (shlE (u 224) (v "layer"))
+                            (orE (shlE (u 128) (v "idxTree")) (shlE (u 96) (u 2))))).getD 0))
+                      "wotsPk"))
+                  "idxLeaf") }
+          (v "authOff") = some (sigOff + 692) := by
+      change some (lookupValue _ "authOff") = some (sigOff + 692)
+      rw [MemoryKit.lookupValue_bindValue_ne _ "mIdx" "authOff" _ (by decide)]
+      rw [MemoryKit.lookupValue_bindValue_ne _ "merkleNode" "authOff" _ (by decide)]
+      rw [MemoryKit.lookupValue_bindValue_ne _ "treeAdrs" "authOff" _ (by decide)]
+      rw [MemoryKit.lookupValue_bindValue_self]
+    exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      _ (v "sigBase") (v "authOff") sigBase (sigOff + 692)
+      hBase hAuth hSigBaseLt hAuthOffLt hMerklePtrLt))]
+  simp only [execStmtList]
+  rw [MemoryKit.lookupValue_bindValue_self]
+
 /-- One XMSS Merkle-climb step does not rebind `"authOff"`. -/
 theorem merkleStep_preserves_authOff (st : RuntimeState) :
     lookupValue
@@ -2298,7 +2529,7 @@ theorem merkleStep_preserves_authOff (st : RuntimeState) :
     ?_ (SphincsMinusVerifiers.ClimbKit.merkleClimbStep
       "merkleNode" "mIdx" "treeAdrs" "merklePtr" st)
   intro s s'' stmt hmem hexec
-  simp [merkleClimbBody, mstoreE] at hmem
+  simp [merkleClimbBody] at hmem
   rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
   · exact execStmt_letVar_preserves_lookup _ _ "sibling" "authOff" _ (by decide) hexec
   · exact execStmt_letVar_preserves_lookup _ _ "parentIdx" "authOff" _ (by decide) hexec
@@ -2462,7 +2693,7 @@ theorem suffix14_preserves_idxTree (ls : RuntimeState) :
         · exact execStmt_forEach_preserves_lookup "step" "idxTree" _ _ _ _ (by decide)
             (by
               intro u u'' stmt'' hmem'' hexec''
-              simp [wotsChainBody, mstoreE] at hmem''
+              simp [wotsChainBody] at hmem''
               rcases hmem'' with rfl | rfl | rfl
               · exact execStmt_mstore_preserves_lookup _ _ "idxTree" _ _ hexec''
               · exact execStmt_mstore_preserves_lookup _ _ "idxTree" _ _ hexec''
@@ -2488,7 +2719,7 @@ theorem suffix14_preserves_idxTree (ls : RuntimeState) :
   · exact execStmt_forEach_preserves_lookup "h" "idxTree" _ _ _ _ (by decide)
       (by
         intro t t'' stmt' hmem' hexec'
-        simp [merkleClimbBody, mstoreE] at hmem'
+        simp [merkleClimbBody] at hmem'
         rcases hmem' with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
         · exact execStmt_letVar_preserves_lookup _ _ "sibling" "idxTree" _ (by decide) hexec'
         · exact execStmt_letVar_preserves_lookup _ _ "parentIdx" "idxTree" _ (by decide) hexec'
@@ -2524,7 +2755,7 @@ theorem suffix14_preserves_sigBase (ls : RuntimeState) :
         · exact execStmt_forEach_preserves_lookup "step" "sigBase" _ _ _ _ (by decide)
             (by
               intro u u'' stmt'' hmem'' hexec''
-              simp [wotsChainBody, mstoreE] at hmem''
+              simp [wotsChainBody] at hmem''
               rcases hmem'' with rfl | rfl | rfl
               · exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec''
               · exact execStmt_mstore_preserves_lookup _ _ "sigBase" _ _ hexec''
@@ -2550,7 +2781,7 @@ theorem suffix14_preserves_sigBase (ls : RuntimeState) :
   · exact execStmt_forEach_preserves_lookup "h" "sigBase" _ _ _ _ (by decide)
       (by
         intro t t'' stmt' hmem' hexec'
-        simp [merkleClimbBody, mstoreE] at hmem'
+        simp [merkleClimbBody] at hmem'
         rcases hmem' with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
         · exact execStmt_letVar_preserves_lookup _ _ "sibling" "sigBase" _ (by decide) hexec'
         · exact execStmt_letVar_preserves_lookup _ _ "parentIdx" "sigBase" _ (by decide) hexec'
@@ -3008,6 +3239,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeAuthOff_preserves_memory_zero_of_loop_frames
 #print axioms suffixBeforeAuthOff_preserves_countOff
 #print axioms suffixBeforeAuthOff_preserves_idxLeaf
+#print axioms suffixBeforeAuthOff_preserves_sigBase
 #print axioms beforeAuthOff_countOff_eq_of_sigOff
 #print axioms beforeAuthOff_idxLeaf_eq_of_idxTree
 #print axioms beforeMerkle_eq
@@ -3015,9 +3247,12 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeMIdx_idxLeaf_eq_of_idxTree
 #print axioms beforeMerkle_mIdx_eq_of_idxTree
 #print axioms beforeMerkle_preserves_memory_zero_of_loop_frames
+#print axioms suffixBeforeMerkle_preserves_selector_calldata
+#print axioms beforeMerkle_preserves_selector_calldata
 #print axioms suffixBeforeMerkle_preserves_countOff
 #print axioms beforeMerkle_countOff_eq_of_sigOff
 #print axioms beforeMerkle_authOff_eq_of_sigOff
+#print axioms beforeMerkle_merklePtr_eq_of_sigBase_sigOff
 #print axioms merkleStep_preserves_authOff
 #print axioms afterMerkle_authOff_eq_of_sigOff
 #print axioms afterMerkle_preserves_memory_zero_of_loop_frames
