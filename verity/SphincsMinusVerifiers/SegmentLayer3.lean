@@ -815,6 +815,26 @@ theorem beforeDigitLoop_preserves_sigBase (ls : RuntimeState) :
   · exact execStmt_letVar_preserves_lookup _ _ "d" "sigBase" _ (by decide) hexec
   · exact execStmt_letVar_preserves_lookup _ _ "digitSum" "sigBase" _ (by decide) hexec
 
+/-- The pre-checksum prefix does not rebind `"layer"`. -/
+theorem beforeDigitLoop_preserves_layer (ls : RuntimeState) :
+    lookupValue (beforeDigitLoop ls).bindings "layer" =
+      lookupValue ls.bindings "layer" := by
+  refine execStmtList_preserves_lookup "layer" prefixBeforeDigitLoop
+    ls (beforeDigitLoop ls) ?_ (beforeDigitLoop_eq ls)
+  intro s s'' stmt hmem hexec
+  simp [prefixBeforeDigitLoop, mstore] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact execStmt_letVar_preserves_lookup _ _ "idxLeaf" "layer" _ (by decide) hexec
+  · exact execStmt_assignVar_preserves_lookup _ _ "idxTree" "layer" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "wotsAdrs" "layer" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "countOff" "layer" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "count" "layer" _ (by decide) hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "layer" _ _ hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "layer" _ _ hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "layer" _ _ hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "d" "layer" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "digitSum" "layer" _ (by decide) hexec
+
 /-- The pre-checksum prefix binds `"countOff"` to the incoming `"sigOff" + 688`. -/
 theorem beforeDigitLoop_countOff_eq_of_sigOff
     (ls : RuntimeState) (sigOff : Nat)
@@ -2093,6 +2113,88 @@ theorem suffixBeforeAuthOff_preserves_sigBase (ls : RuntimeState) :
       hexec
   · exact execStmt_letVar_preserves_lookup _ _ "wotsPk" "sigBase" _ (by decide) hexec
 
+/-- The suffix prefix before `"authOff"` does not rebind `"idxTree"`. -/
+theorem suffixBeforeAuthOff_preserves_idxTree (ls : RuntimeState) :
+    lookupValue (beforeAuthOff ls).bindings "idxTree" =
+      lookupValue (afterDigit ls).bindings "idxTree" := by
+  refine execStmtList_preserves_lookup "idxTree" suffixBeforeAuthOff
+    (afterDigit ls) (beforeAuthOff ls) ?_ (beforeAuthOff_eq ls)
+  intro s s'' stmt hmem hexec
+  simp [suffixBeforeAuthOff, mstore] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl
+  · exact execStmt_letVar_preserves_lookup _ _ "wotsPtr" "idxTree" _ (by decide) hexec
+  · exact execStmt_forEach_preserves_lookup "i" "idxTree" _ _ _ _ (by decide)
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [wotsOuterBody, mstoreE] at hmem'
+        rcases hmem' with rfl | rfl | rfl | rfl | rfl | rfl
+        · exact execStmt_letVar_preserves_lookup _ _ "digit" "idxTree" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "steps" "idxTree" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "val" "idxTree" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "chainBase" "idxTree" _ (by decide) hexec'
+        · exact execStmt_forEach_preserves_lookup "step" "idxTree" _ _ _ _ (by decide)
+            (by
+              intro u u'' stmt'' hmem'' hexec''
+              simp [wotsChainBody] at hmem''
+              rcases hmem'' with rfl | rfl | rfl
+              · exact execStmt_mstore_preserves_lookup _ _ "idxTree" _ _ hexec''
+              · exact execStmt_mstore_preserves_lookup _ _ "idxTree" _ _ hexec''
+              · exact execStmt_assignVar_preserves_lookup _ _ "val" "idxTree" _ (by decide) hexec'')
+            hexec'
+        · exact execStmt_mstore_preserves_lookup _ _ "idxTree" _ _ hexec')
+      hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "pkAdrs" "idxTree" _ (by decide) hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "idxTree" _ _ hexec
+  · exact execStmt_forEach_preserves_lookup "i" "idxTree" _ _ _ _ (by decide)
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [copyBody, mstoreE] at hmem'
+        subst hmem'
+        exact execStmt_mstore_preserves_lookup _ _ "idxTree" _ _ hexec')
+      hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "wotsPk" "idxTree" _ (by decide) hexec
+
+/-- The suffix prefix before `"authOff"` does not rebind `"layer"`. -/
+theorem suffixBeforeAuthOff_preserves_layer (ls : RuntimeState) :
+    lookupValue (beforeAuthOff ls).bindings "layer" =
+      lookupValue (afterDigit ls).bindings "layer" := by
+  refine execStmtList_preserves_lookup "layer" suffixBeforeAuthOff
+    (afterDigit ls) (beforeAuthOff ls) ?_ (beforeAuthOff_eq ls)
+  intro s s'' stmt hmem hexec
+  simp [suffixBeforeAuthOff, mstore] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl
+  · exact execStmt_letVar_preserves_lookup _ _ "wotsPtr" "layer" _ (by decide) hexec
+  · exact execStmt_forEach_preserves_lookup "i" "layer" _ _ _ _ (by decide)
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [wotsOuterBody, mstoreE] at hmem'
+        rcases hmem' with rfl | rfl | rfl | rfl | rfl | rfl
+        · exact execStmt_letVar_preserves_lookup _ _ "digit" "layer" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "steps" "layer" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "val" "layer" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "chainBase" "layer" _ (by decide) hexec'
+        · exact execStmt_forEach_preserves_lookup "step" "layer" _ _ _ _ (by decide)
+            (by
+              intro u u'' stmt'' hmem'' hexec''
+              simp [wotsChainBody] at hmem''
+              rcases hmem'' with rfl | rfl | rfl
+              · exact execStmt_mstore_preserves_lookup _ _ "layer" _ _ hexec''
+              · exact execStmt_mstore_preserves_lookup _ _ "layer" _ _ hexec''
+              · exact execStmt_assignVar_preserves_lookup _ _ "val" "layer" _ (by decide) hexec'')
+            hexec'
+        · exact execStmt_mstore_preserves_lookup _ _ "layer" _ _ hexec')
+      hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "pkAdrs" "layer" _ (by decide) hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "layer" _ _ hexec
+  · exact execStmt_forEach_preserves_lookup "i" "layer" _ _ _ _ (by decide)
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [copyBody, mstoreE] at hmem'
+        subst hmem'
+        exact execStmt_mstore_preserves_lookup _ _ "layer" _ _ hexec')
+      hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "wotsPk" "layer" _ (by decide) hexec
+
 /-- The state before binding `"authOff"` still carries the count offset computed
 from the incoming `"sigOff"`. -/
 theorem beforeAuthOff_countOff_eq_of_sigOff
@@ -2114,6 +2216,27 @@ theorem beforeAuthOff_idxLeaf_eq_of_idxTree
     lookupValue (beforeAuthOff ls).bindings "idxLeaf" = idxTree % 2048 := by
   rw [suffixBeforeAuthOff_preserves_idxLeaf]
   exact afterDigit_idxLeaf_eq_of_idxTree ls idxTree hIdxTree hIdxTreeLt
+
+/-- The state before binding `"authOff"` still carries the shifted hypertree
+index computed from the incoming `"idxTree"`. -/
+theorem beforeAuthOff_idxTree_eq_of_idxTree
+    (ls : RuntimeState) (idxTree : Nat)
+    (hIdxTree : lookupValue ls.bindings "idxTree" = idxTree)
+    (hIdxTreeLt : idxTree < 2 ^ 256) :
+    lookupValue (beforeAuthOff ls).bindings "idxTree" = idxTree / 2048 := by
+  rw [suffixBeforeAuthOff_preserves_idxTree]
+  rw [afterDigit_preserves_lookup_of_ne ls "idxTree" (by decide) (by decide)]
+  exact beforeDigitLoop_idxTree_eq_of_idxTree ls idxTree hIdxTree hIdxTreeLt
+
+/-- The state before binding `"authOff"` still carries the incoming layer index. -/
+theorem beforeAuthOff_layer_eq
+    (ls : RuntimeState) (layer : Nat)
+    (hLayer : lookupValue ls.bindings "layer" = layer) :
+    lookupValue (beforeAuthOff ls).bindings "layer" = layer := by
+  rw [suffixBeforeAuthOff_preserves_layer]
+  rw [afterDigit_preserves_lookup_of_ne ls "layer" (by decide) (by decide)]
+  rw [beforeDigitLoop_preserves_layer]
+  exact hLayer
 
 theorem beforeMerkle_eq (ls : RuntimeState) :
     execStmtList [] (afterDigit ls) suffixBeforeMerkle = .continue (beforeMerkle ls) := by
@@ -2160,6 +2283,130 @@ theorem beforeMIdx_idxLeaf_eq_of_idxTree
   rw [MemoryKit.lookupValue_bindValue_ne _ "authOff" "idxLeaf" _ (by decide)]
   exact beforeAuthOff_idxLeaf_eq_of_idxTree ls idxTree hIdxTree hIdxTreeLt
 
+/-- The cutpoint before `"mIdx"` carries the XMSS tree-address base assembled
+from the layer index and shifted hypertree index. -/
+theorem beforeMIdx_treeAdrs_eq_of_layer_idxTree
+    (ls : RuntimeState) (layer idxTree : Nat)
+    (hLayer : lookupValue ls.bindings "layer" = layer)
+    (hIdxTree : lookupValue ls.bindings "idxTree" = idxTree)
+    (hLayerLt : layer < 2 ^ 32)
+    (hIdxTreeLt : idxTree < 2 ^ 22) :
+    lookupValue (beforeMIdx ls).bindings "treeAdrs" =
+      SphincsMinusVerifierSpec.C13Concrete.adrsXmssTree layer (idxTree / 2048) := by
+  unfold beforeMIdx suffixBeforeMIdx u shlE orE v
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeAuthOff_eq ls)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "authOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_letVar_continue _ "treeAdrs" _
+        (SphincsMinusVerifierSpec.C13Concrete.adrsXmssTree layer (idxTree / 2048)) (by
+    let authVal : Nat := (evalExpr [] (beforeAuthOff ls) (addE (v "countOff") (u 4))).getD 0
+    let stA : RuntimeState :=
+      { beforeAuthOff ls with
+        bindings := bindValue (beforeAuthOff ls).bindings "authOff" authVal }
+    change evalExpr [] stA
+        (.bitOr (.shl (.literal 224) (.localVar "layer"))
+          (.bitOr (.shl (.literal 128) (.localVar "idxTree"))
+            (.shl (.literal 96) (.literal 2)))) =
+        some (SphincsMinusVerifierSpec.C13Concrete.adrsXmssTree layer (idxTree / 2048))
+    have hLayerEval : evalExpr [] stA (.localVar "layer") = some layer := by
+      change some (lookupValue stA.bindings "layer") = some layer
+      dsimp [stA]
+      rw [MemoryKit.lookupValue_bindValue_ne _ "authOff" "layer" _ (by decide)]
+      rw [beforeAuthOff_layer_eq ls layer hLayer]
+    have hIdxTreeEval : evalExpr [] stA (.localVar "idxTree") = some (idxTree / 2048) := by
+      change some (lookupValue stA.bindings "idxTree") = some (idxTree / 2048)
+      dsimp [stA]
+      rw [MemoryKit.lookupValue_bindValue_ne _ "authOff" "idxTree" _ (by decide)]
+      exact congrArg some (beforeAuthOff_idxTree_eq_of_idxTree ls idxTree hIdxTree
+        (lt_trans hIdxTreeLt (by decide : 2 ^ 22 < 2 ^ 256)))
+    have hLit2 : evalExpr [] stA (.literal 2) = some 2 := by
+      show some (wordNormalize 2) = some 2
+      rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+        Nat.mod_eq_of_lt (by decide)]
+    have h224 :
+        evalExpr [] stA (.shl (.literal 224) (.localVar "layer")) =
+          some (layer <<< 224) :=
+      SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+        stA (.literal 224) (.localVar "layer") 224 layer rfl hLayerEval
+        (by decide : 224 < 2 ^ 256)
+        (lt_trans hLayerLt (by decide : 2 ^ 32 < 2 ^ 256))
+        (by
+          rw [Nat.shiftLeft_eq]
+          calc
+            layer * 2 ^ 224 < 2 ^ 32 * 2 ^ 224 :=
+              Nat.mul_lt_mul_of_pos_right hLayerLt (by decide)
+            _ = 2 ^ 256 := by norm_num [Nat.pow_add])
+    have h128 :
+        evalExpr [] stA (.shl (.literal 128) (.localVar "idxTree")) =
+          some ((idxTree / 2048) <<< 128) :=
+      SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+        stA (.literal 128) (.localVar "idxTree") 128 (idxTree / 2048) rfl hIdxTreeEval
+        (by decide : 128 < 2 ^ 256)
+        (lt_trans (Nat.div_lt_of_lt_mul hIdxTreeLt) (by decide : 2048 < 2 ^ 256))
+        (by
+          have hnext : idxTree / 2048 < 2 ^ 11 := Nat.div_lt_of_lt_mul hIdxTreeLt
+          rw [Nat.shiftLeft_eq]
+          calc
+            (idxTree / 2048) * 2 ^ 128 < 2 ^ 11 * 2 ^ 128 :=
+              Nat.mul_lt_mul_of_pos_right hnext (by decide)
+            _ < 2 ^ 256 := by decide)
+    have h96 :
+        evalExpr [] stA (.shl (.literal 96) (.literal 2)) =
+          some (2 <<< 96) :=
+      SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+        stA (.literal 96) (.literal 2) 96 2 rfl hLit2
+        (by decide : 96 < 2 ^ 256)
+        (by decide : 2 < 2 ^ 256)
+        (by
+          rw [Nat.shiftLeft_eq]
+          decide)
+    have h224lt : layer <<< 224 < 2 ^ 256 := by
+      rw [Nat.shiftLeft_eq]
+      calc
+        layer * 2 ^ 224 < 2 ^ 32 * 2 ^ 224 :=
+          Nat.mul_lt_mul_of_pos_right hLayerLt (by decide)
+        _ = 2 ^ 256 := by norm_num [Nat.pow_add]
+    have h128lt : (idxTree / 2048) <<< 128 < 2 ^ 256 := by
+      have hnext : idxTree / 2048 < 2 ^ 11 := Nat.div_lt_of_lt_mul hIdxTreeLt
+      rw [Nat.shiftLeft_eq]
+      calc
+        (idxTree / 2048) * 2 ^ 128 < 2 ^ 11 * 2 ^ 128 :=
+          Nat.mul_lt_mul_of_pos_right hnext (by decide)
+        _ < 2 ^ 256 := by decide
+    have h96lt : 2 <<< 96 < 2 ^ 256 := by
+      rw [Nat.shiftLeft_eq]
+      decide
+    have hinner :
+        evalExpr [] stA
+          (.bitOr (.shl (.literal 128) (.localVar "idxTree"))
+            (.shl (.literal 96) (.literal 2))) =
+          some (((idxTree / 2048) <<< 128) ||| (2 <<< 96)) :=
+      SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+        stA (.shl (.literal 128) (.localVar "idxTree"))
+        (.shl (.literal 96) (.literal 2))
+        ((idxTree / 2048) <<< 128) (2 <<< 96)
+        h128 h96 h128lt h96lt
+    have hinnerLt :
+        (((idxTree / 2048) <<< 128) ||| (2 <<< 96)) < 2 ^ 256 :=
+      Nat.bitwise_lt_two_pow h128lt h96lt
+    have hfull :
+        evalExpr [] stA
+          (.bitOr (.shl (.literal 224) (.localVar "layer"))
+            (.bitOr (.shl (.literal 128) (.localVar "idxTree"))
+              (.shl (.literal 96) (.literal 2)))) =
+          some ((layer <<< 224) ||| (((idxTree / 2048) <<< 128) ||| (2 <<< 96))) :=
+      SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+        stA (.shl (.literal 224) (.localVar "layer"))
+        (.bitOr (.shl (.literal 128) (.localVar "idxTree"))
+          (.shl (.literal 96) (.literal 2)))
+        (layer <<< 224) (((idxTree / 2048) <<< 128) ||| (2 <<< 96))
+        h224 hinner h224lt hinnerLt
+    simpa [SphincsMinusVerifierSpec.C13Concrete.adrsXmssTree, Nat.lor_assoc] using hfull))]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merkleNode" _ _ rfl)]
+  simp only [execStmtList]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "merkleNode" "treeAdrs" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_self]
+
 /-- The Merkle-climb prefix initializes `"mIdx"` from the low-11-bit leaf index. -/
 theorem beforeMerkle_mIdx_eq_of_idxTree
     (ls : RuntimeState) (idxTree : Nat)
@@ -2178,6 +2425,30 @@ theorem beforeMerkle_mIdx_eq_of_idxTree
   rw [MemoryKit.lookupValue_bindValue_ne _ "merklePtr" "mIdx" _ (by decide)]
   rw [MemoryKit.lookupValue_bindValue_self]
   exact beforeMIdx_idxLeaf_eq_of_idxTree ls idxTree hIdxTree hIdxTreeLt
+
+/-- The Merkle-climb prefix keeps the XMSS tree-address base assembled before
+`"mIdx"` and `"merklePtr"` are bound. -/
+theorem beforeMerkle_treeAdrs_eq_of_layer_idxTree
+    (ls : RuntimeState) (layer idxTree : Nat)
+    (hLayer : lookupValue ls.bindings "layer" = layer)
+    (hIdxTree : lookupValue ls.bindings "idxTree" = idxTree)
+    (hLayerLt : layer < 2 ^ 32)
+    (hIdxTreeLt : idxTree < 2 ^ 22) :
+    lookupValue (beforeMerkle ls).bindings "treeAdrs" =
+      SphincsMinusVerifierSpec.C13Concrete.adrsXmssTree layer (idxTree / 2048) := by
+  unfold beforeMerkle
+  rw [show suffixBeforeMerkle =
+      suffixBeforeMIdx ++
+        [ .letVar "mIdx" (v "idxLeaf")
+        , .letVar "merklePtr" (addE (v "sigBase") (v "authOff")) ] by rfl]
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeMIdx_eq ls)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "mIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merklePtr" _ _ rfl)]
+  simp only [execStmtList]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "merklePtr" "treeAdrs" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "mIdx" "treeAdrs" _ (by decide)]
+  exact beforeMIdx_treeAdrs_eq_of_layer_idxTree
+    ls layer idxTree hLayer hIdxTree hLayerLt hIdxTreeLt
 
 /-- The state before the Merkle loop preserves seed cell `0x00` once the WOTS and
 copy loops are supplied as bounded frame facts. -/
@@ -3186,6 +3457,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms afterDigitFold_preserves_lookup_of_ne
 #print axioms beforeDigitLoop_eq
 #print axioms beforeDigitLoop_preserves_sigBase
+#print axioms beforeDigitLoop_preserves_layer
 #print axioms beforeDigitLoop_countOff_eq_of_sigOff
 #print axioms beforeDigest_eq
 #print axioms beforeDigest_preserves_memory_zero
@@ -3240,12 +3512,18 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms suffixBeforeAuthOff_preserves_countOff
 #print axioms suffixBeforeAuthOff_preserves_idxLeaf
 #print axioms suffixBeforeAuthOff_preserves_sigBase
+#print axioms suffixBeforeAuthOff_preserves_idxTree
+#print axioms suffixBeforeAuthOff_preserves_layer
 #print axioms beforeAuthOff_countOff_eq_of_sigOff
 #print axioms beforeAuthOff_idxLeaf_eq_of_idxTree
+#print axioms beforeAuthOff_idxTree_eq_of_idxTree
+#print axioms beforeAuthOff_layer_eq
 #print axioms beforeMerkle_eq
 #print axioms beforeMIdx_eq
 #print axioms beforeMIdx_idxLeaf_eq_of_idxTree
+#print axioms beforeMIdx_treeAdrs_eq_of_layer_idxTree
 #print axioms beforeMerkle_mIdx_eq_of_idxTree
+#print axioms beforeMerkle_treeAdrs_eq_of_layer_idxTree
 #print axioms beforeMerkle_preserves_memory_zero_of_loop_frames
 #print axioms suffixBeforeMerkle_preserves_selector_calldata
 #print axioms beforeMerkle_preserves_selector_calldata
