@@ -2,7 +2,12 @@
 pragma solidity ^0.8.28;
 
 /// @title NIST SP 800-230 SLH-DSA-SHA2-128-24
-/// @dev Bit-exact NIST compliance using FIPS 205 guidance the SHA-256 precompile (0x02).
+/// @dev Bit-exact FIPS 205 EXTERNAL SLH-DSA.Verify (Algorithm 24) with an EMPTY
+///      context string, using the SHA-256 precompile (0x02). "External" means the
+///      message is wrapped as M' = toByte(0,1) ‖ toByte(|ctx|,1) ‖ ctx ‖ M before
+///      H_msg; with ctx = empty this is M' = 0x00 ‖ 0x00 ‖ M. This matches
+///      published NIST/ACVP *external* KAT vectors. Signers must apply the same
+///      envelope (prepend 0x00 0x00). (review SLH-X-f1)
 ///      Parameters (NIST SP 800-230 Table 1):
 ///        n  = 16   h = 22   d = 1   h' = 22
 ///        a  = 24   k = 6    w = 4 (lgw=2)   m = 21
@@ -13,8 +18,9 @@ pragma solidity ^0.8.28;
 ///        F     = SHA-256(PK.seed ‖ toByte(0,48) ‖ ADRSc ‖ M1)[0..15]   — 102 B
 ///        H     = SHA-256(PK.seed ‖ toByte(0,48) ‖ ADRSc ‖ M2)[0..15]   — 118 B
 ///        T_l   = SHA-256(PK.seed ‖ toByte(0,48) ‖ ADRSc ‖ M)[0..15]    — variable
-///        Hmsg  = MGF1-SHA-256(R ‖ PK.seed ‖ PK.root ‖ M, m=21)
-///                  Single iteration: SHA-256(R ‖ seed ‖ root ‖ M ‖ I2OSP(0,4))[0..20]
+///        Hmsg  = MGF1-SHA-256(R ‖ PK.seed ‖ SHA-256(R ‖ PK.seed ‖ PK.root ‖ M'), m=21)
+///                  M' = 0x00 ‖ 0x00 ‖ M  (external SLH-DSA, empty ctx)
+///                  single MGF1 block (21 ≤ 32): SHA-256(R ‖ seed ‖ inner ‖ I2OSP(0,4))[0..20]
 ///
 ///      ADRSc (compressed ADRS, 22 bytes, FIPS 205 §11.2):
 ///        layer(1) ‖ tree(8) ‖ type(1) ‖ <12-byte type-dependent field>
@@ -25,6 +31,18 @@ pragma solidity ^0.8.28;
 ///          FORS_TREE (3): kp(4) ‖ height(4) ‖ index(4)
 ///          FORS_ROOTS(4): kp(4) ‖ 0(8)
 ///        For d=1 the layer and tree fields are always zero.
+///
+///      ADRSc FIELD-WIDTH NOTE (review SLH-V-f3): this verifier (and the Python
+///      signer) write `chain`, `hash`, and `tree_height` as full 4-byte
+///      big-endian fields, whereas the sphincs/sphincsplus C reference writes
+///      them as single bytes with the adjacent 3 bytes left zero. The SHA-256
+///      preimages are byte-identical ONLY because every such value is < 256 at
+///      these parameters (chain ∈ [0,67], tree_height ∈ [1,24], WOTS hash step
+///      ∈ [0,2]) so the high 3 bytes are zero either way. `kp` and `tree_index`
+///      are genuine 4-byte fields on both sides. Any reparameterization that
+///      pushed chain/height/hash ≥ 256 would break this equivalence and the
+///      "FIPS bit-exact" claim — re-derive the packing before changing w / a /
+///      heights / WOTS_LEN.
 ///
 ///      Signature layout (3,856 bytes):
 ///        R(16) | FORS = 6 × (sk 16 + auth 24·16) = 2,400 |
@@ -65,22 +83,31 @@ contract SLH_DSA_SHA2_128_24_Verifier {
             let sigBase := sig.offset
 
             // ────────────── Hmsg (FIPS 205 §10.2, SHA-2 category 1) ──────────────
-            //   inner = SHA-256(R ‖ seed ‖ root ‖ M)                              80 B
+            //   M'    = 0x00 ‖ 0x00 ‖ M  (external envelope, empty ctx)           34 B
+            //   inner = SHA-256(R ‖ seed ‖ root ‖ M')                             82 B
             //   Hmsg  = MGF1-SHA-256(R ‖ seed ‖ inner, 21)                        68 B
             //           (single iter since 21 ≤ 32:
             //            SHA-256(R ‖ seed ‖ inner ‖ I2OSP(0,4))[0..20])
             //
-            // Inner call layout:
+            // FIPS 205 EXTERNAL SLH-DSA.Verify: the message handed to H_msg is the
+            // wrapped message M' = toByte(0,1) ‖ toByte(|ctx|,1) ‖ ctx ‖ M
+            // (FIPS 205 Algorithm 24). This verifier fixes ctx = empty, so
+            // M' = 0x00 ‖ 0x00 ‖ M (34 bytes). Signers MUST sign the same M'
+            // (prepend 0x00 0x00) — see script/slh_dsa_sha2_128_24_*signer.py.
+            //
+            // Inner call layout (82 bytes):
             //   0x00..0x10 = R bytes (top of mstore at 0x00; bottom 16 B gets overwritten)
             //   0x10..0x20 = seed (top 16 B of seed-word)
             //   0x20..0x30 = root (top 16 B of root-word)
-            //   0x30..0x50 = M (full 32 B)
-            // Write inner digest to 0x20 (overwrites root; seed at 0x10 preserved).
+            //   0x30..0x32 = 0x00 0x00  (toByte(0,1) ‖ toByte(0,1), empty-ctx envelope)
+            //   0x32..0x52 = M (full 32 B)
+            // Write inner digest to 0x20 (overwrites root; R at 0x00 and seed at 0x10 preserved).
             mstore(0x00, calldataload(sigBase))   // R || calldata junk
             mstore(0x10, seed)                    // seed || zero (junk at 0x20 overwritten next)
             mstore(0x20, root)                    // root || zero
-            mstore(0x30, message)                 // 32 B
-            if iszero(staticcall(gas(), 0x02, 0x00, 0x50, 0x20, 0x20)) { revert(0, 0) }
+            mstore(0x30, 0)                       // zero 0x30..0x50 -> envelope bytes 0x00 0x00 at 0x30..0x32
+            mstore(0x32, message)                 // M at 0x32..0x52
+            if iszero(staticcall(gas(), 0x02, 0x00, 0x52, 0x20, 0x20)) { revert(0, 0) }
 
             // Outer call layout (inner digest now at 0x20..0x40):
             //   0x00..0x10 = R (still there)

@@ -47,23 +47,29 @@ VARIANTS = {
             "subtree_h": 12, "sig_size": 3352},
     "c7": {"h": 24, "d": 2, "k": 8, "a": 16, "m_max": 0, "scheme": "fors",
             "subtree_h": 12, "sig_size": 3704,
-            "w": 8, "log_w": 3, "l": 43, "len1": 43, "target_sum": 151, "w_mask": 0x7},
+            "w": 8, "log_w": 3, "l": 43, "len1": 43, "target_sum": 151, "w_mask": 0x7,
+            "adrs_mode": "fips",      # migrated to FIPS 205 uncompressed ADRS
+            "fors_bind_leaf": True},  # key FORS instance by per-message hypertree leaf (FIPS field split)
     "c8": {"h": 20, "d": 2, "k": 12, "a": 13, "m_max": 0, "scheme": "fors",
             "subtree_h": 10, "sig_size": 3848,
             "w": 16, "log_w": 4, "l": 32, "len1": 32, "target_sum": 162, "w_mask": 0xF},
     "c9": {"h": 20, "d": 2, "k": 11, "a": 12, "m_max": 0, "scheme": "fors",
             "subtree_h": 10, "sig_size": 3816,
-            "w": 8, "log_w": 3, "l": 43, "len1": 43, "target_sum": 208, "w_mask": 0x7},
+            "w": 8, "log_w": 3, "l": 43, "len1": 43, "target_sum": 208, "w_mask": 0x7,
+            "adrs_mode": "fips",      # migrated to FIPS 205 uncompressed ADRS
+            "fors_bind_leaf": True},  # key FORS instance by per-message hypertree leaf (FIPS field split)
     "c10": {"h": 18, "d": 2, "k": 13, "a": 11, "m_max": 0, "scheme": "fors",
             "subtree_h": 9, "sig_size": 4008,
             "w": 8, "log_w": 3, "l": 43, "len1": 43, "target_sum": 205, "w_mask": 0x7},
     "c11": {"h": 16, "d": 2, "k": 13, "a": 11, "m_max": 0, "scheme": "fors",
             "subtree_h": 8, "sig_size": 3976,
-            "w": 8, "log_w": 3, "l": 43, "len1": 43, "target_sum": 203, "w_mask": 0x7},
+            "w": 8, "log_w": 3, "l": 43, "len1": 43, "target_sum": 203, "w_mask": 0x7,
+            "fors_bind_leaf": True},  # key FORS instance by per-message hypertree leaf (FIPS field split)
     "c13": {"h": 22, "d": 2, "k": 7, "a": 19, "m_max": 0, "scheme": "fors",
             "subtree_h": 11, "sig_size": 3688,
             "w": 8, "log_w": 3, "l": 43, "len1": 43, "target_sum": 208, "w_mask": 0x7,
-            "adrs_mode": "fips"},  # FIPS 205 §11.2.2 uncompressed 32-byte ADRS
+            "adrs_mode": "fips",      # FIPS 205 §11.2.2 uncompressed 32-byte ADRS
+            "fors_bind_leaf": True},  # key FORS instance by per-message hypertree leaf (FIPS field split)
 }
 
 # ============================================================
@@ -220,8 +226,17 @@ def wots_secret(sk_seed, layer, tree, kp, chain_idx):
             to_b4(layer) + to_b32(tree) + to_b4(kp) + to_b4(chain_idx))
     return keccak256(data) & N_MASK
 
-def fors_secret(sk_seed, tree_idx, leaf_idx):
-    data = to_b32(sk_seed) + b"fors" + to_b4(tree_idx) + to_b4(leaf_idx)
+def fors_secret(sk_seed, tree_idx, leaf_idx, ht_idx=None):
+    """FORS leaf secret PRF.
+
+    `ht_idx` binds the secret to the per-message hypertree leaf, so each leaf
+    uses an independent FORS instance (standard SLH-DSA few-time-signature
+    behaviour). Variants without the leaf binding pass ht_idx=None, keeping
+    their original byte-for-byte preimage for layout compatibility."""
+    data = to_b32(sk_seed) + b"fors"
+    if ht_idx is not None:
+        data += to_b4(ht_idx)
+    data += to_b4(tree_idx) + to_b4(leaf_idx)
     return keccak256(data) & N_MASK
 
 def pors_secret(sk_seed, sig_pos):
@@ -357,13 +372,25 @@ def build_subtree_full(seed, sk_seed, layer, tree, subtree_h, cfg=None):
 #  FORS+C
 # ============================================================
 
-def build_fors_tree(seed, sk_seed, tree_idx, a, cfg=None):
+def build_fors_tree(seed, sk_seed, tree_idx, a, cfg=None, ht_idx=None, idx_leaf0=None, idx_tree0=None):
+    """Build one FORS Merkle tree.
+
+    When bound (ht_idx is not None — exact FIPS 205 FORS field split): tree
+    address = idx_tree0, kp = idx_leaf0, tree_index = (tree_idx << (a-height))
+    | node, tree_height = height, and the leaf secret PRF folds in ht_idx. This
+    keys the FORS instance by the per-message hypertree leaf (matches C12 /
+    SLH-DSA field semantics, FIPS 205 Alg. 17). Variants without the binding
+    pass ht_idx=None: original layout (tree=0, kp=tree_idx, tree_index=node),
+    secret PRF unchanged — byte-for-byte preserved."""
     mk_adrs, _, _ = _adrs_helpers(cfg)
     n_leaves = 1 << a
     leaves = []
     for j in range(n_leaves):
-        secret = fors_secret(sk_seed, tree_idx, j)
-        leaf_adrs = mk_adrs(0, 0, ADRS_FORS_TREE, tree_idx, 0, 0, j)
+        secret = fors_secret(sk_seed, tree_idx, j, ht_idx)
+        if ht_idx is not None:
+            leaf_adrs = mk_adrs(0, idx_tree0, ADRS_FORS_TREE, idx_leaf0, 0, 0, (tree_idx << a) | j)
+        else:
+            leaf_adrs = mk_adrs(0, 0, ADRS_FORS_TREE, tree_idx, 0, 0, j)
         leaves.append(th(seed, leaf_adrs, secret))
     nodes = [leaves]
     for h in range(a):
@@ -371,7 +398,11 @@ def build_fors_tree(seed, sk_seed, tree_idx, a, cfg=None):
         level = []
         for idx in range(0, len(prev), 2):
             parent_idx = idx // 2
-            adrs = mk_adrs(0, 0, ADRS_FORS_TREE, tree_idx, 0, h + 1, parent_idx)
+            if ht_idx is not None:
+                ti = (tree_idx << (a - (h + 1))) | parent_idx
+                adrs = mk_adrs(0, idx_tree0, ADRS_FORS_TREE, idx_leaf0, 0, h + 1, ti)
+            else:
+                adrs = mk_adrs(0, 0, ADRS_FORS_TREE, tree_idx, 0, h + 1, parent_idx)
             level.append(th_pair(seed, adrs, prev[idx], prev[idx + 1]))
         nodes.append(level)
     return nodes, nodes[a][0]
@@ -382,23 +413,41 @@ def fors_sign_full(seed, sk_seed, digest, k, a, cfg=None):
     indices = [(digest >> (i * a)) & a_mask for i in range(k)]
     assert indices[k - 1] == 0, f"Forced-zero violated: last index = {indices[k-1]}"
 
+    # Exact FIPS 205 FORS field split: key the FORS instance by the per-message
+    # hypertree leaf. htIdx = (digest >> k*a) & (2^h - 1) — the same value the
+    # verifier parses and the hypertree consumes — split into the bottom subtree
+    # (idx_tree0 → tree address) and leaf (idx_leaf0 → kp). Gated by cfg so
+    # variants without the binding are byte-for-byte unchanged.
+    ht_idx = idx_leaf0 = idx_tree0 = None
+    if cfg and cfg.get("fors_bind_leaf"):
+        ht_idx = (digest >> (k * a)) & ((1 << cfg["h"]) - 1)
+        sh = cfg["subtree_h"]
+        idx_leaf0 = ht_idx & ((1 << sh) - 1)
+        idx_tree0 = ht_idx >> sh
+
     secrets = []
     auth_paths = []
     roots = []
 
     for t in range(k - 1):
         eprint(f"  FORS tree {t}/{k-1}...")
-        tree_nodes, root = build_fors_tree(seed, sk_seed, t, a, cfg)
-        secrets.append(fors_secret(sk_seed, t, indices[t]))
+        tree_nodes, root = build_fors_tree(seed, sk_seed, t, a, cfg, ht_idx, idx_leaf0, idx_tree0)
+        secrets.append(fors_secret(sk_seed, t, indices[t], ht_idx))
         auth_paths.append(get_auth_path(tree_nodes, indices[t], a))
         roots.append(root)
 
     eprint(f"  FORS tree {k-1}/{k-1} (forced-zero)...")
-    _, root_last = build_fors_tree(seed, sk_seed, k - 1, a, cfg)
+    _, root_last = build_fors_tree(seed, sk_seed, k - 1, a, cfg, ht_idx, idx_leaf0, idx_tree0)
     secrets.append(root_last)
-    roots.append(th(seed, mk_adrs(0, 0, ADRS_FORS_TREE, k - 1, 0, 0, 0), root_last))
+    if ht_idx is not None:
+        # Forced-zero tree (forsTree=k-1) as leaf node 0: tree_index = (k-1) << a
+        fz_adrs = mk_adrs(0, idx_tree0, ADRS_FORS_TREE, idx_leaf0, 0, 0, (k - 1) << a)
+        roots_adrs = mk_adrs(0, idx_tree0, ADRS_FORS_ROOTS, idx_leaf0, 0, 0, 0)
+    else:
+        fz_adrs = mk_adrs(0, 0, ADRS_FORS_TREE, k - 1, 0, 0, 0)
+        roots_adrs = mk_adrs(0, 0, ADRS_FORS_ROOTS, 0, 0, 0, 0)
+    roots.append(th(seed, fz_adrs, root_last))
 
-    roots_adrs = mk_adrs(0, 0, ADRS_FORS_ROOTS, 0, 0, 0, 0)
     fors_pk = th_multi(seed, roots_adrs, roots)
     return secrets, auth_paths, fors_pk
 
@@ -489,20 +538,30 @@ def compute_octopus_auth_set(tree_nodes, sorted_indices, tree_height):
 #  R Grinding
 # ============================================================
 
-def grind_R_fors(seed, root, message, k, a):
+# SECRET-KEYED randomizer (review C13-X-f2). R is bound to the secret sk_seed and
+# the message: R = mask_n(keccak(sk_seed[32] || "R_grind" || message[32] ||
+# nonce[32])), grinding nonce until the forced-zero / octopus predicate holds.
+# Binding R to sk_seed removes public-grindability (an attacker can no longer
+# offline-search (message, R) to steer the FORS index map / hypertree leaf onto
+# previously-revealed instances), restoring the standard secret-randomizer
+# few-time model, while staying deterministic per (key, message). The preimage
+# layout MUST match signer-wasm/src/fors.rs::grind_r byte-for-byte or the
+# Rust<->Python cross-check (and the on-chain digest) diverge. The verifier is
+# unaffected — it only reads R out of the signature.
+def grind_R_fors(seed, sk_seed, root, message, k, a):
     a_mask = (1 << a) - 1
     last_shift = (k - 1) * a
     for nonce in range(10_000_000):
-        R = keccak256(b"R_grind" + to_b32(nonce)) & N_MASK
+        R = keccak256(to_b32(sk_seed) + b"R_grind" + to_b32(message) + to_b32(nonce)) & N_MASK
         digest = h_msg(seed, root, R, message)
         if (digest >> last_shift) & a_mask == 0:
             eprint(f"  R grind: found at nonce={nonce}")
             return R, digest
     raise RuntimeError("R grinding failed")
 
-def grind_R_pors(seed, root, message, k, tree_height, m_max):
+def grind_R_pors(seed, sk_seed, root, message, k, tree_height, m_max):
     for nonce in range(10_000_000):
-        R = keccak256(b"R_grind" + to_b32(nonce)) & N_MASK
+        R = keccak256(to_b32(sk_seed) + b"R_grind" + to_b32(message) + to_b32(nonce)) & N_MASK
         digest = h_msg(seed, root, R, message)
         indices = extract_pors_indices(digest, k, tree_height)
         n = count_octopus_auth_nodes(indices, tree_height)
@@ -553,9 +612,9 @@ def sign_variant(variant_name, message_int, seed=None, sk_seed=None, pk_root=Non
     # STEP 2: Grind R
     # ================================================================
     if scheme == "fors":
-        R, digest = grind_R_fors(seed, pk_root, message_int, k, a)
+        R, digest = grind_R_fors(seed, sk_seed, pk_root, message_int, k, a)
     else:
-        R, digest = grind_R_pors(seed, pk_root, message_int, k, tree_height, m_max)
+        R, digest = grind_R_pors(seed, sk_seed, pk_root, message_int, k, tree_height, m_max)
 
     # ================================================================
     # STEP 3: Decompose hypertree path

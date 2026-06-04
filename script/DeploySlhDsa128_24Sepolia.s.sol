@@ -3,13 +3,15 @@ pragma solidity ^0.8.28;
 
 import "forge-std/Script.sol";
 import "../src/SLH-DSA-SHA2-128-24verifier.sol";
-import "../src/SLH-DSA-keccak-128-24verifier.sol";
+import "../legacy/src/SLH-DSA-keccak-128-24verifier.sol";
 
 /// @title DeploySlhDsa128_24Sepolia — Deploy the SLH-DSA-*-128-24 verifiers
 /// @notice Two stateless, pure verifiers. Parameters follow NIST SP 800-230 Table 1:
 ///         n=16, h=22, d=1, h'=22, a=24, k=6, w=4 (lgw=2), m=21, sig=3,856 B.
 ///         SHA-2 variant is FIPS 205 bit-exact (SHA-256 precompile).
-///         Keccak variant is the JARDIN family twin (keccak opcode, 32-byte ADRS).
+///         Keccak variant is the JARDIN family twin (keccak opcode, 32-byte ADRS);
+///         it is now retired to legacy/ (frozen, not maintained) — kept here only
+///         so the historical Sepolia deployment stays reproducible.
 ///
 /// Run:
 ///   forge script script/DeploySlhDsa128_24Sepolia.s.sol \

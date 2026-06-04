@@ -6,6 +6,15 @@ kept for reproducibility of prior benchmarks, as a reference for the
 ADRS / hash conventions they share with the current verifiers, and as an
 escape hatch if someone needs to redeploy an earlier variant.
 
+**C11, C12, and `SLH-DSA-keccak-128-24verifier.sol`** were retired here when the
+repo standardized on the two FIPS 205 ADRS layouts (uncompressed 32 B + keccak,
+ADRSc 22 B + SHA-2). They stayed on the JARDIN 32-byte ADRS layout, so rather
+than migrate their kernels they were frozen alongside C6/C8/C10. Their off-chain
+signers (`script/jardin_spx_signer.py`, `signers/jardin-keccak-128-24/`, and
+`script/signer.py` in JARDIN `adrs_mode`) and the keccak SLH-DSA deploy entry in
+`script/DeploySlhDsa128_24Sepolia.s.sol` are unchanged and still point at these
+files via `../legacy/src/`.
+
 ## What's here
 
 ### `legacy/src/` — Solidity verifiers and accounts
@@ -13,6 +22,8 @@ escape hatch if someone needs to redeploy an earlier variant.
 | File | What it is |
 |---|---|
 | `SPHINCs-C6Asm.sol` … `SPHINCs-C11Asm.sol` | Stateless SPHINCS+ / SPHINCs- WOTS+C + FORS+C verifiers (n=128, d=2). |
+| `SPHINCs-C12Asm.sol` | Plain SPHINCS+ (SPX) verifier, JARDIN 32-byte ADRS. 6,512-B sig, ~276 K verify. `JardinSpxVerifier` in the JARDIN repo. |
+| `SLH-DSA-keccak-128-24verifier.sol` | JARDIN-convention Keccak twin of SLH-DSA-128-24 (keccak opcode, 32-byte ADRS). SHA-2 twin stays live in `src/`. |
 | `SphincsAccount.sol`, `SphincsAccountFactory.sol` | Original hybrid ECDSA + SPHINCs- ERC-4337 account and its factory. |
 | `SphincsFrameAccount.sol` | Original EIP-8141 frame account wired to the C-series verifiers. |
 | `JardinT0Verifier.sol` | JARDINERO T0 variant: plain FORS + WOTS+C hypertree (h=14 d=7 a=6 k=39). |
@@ -38,6 +49,8 @@ escape hatch if someone needs to redeploy an earlier variant.
 | File | Covers |
 |---|---|
 | `SphincsC8Test.t.sol` … `SphincsC11Test.t.sol` | Stateless SPHINCs- C8–C11 verifiers. |
+| `SphincsC12Test.t.sol` | Plain SPHINCS+ C12 verifier. |
+| `SLH-DSA-Keccak-128-24-CalldataGas.t.sol`, `SLH-DSA-keccak-128-24-Test.t.sol` | Keccak SLH-DSA-128-24 twin (calldata-gas + FFI round-trip). FFI signer paths under `script/` / `signers/` are unchanged. |
 | `JardinT0Test.t.sol` | T0 verifier standalone. |
 | `JardinForsCTest.t.sol`, `JardinForsCVariableHTest.t.sol` | FORS+C verifier (fixed and variable-h). |
 
