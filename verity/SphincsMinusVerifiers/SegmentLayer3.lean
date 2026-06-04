@@ -740,6 +740,13 @@ def suffixBeforeMerkle : List Stmt :=
   , .letVar "mIdx" (v "idxLeaf")
   , .letVar "merklePtr" (addE (v "sigBase") (v "authOff")) ]
 
+/-- The accepting suffix up to, but not including, the `"mIdx"` binding. -/
+def suffixBeforeMIdx : List Stmt :=
+  suffixBeforeAuthOff ++
+    [ .letVar "authOff" (addE (v "countOff") (u 4))
+    , .letVar "treeAdrs" (orE (shlE (u 224) (v "layer")) (orE (shlE (u 128) (v "idxTree")) (shlE (u 96) (u 2))))
+    , .letVar "merkleNode" (v "wotsPk") ]
+
 def layerBody : List Stmt := prefix11 ++ (.ite condE revert0 [] :: suffix14)
 
 def layerStmt : Stmt := .forEach "layer" (u 2) layerBody
@@ -1903,6 +1910,12 @@ def beforeMerkle (ls : RuntimeState) : RuntimeState :=
   | .continue s' => s'
   | _ => afterDigit ls
 
+/-- The state immediately before binding `"mIdx"`. -/
+def beforeMIdx (ls : RuntimeState) : RuntimeState :=
+  match execStmtList [] (afterDigit ls) suffixBeforeMIdx with
+  | .continue s' => s'
+  | _ => afterDigit ls
+
 /-- The state immediately before binding `"authOff"`. -/
 def beforeAuthOff (ls : RuntimeState) : RuntimeState :=
   match execStmtList [] (afterDigit ls) suffixBeforeAuthOff with
@@ -1979,7 +1992,7 @@ theorem suffixBeforeAuthOff_preserves_countOff (ls : RuntimeState) :
         · exact execStmt_forEach_preserves_lookup "step" "countOff" _ _ _ _ (by decide)
             (by
               intro u u'' stmt'' hmem'' hexec''
-              simp [wotsChainBody, mstoreE] at hmem''
+              simp [wotsChainBody] at hmem''
               rcases hmem'' with rfl | rfl | rfl
               · exact execStmt_mstore_preserves_lookup _ _ "countOff" _ _ hexec''
               · exact execStmt_mstore_preserves_lookup _ _ "countOff" _ _ hexec''
@@ -1998,6 +2011,47 @@ theorem suffixBeforeAuthOff_preserves_countOff (ls : RuntimeState) :
       hexec
   · exact execStmt_letVar_preserves_lookup _ _ "wotsPk" "countOff" _ (by decide) hexec
 
+/-- The suffix prefix before `"authOff"` does not rebind the layer leaf index. -/
+theorem suffixBeforeAuthOff_preserves_idxLeaf (ls : RuntimeState) :
+    lookupValue (beforeAuthOff ls).bindings "idxLeaf" =
+      lookupValue (afterDigit ls).bindings "idxLeaf" := by
+  refine execStmtList_preserves_lookup "idxLeaf" suffixBeforeAuthOff
+    (afterDigit ls) (beforeAuthOff ls) ?_ (beforeAuthOff_eq ls)
+  intro s s'' stmt hmem hexec
+  simp [suffixBeforeAuthOff, mstore] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl
+  · exact execStmt_letVar_preserves_lookup _ _ "wotsPtr" "idxLeaf" _ (by decide) hexec
+  · exact execStmt_forEach_preserves_lookup "i" "idxLeaf" _ _ _ _ (by decide)
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [wotsOuterBody, mstoreE] at hmem'
+        rcases hmem' with rfl | rfl | rfl | rfl | rfl | rfl
+        · exact execStmt_letVar_preserves_lookup _ _ "digit" "idxLeaf" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "steps" "idxLeaf" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "val" "idxLeaf" _ (by decide) hexec'
+        · exact execStmt_letVar_preserves_lookup _ _ "chainBase" "idxLeaf" _ (by decide) hexec'
+        · exact execStmt_forEach_preserves_lookup "step" "idxLeaf" _ _ _ _ (by decide)
+            (by
+              intro u u'' stmt'' hmem'' hexec''
+              simp [wotsChainBody] at hmem''
+              rcases hmem'' with rfl | rfl | rfl
+              · exact execStmt_mstore_preserves_lookup _ _ "idxLeaf" _ _ hexec''
+              · exact execStmt_mstore_preserves_lookup _ _ "idxLeaf" _ _ hexec''
+              · exact execStmt_assignVar_preserves_lookup _ _ "val" "idxLeaf" _ (by decide) hexec'')
+            hexec'
+        · exact execStmt_mstore_preserves_lookup _ _ "idxLeaf" _ _ hexec')
+      hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "pkAdrs" "idxLeaf" _ (by decide) hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "idxLeaf" _ _ hexec
+  · exact execStmt_forEach_preserves_lookup "i" "idxLeaf" _ _ _ _ (by decide)
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [copyBody, mstoreE] at hmem'
+        subst hmem'
+        exact execStmt_mstore_preserves_lookup _ _ "idxLeaf" _ _ hexec')
+      hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "wotsPk" "idxLeaf" _ (by decide) hexec
+
 /-- The state before binding `"authOff"` still carries the count offset computed
 from the incoming `"sigOff"`. -/
 theorem beforeAuthOff_countOff_eq_of_sigOff
@@ -2009,6 +2063,16 @@ theorem beforeAuthOff_countOff_eq_of_sigOff
   rw [suffixBeforeAuthOff_preserves_countOff]
   rw [afterDigit_preserves_lookup_of_ne ls "countOff" (by decide) (by decide)]
   exact beforeDigitLoop_countOff_eq_of_sigOff ls sigOff hSigOff hSigOffLt hCountOffLt
+
+/-- The state before binding `"authOff"` still carries the low-11-bit leaf index
+computed from the incoming `"idxTree"`. -/
+theorem beforeAuthOff_idxLeaf_eq_of_idxTree
+    (ls : RuntimeState) (idxTree : Nat)
+    (hIdxTree : lookupValue ls.bindings "idxTree" = idxTree)
+    (hIdxTreeLt : idxTree < 2 ^ 256) :
+    lookupValue (beforeAuthOff ls).bindings "idxLeaf" = idxTree % 2048 := by
+  rw [suffixBeforeAuthOff_preserves_idxLeaf]
+  exact afterDigit_idxLeaf_eq_of_idxTree ls idxTree hIdxTree hIdxTreeLt
 
 theorem beforeMerkle_eq (ls : RuntimeState) :
     execStmtList [] (afterDigit ls) suffixBeforeMerkle = .continue (beforeMerkle ls) := by
@@ -2027,6 +2091,52 @@ theorem beforeMerkle_eq (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "mIdx" _ _ rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merklePtr" _ _ rfl)]
   rfl
+
+/-- The accepting suffix reaches the cutpoint just before `"mIdx"`. -/
+theorem beforeMIdx_eq (ls : RuntimeState) :
+    execStmtList [] (afterDigit ls) suffixBeforeMIdx = .continue (beforeMIdx ls) := by
+  unfold beforeMIdx suffixBeforeMIdx u
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeAuthOff_eq ls)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "authOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "treeAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merkleNode" _ _ rfl)]
+  rfl
+
+/-- The cutpoint before `"mIdx"` still carries the low-11-bit leaf index. -/
+theorem beforeMIdx_idxLeaf_eq_of_idxTree
+    (ls : RuntimeState) (idxTree : Nat)
+    (hIdxTree : lookupValue ls.bindings "idxTree" = idxTree)
+    (hIdxTreeLt : idxTree < 2 ^ 256) :
+    lookupValue (beforeMIdx ls).bindings "idxLeaf" = idxTree % 2048 := by
+  unfold beforeMIdx suffixBeforeMIdx u
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeAuthOff_eq ls)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "authOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "treeAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merkleNode" _ _ rfl)]
+  simp only [execStmtList]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "merkleNode" "idxLeaf" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "treeAdrs" "idxLeaf" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "authOff" "idxLeaf" _ (by decide)]
+  exact beforeAuthOff_idxLeaf_eq_of_idxTree ls idxTree hIdxTree hIdxTreeLt
+
+/-- The Merkle-climb prefix initializes `"mIdx"` from the low-11-bit leaf index. -/
+theorem beforeMerkle_mIdx_eq_of_idxTree
+    (ls : RuntimeState) (idxTree : Nat)
+    (hIdxTree : lookupValue ls.bindings "idxTree" = idxTree)
+    (hIdxTreeLt : idxTree < 2 ^ 256) :
+    lookupValue (beforeMerkle ls).bindings "mIdx" = idxTree % 2048 := by
+  unfold beforeMerkle
+  rw [show suffixBeforeMerkle =
+      suffixBeforeMIdx ++
+        [ .letVar "mIdx" (v "idxLeaf")
+        , .letVar "merklePtr" (addE (v "sigBase") (v "authOff")) ] by rfl]
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeMIdx_eq ls)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "mIdx" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merklePtr" _ _ rfl)]
+  simp only [execStmtList]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "merklePtr" "mIdx" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_self]
+  exact beforeMIdx_idxLeaf_eq_of_idxTree ls idxTree hIdxTree hIdxTreeLt
 
 /-- The state before the Merkle loop preserves seed cell `0x00` once the WOTS and
 copy loops are supplied as bounded frame facts. -/
@@ -2897,8 +3007,13 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeAuthOff_eq
 #print axioms beforeAuthOff_preserves_memory_zero_of_loop_frames
 #print axioms suffixBeforeAuthOff_preserves_countOff
+#print axioms suffixBeforeAuthOff_preserves_idxLeaf
 #print axioms beforeAuthOff_countOff_eq_of_sigOff
+#print axioms beforeAuthOff_idxLeaf_eq_of_idxTree
 #print axioms beforeMerkle_eq
+#print axioms beforeMIdx_eq
+#print axioms beforeMIdx_idxLeaf_eq_of_idxTree
+#print axioms beforeMerkle_mIdx_eq_of_idxTree
 #print axioms beforeMerkle_preserves_memory_zero_of_loop_frames
 #print axioms suffixBeforeMerkle_preserves_countOff
 #print axioms beforeMerkle_countOff_eq_of_sigOff
