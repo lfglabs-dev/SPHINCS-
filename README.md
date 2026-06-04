@@ -187,6 +187,20 @@ python3 script/slh_dsa_keccak_128_24_fast_signer.py <master_sk_hex> <message_hex
 
 EntryPoint v0.9: `0x433709009B8330FDa32311DF1C2AFA402eD8D009` (Sepolia)
 
+### 2026-06-04 redeploy — new accounts & factories
+
+New C13 `SphincsAccountFactory` instances and freshly-deployed accounts (each account funded 0.1 ETH):
+
+| Chain | Contract | Address |
+|---|---|---|
+| Sepolia | SphincsAccountFactory | [`0x8830d3...`](https://sepolia.etherscan.io/address/0x8830d36284829656F2A60CD028062686069FABA4) |
+| Sepolia | SphincsAccountFactory (fresh) | [`0x79FDD0...`](https://sepolia.etherscan.io/address/0x79FDD0aFcb2214D6C17E639dA7eF6357956Cd857) |
+| Sepolia | SphincsAccount (ERC-4337 hybrid, C13) | [`0x012801...`](https://sepolia.etherscan.io/address/0x01280171F336869e9c96F9e6eb674b1548D10dD4) |
+| ethrex | SphincsAccountFactory | [`0x874f5b...`](https://explorer.eip-8141.ethrex.xyz/address/0x874f5ba1d47B477CB70999795cAf7E6Bb53EeDD7) |
+| ethrex | Frame account (EIP-8141, C13) | [`0x253A4d...`](https://explorer.eip-8141.ethrex.xyz/address/0x253A4d0100fe7A2a6d6839b37BDC283FD1dF693d) |
+
+> ethrex's `SphincsAccountFactory` is deployed for completeness, but EntryPoint v0.9 has no code on ethrex — accounts created there are inert for ERC-4337; ethrex's functional PQ path is the EIP-8141 frame account. Full address record: [`script/.c13_addresses.json`](./script/.c13_addresses.json).
+
 ### Sepolia (ERC-4337 Hybrid, C-series)
 
 | Variant | Verifier | Account | Gas | Tx |
