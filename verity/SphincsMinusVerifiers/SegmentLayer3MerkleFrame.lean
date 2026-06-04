@@ -369,6 +369,308 @@ theorem layer_eval_facts_of_c13_frozen_calldata
     pkSeed pkRoot message sig hsel hcd hap hTree hTreeLt hmIdx hmIdxLt hidx
     haplt hshift hsum hoff hoff4
 
+/-- Frozen C13 layer Merkle-site invariant threaded through the XMSS climb.  The
+selector/calldata and address-pointer bindings are static; `"mIdx"` moves by
+`>>> 1` on each step, so the invariant only records its EVM-word bound. -/
+def LayerFrozenSite
+    (layer : Nat) (pkSeed pkRoot message sig : ByteArray) (s : RuntimeState) : Prop :=
+  ∃ treeAdrs,
+    s.selector = 0 ∧
+    s.world.calldata =
+      SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
+        ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig ∧
+    lookupValue s.bindings "merklePtr" =
+      SphincsMinusVerifiers.MkC13State.sigDataOffset + (1952 + 868 * layer + 692) ∧
+    lookupValue s.bindings "treeAdrs" = treeAdrs ∧
+    treeAdrs < 2 ^ 256 ∧
+    lookupValue s.bindings "mIdx" < 2 ^ 256
+
+/-- One layer Merkle step preserves the seed cell from a frozen C13 layer site. -/
+theorem stepMerkle_preserves_seed_slot_of_layer_frozen_calldata
+    (s : RuntimeState) (layer idx : Nat)
+    (pkSeed pkRoot message sig : ByteArray)
+    (hsite : LayerFrozenSite layer pkSeed pkRoot message sig s)
+    (hlayer : layer < 2)
+    (hidx : idx < 11) :
+    ((stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+        { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }).world.memory
+        0x00).val =
+      (s.world.memory 0x00).val := by
+  rcases hsite with ⟨treeAdrs, hsel, hcd, hap, hTree, hTreeLt, hmIdxLt⟩
+  rcases layer_eval_facts_of_c13_frozen_calldata
+      s layer idx treeAdrs (lookupValue s.bindings "mIdx")
+      pkSeed pkRoot message sig hsel hcd hap hTree hTreeLt rfl hmIdxLt hlayer hidx with
+    ⟨mIdx, vsib, vadr, hmIdx, hmIdxLt', h1, h3⟩
+  exact stepMerkle_preserves_seed_slot_of_layer_eval
+    s idx mIdx vsib vadr hmIdx hmIdxLt' h1 h3
+
+/-- One layer Merkle step preserves the frozen-site invariant. -/
+theorem stepMerkle_preserves_layerFrozenSite
+    (s : RuntimeState) (layer idx : Nat)
+    (pkSeed pkRoot message sig : ByteArray)
+    (hsite : LayerFrozenSite layer pkSeed pkRoot message sig s)
+    (hlayer : layer < 2)
+    (hidx : idx < 11) :
+    LayerFrozenSite layer pkSeed pkRoot message sig
+      (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+        { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }) := by
+  rcases hsite with ⟨treeAdrs, hsel, hcd, hap, hTree, hTreeLt, hmIdxLt⟩
+  rcases layer_eval_facts_of_c13_frozen_calldata
+      s layer idx treeAdrs (lookupValue s.bindings "mIdx")
+      pkSeed pkRoot message sig hsel hcd hap hTree hTreeLt rfl hmIdxLt hlayer hidx with
+    ⟨mIdx, vsib, vadr, hmIdx, hmIdxLt', h1, h3⟩
+  let stH : RuntimeState := { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+  let vpar : Nat := mIdx >>> 1
+  let sval : Nat := (Nat.land mIdx 1) <<< 5
+  let o5 : Nat := (0x40 : Nat) ^^^ sval
+  let o6 : Nat := (0x60 : Nat) ^^^ sval
+  let st1 : RuntimeState := { stH with bindings := bindValue stH.bindings "sibling" vsib }
+  let st2 : RuntimeState := { st1 with bindings := bindValue st1.bindings "parentIdx" vpar }
+  let st3 : RuntimeState :=
+    { st2 with world := { st2.world with memory :=
+        SphincsMinusVerifiers.MemoryKit.memUpdate st2.world.memory 0x20 vadr } }
+  let st4 : RuntimeState := { st3 with bindings := bindValue st3.bindings "s" sval }
+  let vnode : Nat := lookupValue st4.bindings "merkleNode"
+  let st5 : RuntimeState :=
+    { st4 with world := { st4.world with memory :=
+        SphincsMinusVerifiers.MemoryKit.memUpdate st4.world.memory o5 vnode } }
+  have hmIdxH : lookupValue stH.bindings "mIdx" = mIdx := by
+    dsimp [stH]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      s.bindings "h" "mIdx" (wordNormalize idx) (by decide)]
+    exact hmIdx
+  have hmIdx1 : lookupValue st1.bindings "mIdx" = mIdx := by
+    dsimp [st1]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      stH.bindings "sibling" "mIdx" vsib (by decide)]
+    exact hmIdxH
+  have h2 : evalExpr [] st1 (.shr (.literal 1) (.localVar "mIdx")) = some vpar := by
+    dsimp [vpar]
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.eval_parentIdx_shr
+      "mIdx" st1 mIdx hmIdx1 hmIdxLt'
+  have hmIdx3 : lookupValue st3.bindings "mIdx" = mIdx := by
+    dsimp [st3, st2, st1]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      (bindValue stH.bindings "sibling" vsib) "parentIdx" "mIdx" vpar (by decide)]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      stH.bindings "sibling" "mIdx" vsib (by decide)]
+    exact hmIdxH
+  have h4 : evalExpr [] st3
+      (.shl (.literal 5) (.bitAnd (.localVar "mIdx") (.literal 1))) = some sval := by
+    dsimp [sval]
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.eval_selector_shl
+      "mIdx" st3 mIdx hmIdx3 hmIdxLt'
+  have hsvalt : sval < 2 ^ 256 := by
+    dsimp [sval]
+    rw [Nat.shiftLeft_eq]
+    exact Nat.lt_of_le_of_lt (Nat.mul_le_mul Nat.and_le_right (le_refl _)) (by decide)
+  have hs4 : lookupValue st4.bindings "s" = sval := by
+    dsimp [st4]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+  have h5off : evalExpr [] st4 (.bitXor (.literal 0x40) (.localVar "s")) = some o5 := by
+    dsimp [o5]
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.eval_childOffset_xor
+      st4 0x40 sval hs4 (by decide) hsvalt
+  have h5val : evalExpr [] st4 (.localVar "merkleNode") = some vnode := by
+    rfl
+  have hs5 : lookupValue st5.bindings "s" = sval := by
+    dsimp [st5]
+    exact hs4
+  have h6off : evalExpr [] st5 (.bitXor (.literal 0x60) (.localVar "s")) = some o6 := by
+    dsimp [o6]
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.eval_childOffset_xor
+      st5 0x60 sval hs5 (by decide) hsvalt
+  have h6val : evalExpr [] st5 (.localVar "sibling") =
+      some (lookupValue st5.bindings "sibling") := by
+    rfl
+  have hsc :=
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.stepMerkle_selector_calldata
+      "merkleNode" "mIdx" "treeAdrs" "merklePtr" stH
+      vsib vpar vadr sval o5 vnode o6 (lookupValue st5.bindings "sibling")
+      h1 h2 h3 h4 h5off h5val h6off h6val
+  have hptrStep :
+      lookupValue
+        (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr" stH).bindings
+          "merklePtr" =
+        SphincsMinusVerifiers.MkC13State.sigDataOffset + (1952 + 868 * layer + 692) := by
+    rw [SphincsMinusVerifiers.ClimbMemFrameMerkle.stepMerkle_binding_frozen
+      "merkleNode" "mIdx" "treeAdrs" "merklePtr" "merklePtr" stH
+      vsib vpar vadr sval o5 vnode o6 (lookupValue st5.bindings "sibling")
+      (by decide) (by decide) (by decide) (by decide) (by decide)
+      h1 h2 h3 h4 h5off h5val h6off h6val]
+    dsimp [stH]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      s.bindings "h" "merklePtr" (wordNormalize idx) (by decide)]
+    exact hap
+  have htreeStep :
+      lookupValue
+        (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr" stH).bindings
+          "treeAdrs" = treeAdrs := by
+    rw [SphincsMinusVerifiers.ClimbMemFrameMerkle.stepMerkle_binding_frozen
+      "merkleNode" "mIdx" "treeAdrs" "merklePtr" "treeAdrs" stH
+      vsib vpar vadr sval o5 vnode o6 (lookupValue st5.bindings "sibling")
+      (by decide) (by decide) (by decide) (by decide) (by decide)
+      h1 h2 h3 h4 h5off h5val h6off h6val]
+    dsimp [stH]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      s.bindings "h" "treeAdrs" (wordNormalize idx) (by decide)]
+    exact hTree
+  have hmIdxStepEq :
+      lookupValue
+        (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr" stH).bindings
+          "mIdx" = vpar :=
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.stepMerkle_idx_binding
+      "merkleNode" "mIdx" "treeAdrs" "merklePtr" stH
+      vsib vpar vadr sval o5 vnode o6 (lookupValue st5.bindings "sibling")
+      (by decide) h1 h2 h3 h4 h5off h5val h6off h6val
+  have hvparlt : vpar < 2 ^ 256 := by
+    dsimp [vpar]
+    rw [Nat.shiftRight_eq_div_pow]
+    exact lt_of_le_of_lt (Nat.div_le_self _ _) hmIdxLt'
+  refine ⟨treeAdrs, hsc.1.trans hsel, hsc.2.trans hcd, hptrStep, htreeStep, hTreeLt, ?_⟩
+  rw [hmIdxStepEq]
+  exact hvparlt
+
+/-- Pure XMSS layer Merkle-loop site invariant over the actual loop states. -/
+theorem foldLoop_preserves_layerFrozenSite_range
+    (layer : Nat) (pkSeed pkRoot message sig : ByteArray) (hlayer : layer < 2) :
+    ∀ (state : RuntimeState) (index remaining : Nat),
+      (∀ i, index ≤ i → i < index + remaining → i < 11) →
+      LayerFrozenSite layer pkSeed pkRoot message sig state →
+      LayerFrozenSite layer pkSeed pkRoot message sig
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
+          (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr")
+          state index remaining)
+  | state, _, 0, _, hsite => by
+      rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_zero]
+      exact hsite
+  | state, index, remaining + 1, hD, hsite => by
+      rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_succ]
+      exact foldLoop_preserves_layerFrozenSite_range layer pkSeed pkRoot message sig hlayer
+        (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+          { state with bindings := bindValue state.bindings "h" (wordNormalize index) })
+        (index + 1) remaining
+        (fun i hi1 hi2 => hD i (by omega) (by omega))
+        (stepMerkle_preserves_layerFrozenSite
+          state layer index pkSeed pkRoot message sig hsite hlayer
+          (hD index (by omega) (by omega)))
+
+/-- Pure XMSS layer Merkle-loop seed-cell frame from the concrete frozen-site
+invariant, threaded over the actual loop states. -/
+theorem foldLoop_preserves_seed_slot_of_layerFrozenSite_range
+    (layer : Nat) (pkSeed pkRoot message sig : ByteArray) (hlayer : layer < 2) :
+    ∀ (state : RuntimeState) (index remaining : Nat),
+      (∀ i, index ≤ i → i < index + remaining → i < 11) →
+      LayerFrozenSite layer pkSeed pkRoot message sig state →
+      ((SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
+          (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr")
+          state index remaining).world.memory 0x00).val
+        = (state.world.memory 0x00).val
+  | state, _, 0, _, _ => by
+      rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_zero]
+  | state, index, remaining + 1, hD, hsite => by
+      rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_succ]
+      let stepState : RuntimeState :=
+        stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+          { state with bindings := bindValue state.bindings "h" (wordNormalize index) }
+      have hstepMem : (stepState.world.memory 0x00).val = (state.world.memory 0x00).val := by
+        exact stepMerkle_preserves_seed_slot_of_layer_frozen_calldata
+          state layer index pkSeed pkRoot message sig hsite hlayer
+          (hD index (by omega) (by omega))
+      have hstepSite : LayerFrozenSite layer pkSeed pkRoot message sig stepState := by
+        exact stepMerkle_preserves_layerFrozenSite
+          state layer index pkSeed pkRoot message sig hsite hlayer
+          (hD index (by omega) (by omega))
+      have hrec :
+          ((SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
+              (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr")
+              stepState (index + 1) remaining).world.memory 0x00).val
+            = (stepState.world.memory 0x00).val :=
+        foldLoop_preserves_seed_slot_of_layerFrozenSite_range
+          layer pkSeed pkRoot message sig hlayer stepState (index + 1) remaining
+          (fun i hi1 hi2 => hD i (by omega) (by omega))
+          hstepSite
+      exact hrec.trans hstepMem
+
+/-- The folded XMSS layer Merkle climb preserves the seed cell from a frozen
+site at `beforeMerkle`.  The initial `"h"` loop binding touches only bindings,
+so it preserves the frozen site and the seed cell. -/
+theorem afterMerkle_preserves_memory_zero_of_layerFrozenSite_range
+    (ls : RuntimeState) (layer : Nat)
+    (pkSeed pkRoot message sig : ByteArray)
+    (hWots :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (.literal 43) SegmentLayer3.wotsOuterBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hCopy :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (.literal 43) SegmentLayer3.copyBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hlayer : layer < 2)
+    (hsite : LayerFrozenSite layer pkSeed pkRoot message sig (SegmentLayer3.beforeMerkle ls)) :
+    ((SegmentLayer3.afterMerkle ls).world.memory 0x00).val =
+      ((SegmentLayer3.afterDigit ls).world.memory 0x00).val := by
+  let stH : RuntimeState :=
+    { SegmentLayer3.beforeMerkle ls with
+      bindings := bindValue (SegmentLayer3.beforeMerkle ls).bindings "h" (wordNormalize 0) }
+  have hsiteH : LayerFrozenSite layer pkSeed pkRoot message sig stH := by
+    rcases hsite with ⟨treeAdrs, hsel, hcd, hap, hTree, hTreeLt, hmIdxLt⟩
+    refine ⟨treeAdrs, ?_, ?_, ?_, ?_, hTreeLt, ?_⟩
+    · dsimp [stH]
+      exact hsel
+    · dsimp [stH]
+      exact hcd
+    · dsimp [stH]
+      rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+        (SegmentLayer3.beforeMerkle ls).bindings "h" "merklePtr" (wordNormalize 0) (by decide)]
+      exact hap
+    · dsimp [stH]
+      rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+        (SegmentLayer3.beforeMerkle ls).bindings "h" "treeAdrs" (wordNormalize 0) (by decide)]
+      exact hTree
+    · dsimp [stH]
+      rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+        (SegmentLayer3.beforeMerkle ls).bindings "h" "mIdx" (wordNormalize 0) (by decide)]
+      exact hmIdxLt
+  have hFold :
+      ((SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
+          (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr")
+          stH 0 (wordNormalize 11)).world.memory 0x00).val =
+        (stH.world.memory 0x00).val := by
+    exact foldLoop_preserves_seed_slot_of_layerFrozenSite_range
+      layer pkSeed pkRoot message sig hlayer stH 0 (wordNormalize 11)
+      (fun i _ hi2 => by
+        rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+          Nat.mod_eq_of_lt (by decide : 11 < 2 ^ 256)] at hi2
+        omega)
+      hsiteH
+  unfold SegmentLayer3.afterMerkle
+  rw [hFold]
+  exact SegmentLayer3.beforeMerkle_preserves_memory_zero_of_loop_frames ls hWots hCopy
+
+/-- One accepting C13 layer iteration preserves seed cell `0x00` from a concrete
+frozen site at its `beforeMerkle` cutpoint. -/
+theorem stepLayer_preserves_memory_zero_of_layerFrozenSite_range
+    (ls : RuntimeState) (layer : Nat)
+    (pkSeed pkRoot message sig : ByteArray)
+    (hWots :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (.literal 43) SegmentLayer3.wotsOuterBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hCopy :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (.literal 43) SegmentLayer3.copyBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hlayer : layer < 2)
+    (hsite : LayerFrozenSite layer pkSeed pkRoot message sig (SegmentLayer3.beforeMerkle ls)) :
+    ((SegmentLayer3.stepLayer ls).world.memory 0x00).val =
+      ((SegmentLayer3.afterDigit ls).world.memory 0x00).val := by
+  have hTail := SegmentLayer3.finalLayerTail_preserves_memory_zero (SegmentLayer3.afterMerkle ls)
+  rw [SegmentLayer3.finalLayerTail_continues_from_afterMerkle ls] at hTail
+  rw [hTail]
+  exact afterMerkle_preserves_memory_zero_of_layerFrozenSite_range
+    ls layer pkSeed pkRoot message sig hWots hCopy hlayer hsite
+
 /-- One accepting layer iteration preserves seed cell `0x00` once the WOTS/copy
 loop frames are supplied and the Merkle loop's per-height site facts are reduced
 to `LayerMerkleEvalFacts`. -/
@@ -399,6 +701,13 @@ theorem stepLayer_preserves_memory_zero_of_layer_eval_range
 #print axioms layer_address_assembly_eval_exists
 #print axioms layer_eval_facts_of_frozen_calldata
 #print axioms layer_eval_facts_of_c13_frozen_calldata
+#print axioms LayerFrozenSite
+#print axioms stepMerkle_preserves_seed_slot_of_layer_frozen_calldata
+#print axioms stepMerkle_preserves_layerFrozenSite
+#print axioms foldLoop_preserves_layerFrozenSite_range
+#print axioms foldLoop_preserves_seed_slot_of_layerFrozenSite_range
+#print axioms afterMerkle_preserves_memory_zero_of_layerFrozenSite_range
+#print axioms stepLayer_preserves_memory_zero_of_layerFrozenSite_range
 #print axioms stepLayer_preserves_memory_zero_of_layer_eval_range
 
 end SphincsMinusVerifiers.SegmentLayer3MerkleFrame
