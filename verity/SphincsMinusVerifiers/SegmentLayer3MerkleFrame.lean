@@ -157,6 +157,218 @@ def LayerMerkleEvalFacts (s : RuntimeState) (idx : Nat) : Prop :=
           (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
             (.localVar "parentIdx"))) = some vadr
 
+/-- Layer-shaped address-assembly evaluator for the XMSS Merkle climb.  Once the
+loop has bound `"h"`, stmt 1 has bound `"sibling"`, and stmt 2 has bound
+`"parentIdx"`, the stmt-3 ADRS expression evaluates to some word under ordinary
+boundedness hypotheses. -/
+theorem layer_address_assembly_eval_exists
+    (s : RuntimeState) (idx vsib treeAdrs mIdx : Nat)
+    (hTree : lookupValue s.bindings "treeAdrs" = treeAdrs)
+    (hTreeLt : treeAdrs < 2 ^ 256)
+    (hmIdxLt : mIdx < 2 ^ 256)
+    (hidx : idx < 11) :
+    ∃ vadr,
+      evalExpr []
+          { s with bindings :=
+            (bindValue
+              (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
+              "parentIdx" (mIdx >>> 1)) }
+          (.bitOr (.localVar "treeAdrs")
+            (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+              (.localVar "parentIdx"))) = some vadr := by
+  let stA : RuntimeState :=
+    { s with bindings :=
+      (bindValue
+        (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
+        "parentIdx" (mIdx >>> 1)) }
+  let p : Nat := mIdx >>> 1
+  let hword : Nat := idx + 1
+  let sh : Nat := hword <<< 32
+  let inner : Nat := Nat.lor sh p
+  let vadr : Nat := Nat.lor treeAdrs inner
+  have hidx256 : idx < 2 ^ 256 := lt_trans hidx (by decide)
+  have hwordlt : hword < 2 ^ 256 := by
+    dsimp [hword]
+    omega
+  have hshlt : sh < 2 ^ 256 := by
+    dsimp [sh, hword]
+    rw [Nat.shiftLeft_eq]
+    exact lt_of_le_of_lt
+      (Nat.mul_le_mul_right (2 ^ 32) (Nat.succ_le_of_lt hidx))
+      (by decide : 11 * 2 ^ 32 < 2 ^ 256)
+  have hplt : p < 2 ^ 256 := by
+    dsimp [p]
+    rw [Nat.shiftRight_eq_div_pow]
+    exact Nat.lt_of_le_of_lt (Nat.div_le_self mIdx (2 ^ 1)) hmIdxLt
+  have htree_eval : evalExpr [] stA (.localVar "treeAdrs") = some treeAdrs := by
+    show some (lookupValue stA.bindings "treeAdrs") = some treeAdrs
+    dsimp [stA]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
+      "parentIdx" "treeAdrs" (mIdx >>> 1) (by decide)]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      (bindValue s.bindings "h" (wordNormalize idx))
+      "sibling" "treeAdrs" vsib (by decide)]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      s.bindings "h" "treeAdrs" (wordNormalize idx) (by decide)]
+    rw [hTree]
+  have hh_eval : evalExpr [] stA (.localVar "h") = some idx := by
+    show some (lookupValue stA.bindings "h") = some idx
+    dsimp [stA]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
+      "parentIdx" "h" (mIdx >>> 1) (by decide)]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      (bindValue s.bindings "h" (wordNormalize idx))
+      "sibling" "h" vsib (by decide)]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt hidx256]
+  have hparent_eval : evalExpr [] stA (.localVar "parentIdx") = some p := by
+    show some (lookupValue stA.bindings "parentIdx") = some p
+    dsimp [stA, p]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+  have hlit1 : evalExpr [] stA (.literal 1) = some 1 := by
+    show some (wordNormalize 1) = some 1
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  have hplus : evalExpr [] stA (.add (.localVar "h") (.literal 1)) = some hword := by
+    dsimp [hword]
+    exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      stA (.localVar "h") (.literal 1) idx 1 hh_eval hlit1 hidx256 (by decide) hwordlt
+  have hlit32 : evalExpr [] stA (.literal 32) = some 32 := by
+    show some (wordNormalize 32) = some 32
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  have hsh : evalExpr [] stA (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+      = some sh := by
+    dsimp [sh]
+    exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      stA (.literal 32) (.add (.localVar "h") (.literal 1)) 32 hword
+      hlit32 hplus (by decide) hwordlt hshlt
+  have hinner : evalExpr [] stA
+      (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+        (.localVar "parentIdx")) = some inner := by
+    dsimp [inner]
+    exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+      stA (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+      (.localVar "parentIdx") sh p hsh hparent_eval hshlt hplt
+  refine ⟨vadr, ?_⟩
+  dsimp [vadr]
+  exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+    stA (.localVar "treeAdrs")
+    (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+      (.localVar "parentIdx")) treeAdrs inner htree_eval hinner hTreeLt
+    (Nat.bitwise_lt_two_pow hshlt hplt)
+
+/-- Concrete layer Merkle-site package from the frozen C13 calldata image.  This
+combines the masked sibling calldata read with the local ADRS assembly eval into
+the exact existential shape consumed by `stepLayer_preserves_memory_zero_of_layer_eval_range`. -/
+theorem layer_eval_facts_of_frozen_calldata
+    (s : RuntimeState) (idx ap treeAdrs mIdx sOff : Nat)
+    (pkSeed pkRoot message sig : ByteArray)
+    (hsel : s.selector = 0)
+    (hcd : s.world.calldata
+            = SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
+                ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
+    (hap : lookupValue s.bindings "merklePtr" = ap)
+    (hTree : lookupValue s.bindings "treeAdrs" = treeAdrs)
+    (hTreeLt : treeAdrs < 2 ^ 256)
+    (hmIdx : lookupValue s.bindings "mIdx" = mIdx)
+    (hmIdxLt : mIdx < 2 ^ 256)
+    (hidx : idx < 11)
+    (haplt : ap < 2 ^ 256)
+    (hshift : idx <<< 4 < 2 ^ 256)
+    (hsum : ap + idx <<< 4 < 2 ^ 256)
+    (hoff : ap + idx <<< 4 = SphincsMinusVerifiers.MkC13State.sigDataOffset + sOff)
+    (hoff4 : 4 ≤ SphincsMinusVerifiers.MkC13State.sigDataOffset + sOff) :
+    LayerMerkleEvalFacts s idx := by
+  let stH : RuntimeState := { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+  let vsib : Nat :=
+    SphincsMinusVerifierSpec.C13Concrete.maskN
+      (Compiler.Proofs.YulGeneration.calldataloadWord 0
+        (SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
+          ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
+        (SphincsMinusVerifiers.MkC13State.sigDataOffset + sOff))
+  have hidx256 : idx < 2 ^ 256 := lt_trans hidx (by decide)
+  have hselH : stH.selector = 0 := by
+    dsimp [stH]
+    exact hsel
+  have hcdH : stH.world.calldata
+      = SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
+          ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig := by
+    dsimp [stH]
+    exact hcd
+  have hapH : evalExpr [] stH (.localVar "merklePtr") = some ap := by
+    show some (lookupValue stH.bindings "merklePtr") = some ap
+    dsimp [stH]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      s.bindings "h" "merklePtr" (wordNormalize idx) (by decide)]
+    rw [hap]
+  have hhH : evalExpr [] stH (.localVar "h") = some idx := by
+    show some (lookupValue stH.bindings "h") = some idx
+    dsimp [stH]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt hidx256]
+  have h1 : evalExpr [] stH
+        (.bitAnd (.calldataload (.add (.localVar "merklePtr")
+          (.shl (.literal 4) (.localVar "h")))) (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+      = some vsib := by
+    dsimp [vsib]
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.merkle_sibling_read_frozen
+      stH "merklePtr" pkSeed pkRoot message sig ap idx sOff
+      hselH hcdH hapH hhH haplt hidx256 hshift hsum hoff hoff4
+  rcases layer_address_assembly_eval_exists s idx vsib treeAdrs mIdx
+      hTree hTreeLt hmIdxLt hidx with
+    ⟨vadr, h3⟩
+  exact ⟨mIdx, vsib, vadr, hmIdx, hmIdxLt, h1, h3⟩
+
+/-- Layer-specialized frozen-calldata Merkle-site package.  For `layer < 2`, the
+layer setup has `merklePtr = sigDataOffset + (1952 + 868*layer + 692)`, and
+height `idx < 11` reads the auth-path word at byte offset
+`1952 + 868*layer + 692 + 16*idx` inside the signature. -/
+theorem layer_eval_facts_of_c13_frozen_calldata
+    (s : RuntimeState) (layer idx treeAdrs mIdx : Nat)
+    (pkSeed pkRoot message sig : ByteArray)
+    (hsel : s.selector = 0)
+    (hcd : s.world.calldata
+            = SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
+                ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
+    (hap : lookupValue s.bindings "merklePtr"
+            = SphincsMinusVerifiers.MkC13State.sigDataOffset + (1952 + 868 * layer + 692))
+    (hTree : lookupValue s.bindings "treeAdrs" = treeAdrs)
+    (hTreeLt : treeAdrs < 2 ^ 256)
+    (hmIdx : lookupValue s.bindings "mIdx" = mIdx)
+    (hmIdxLt : mIdx < 2 ^ 256)
+    (hlayer : layer < 2)
+    (hidx : idx < 11) :
+    LayerMerkleEvalFacts s idx := by
+  let ap : Nat := SphincsMinusVerifiers.MkC13State.sigDataOffset + (1952 + 868 * layer + 692)
+  let sOff : Nat := 1952 + 868 * layer + 692 + 16 * idx
+  have haplt : ap < 2 ^ 256 := by
+    dsimp [ap]
+    rw [SphincsMinusVerifiers.MkC13State.sigDataOffset]
+    omega
+  have hshift : idx <<< 4 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    omega
+  have hsum : ap + idx <<< 4 < 2 ^ 256 := by
+    dsimp [ap]
+    rw [SphincsMinusVerifiers.MkC13State.sigDataOffset, Nat.shiftLeft_eq]
+    omega
+  have hoff : ap + idx <<< 4 = SphincsMinusVerifiers.MkC13State.sigDataOffset + sOff := by
+    dsimp [ap, sOff]
+    rw [Nat.shiftLeft_eq]
+    omega
+  have hoff4 : 4 ≤ SphincsMinusVerifiers.MkC13State.sigDataOffset + sOff := by
+    dsimp [sOff]
+    rw [SphincsMinusVerifiers.MkC13State.sigDataOffset]
+    omega
+  exact layer_eval_facts_of_frozen_calldata s idx ap treeAdrs mIdx sOff
+    pkSeed pkRoot message sig hsel hcd hap hTree hTreeLt hmIdx hmIdxLt hidx
+    haplt hshift hsum hoff hoff4
+
 /-- One accepting layer iteration preserves seed cell `0x00` once the WOTS/copy
 loop frames are supplied and the Merkle loop's per-height site facts are reduced
 to `LayerMerkleEvalFacts`. -/
@@ -184,6 +396,9 @@ theorem stepLayer_preserves_memory_zero_of_layer_eval_range
 
 #print axioms stepMerkle_preserves_seed_slot_of_layer_eval
 #print axioms LayerMerkleEvalFacts
+#print axioms layer_address_assembly_eval_exists
+#print axioms layer_eval_facts_of_frozen_calldata
+#print axioms layer_eval_facts_of_c13_frozen_calldata
 #print axioms stepLayer_preserves_memory_zero_of_layer_eval_range
 
 end SphincsMinusVerifiers.SegmentLayer3MerkleFrame
