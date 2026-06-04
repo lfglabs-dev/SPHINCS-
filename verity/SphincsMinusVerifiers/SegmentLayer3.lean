@@ -1045,6 +1045,47 @@ theorem beforeDigitLoop_idxTree_eq_of_idxTree
   rw [Nat.shiftRight_eq_div_pow]
   rfl
 
+/-- The longer pre-checksum prefix has the same low-11-bit `"idxLeaf"` binding
+as the pre-digest prefix; the extra statements only bind `"d"` and `"digitSum"`. -/
+theorem beforeDigitLoop_idxLeaf_eq_of_idxTree
+    (ls : RuntimeState) (idxTree : Nat)
+    (hIdxTree : lookupValue ls.bindings "idxTree" = idxTree)
+    (hIdxTreeLt : idxTree < 2 ^ 256) :
+    lookupValue (beforeDigitLoop ls).bindings "idxLeaf" = idxTree % 2048 := by
+  unfold beforeDigitLoop prefixBeforeDigitLoop mstore u andE v
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "idxLeaf" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "idxTree" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "countOff" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "count" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "d" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "digitSum" _ _ rfl)]
+  simp only [execStmtList]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "digitSum" "idxLeaf" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "d" "idxLeaf" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "count" "idxLeaf" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "countOff" "idxLeaf" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "wotsAdrs" "idxLeaf" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "idxTree" "idxLeaf" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_self]
+  change (evalExpr [] ls (andE (v "idxTree") (u 0x7FF))).getD 0 = idxTree % 2048
+  have hAnd :
+      evalExpr [] ls (andE (v "idxTree") (u 0x7FF)) =
+        some (idxTree % 2048) := by
+    have hLocal : evalExpr [] ls (v "idxTree") = some idxTree := by
+      change some (lookupValue ls.bindings "idxTree") = some idxTree
+      rw [hIdxTree]
+    have hRaw :=
+      SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitAnd_literal
+        ls (v "idxTree") idxTree 0x7FF hLocal hIdxTreeLt
+        (by decide : 0x7FF < 2 ^ 256)
+    simpa [andE, u, nat_land_low11] using hRaw
+  rw [hAnd]
+  rfl
+
 /-- The pre-digest WOTS prefix assembles the WOTS hash-base address from the
 layer and the split C13 hypertree index. -/
 theorem beforeDigest_wotsAdrs_eq_of_layer_idxTree
@@ -1725,6 +1766,16 @@ theorem afterDigit_preserves_lookup_of_ne
       lookupValue (beforeDigitLoop ls).bindings key := by
   rw [afterDigit_eq_afterDigitFold ls]
   exact afterDigitFold_preserves_lookup_of_ne ls key hne hneDigit
+
+/-- The checksum fold preserves the low-11-bit `"idxLeaf"` binding prepared by
+the straight-line digest prefix. -/
+theorem afterDigit_idxLeaf_eq_of_idxTree
+    (ls : RuntimeState) (idxTree : Nat)
+    (hIdxTree : lookupValue ls.bindings "idxTree" = idxTree)
+    (hIdxTreeLt : idxTree < 2 ^ 256) :
+    lookupValue (afterDigit ls).bindings "idxLeaf" = idxTree % 2048 := by
+  rw [afterDigit_preserves_lookup_of_ne ls "idxLeaf" (by decide) (by decide)]
+  exact beforeDigitLoop_idxLeaf_eq_of_idxTree ls idxTree hIdxTree hIdxTreeLt
 
 private def digitSumPrefix (d : Nat) (n : Nat) : Nat :=
   (List.range n).foldl (fun acc i => acc + ((d >>> (3 * i)) % 8)) 0
@@ -2816,6 +2867,8 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeDigest_idxLeaf_eq_of_idxTree
 #print axioms beforeDigest_idxTree_eq_of_idxTree
 #print axioms beforeDigitLoop_idxTree_eq_of_idxTree
+#print axioms beforeDigitLoop_idxLeaf_eq_of_idxTree
+#print axioms afterDigit_idxLeaf_eq_of_idxTree
 #print axioms beforeDigest_wotsAdrs_eq_of_layer_idxTree
 #print axioms beforeDigest_count_eq_of_sigBase_sigOff_calldata
 #print axioms beforeDigest_memory_0x20_eq_of_wotsAdrs
