@@ -248,6 +248,20 @@ this is now the narrowest byte-shaped handoff.  It does not derive the public-ke
 root size from C13 public-key parsing, since `C13Concrete.publicKeyOk_c13`
 records that C13 imposes no such low-byte public-key canonicality check.
 
+The bridge-level reducers now include two public-key-root-size-free C13
+composition boundaries in `SphincsMinusVerifiers/Proofs.lean`:
+`c13_refines_byte_spec_of_current_node_facts_and_reverted_digest_scratch_cover`
+keeps the accept branch at the concrete two-layer guard/current-node facts and
+derives the final `rootMatchesPk c13` comparison from the C13-produced
+`specRoot` roundtrip, rather than from any `pkRoot.size = 16` premise.
+`c13_refines_byte_spec_of_current_node_facts_and_reverted_layer_facts_cover`
+further reduces the reverted branch from raw WOTS digest scratch data to the two
+concrete layer facts consumed by
+`c13FoldRevertedDigestScratchData_of_layer_facts`: first-layer seed-cell
+preservation and first-layer current-node identification.  The next open proof
+work is therefore the site-specific layer-3/XMSS memory and current-node frame
+for those facts, not a legacy public-key-root canonicality assumption.
+
 ## Safety Checks
 
 Required scans for each proof pass:

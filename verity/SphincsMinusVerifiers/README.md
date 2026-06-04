@@ -487,6 +487,15 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `rootMatchesPk c13`, i.e. the low-16-byte projection of the contract's
     full-word public-key root, and discharges the final word comparison from the
     C13-produced `specRoot` roundtrip alone.
+    `c13_refines_byte_spec_of_current_node_facts_and_reverted_digest_scratch_cover`
+    packages that corrected final-comparison boundary into the bridge reducer:
+    the accept branch now needs only the two concrete layer guards and two
+    post-step `"currentNode"` facts, with no public-key-root size premise.
+    `c13_refines_byte_spec_of_current_node_facts_and_reverted_layer_facts_cover`
+    also reduces the reverted branch from raw WOTS digest scratch cells to the
+    two concrete layer facts required by
+    `c13FoldRevertedDigestScratchData_of_layer_facts`: first-layer seed-cell
+    preservation and first-layer current-node identification.
     `C13SeedNamedAcceptGuardedPkRootSizeLeafObligations` and
     `accept_path_returns_verifyParsed_bool_from_seed_named_guarded_pk_root_size_leaf_obligations_of_bytes`
     are the current narrowest byte-shaped handoff: they also derive the
