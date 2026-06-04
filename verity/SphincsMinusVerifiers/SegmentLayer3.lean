@@ -2172,6 +2172,33 @@ theorem afterMerkle_authOff_eq_of_sigOff
   exact beforeMerkle_authOff_eq_of_sigOff
     ls sigOff hSigOff hSigOffLt hCountOffLt hAuthOffLt
 
+/-- The folded Merkle climb preserves seed cell `0x00` once the layer prefix
+loops and each Merkle step are supplied as frame facts. -/
+theorem afterMerkle_preserves_memory_zero_of_loop_frames
+    (ls : RuntimeState)
+    (hWots :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (u 43) wotsOuterBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hCopy :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (u 43) copyBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hMerkle :
+      ∀ (s : RuntimeState),
+        ((stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr" s).world.memory
+            0x00).val =
+          (s.world.memory 0x00).val) :
+    ((afterMerkle ls).world.memory 0x00).val =
+      ((afterDigit ls).world.memory 0x00).val := by
+  unfold afterMerkle
+  rw [ClimbLoop.foldLoop_preserves_memory_val "h"
+    (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr") 0x00 hMerkle
+    { beforeMerkle ls with
+      bindings := bindValue (beforeMerkle ls).bindings "h" (wordNormalize 0) }
+    0 (wordNormalize 11)]
+  exact beforeMerkle_preserves_memory_zero_of_loop_frames ls hWots hCopy
+
 set_option maxHeartbeats 4000000 in
 theorem suffix14_continues (ls : RuntimeState) :
     execStmtList [] (afterDigit ls) suffix14 = .continue (stepLayer ls) := by
@@ -2407,6 +2434,30 @@ theorem finalLayerTail_preserves_memory_zero (st : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "currentNode" _ _ rfl)]
   rw [execStmtList_cons_continue _ _ _ _ (assignVar_continue _ "sigOff" _ _ rfl)]
   rfl
+
+/-- One accepting layer iteration preserves seed cell `0x00` once the WOTS,
+copy, and Merkle loops are supplied as frame facts. -/
+theorem stepLayer_preserves_memory_zero_of_loop_frames
+    (ls : RuntimeState)
+    (hWots :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (u 43) wotsOuterBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hCopy :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (u 43) copyBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hMerkle :
+      ∀ (s : RuntimeState),
+        ((stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr" s).world.memory
+            0x00).val =
+          (s.world.memory 0x00).val) :
+    ((stepLayer ls).world.memory 0x00).val =
+      ((afterDigit ls).world.memory 0x00).val := by
+  have hTail := finalLayerTail_preserves_memory_zero (afterMerkle ls)
+  rw [finalLayerTail_continues_from_afterMerkle ls] at hTail
+  rw [hTail]
+  exact afterMerkle_preserves_memory_zero_of_loop_frames ls hWots hCopy hMerkle
 
 /-- The final two layer assignments bind `"sigOff"` to `"authOff" + 176`. -/
 theorem finalLayerTail_sigOff_eq_of_authOff
@@ -2745,6 +2796,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms beforeMerkle_authOff_eq_of_sigOff
 #print axioms merkleStep_preserves_authOff
 #print axioms afterMerkle_authOff_eq_of_sigOff
+#print axioms afterMerkle_preserves_memory_zero_of_loop_frames
 #print axioms finalLayerTail_continues_from_afterMerkle
 #print axioms stepLayer_sigOff_eq_of_sigOff
 #print axioms stepLayer_preserves_selector_calldata
@@ -2752,6 +2804,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms stepLayer_sigBase_eq
 #print axioms finalLayerTail_preserves_merkleNode
 #print axioms finalLayerTail_preserves_memory_zero
+#print axioms stepLayer_preserves_memory_zero_of_loop_frames
 #print axioms finalLayerTail_sigOff_eq_of_authOff
 #print axioms afterMerkleTail_sigOff_eq_of_sigOff
 #print axioms execLayerBody
