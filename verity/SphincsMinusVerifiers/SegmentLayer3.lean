@@ -1977,6 +1977,56 @@ theorem beforeMerkle_eq (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "merklePtr" _ _ rfl)]
   rfl
 
+/-- The state before the Merkle loop preserves seed cell `0x00` once the WOTS and
+copy loops are supplied as bounded frame facts. -/
+theorem beforeMerkle_preserves_memory_zero_of_loop_frames
+    (ls : RuntimeState)
+    (hWots :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (u 43) wotsOuterBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hCopy :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (u 43) copyBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val) :
+    ((beforeMerkle ls).world.memory 0x00).val =
+      ((afterDigit ls).world.memory 0x00).val := by
+  let tail : List Stmt :=
+    [ .letVar "authOff" (addE (v "countOff") (u 4))
+    , .letVar "treeAdrs" (orE (shlE (u 224) (v "layer")) (orE (shlE (u 128) (v "idxTree")) (shlE (u 96) (u 2))))
+    , .letVar "merkleNode" (v "wotsPk")
+    , .letVar "mIdx" (v "idxLeaf")
+    , .letVar "merklePtr" (addE (v "sigBase") (v "authOff")) ]
+  have hTailExec :
+      execStmtList [] (beforeAuthOff ls) tail = .continue (beforeMerkle ls) := by
+    have h := beforeMerkle_eq ls
+    have hSplit : suffixBeforeMerkle = suffixBeforeAuthOff ++ tail := by
+      unfold tail
+      rfl
+    rw [hSplit] at h
+    rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeAuthOff_eq ls)] at h
+    exact h
+  have hTailMem :
+      ((beforeMerkle ls).world.memory 0x00).val =
+        ((beforeAuthOff ls).world.memory 0x00).val := by
+    refine SphincsMinusVerifiers.MemoryFrame.execStmtList_preserves_memory_val
+      0x00 tail (beforeAuthOff ls) (beforeMerkle ls) ?_ hTailExec
+    intro s s'' stmt hmem hexec
+    simp [tail] at hmem
+    rcases hmem with rfl | rfl | rfl | rfl | rfl
+    · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+        s s'' 0x00 "authOff" _ hexec
+    · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+        s s'' 0x00 "treeAdrs" _ hexec
+    · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+        s s'' 0x00 "merkleNode" _ hexec
+    · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+        s s'' 0x00 "mIdx" _ hexec
+    · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+        s s'' 0x00 "merklePtr" _ hexec
+  rw [hTailMem]
+  exact beforeAuthOff_preserves_memory_zero_of_loop_frames ls hWots hCopy
+
 /-- The suffix leading to the Merkle loop does not rebind `"countOff"`. -/
 theorem suffixBeforeMerkle_preserves_countOff (ls : RuntimeState) :
     lookupValue (beforeMerkle ls).bindings "countOff" =
@@ -2689,6 +2739,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms suffixBeforeAuthOff_preserves_countOff
 #print axioms beforeAuthOff_countOff_eq_of_sigOff
 #print axioms beforeMerkle_eq
+#print axioms beforeMerkle_preserves_memory_zero_of_loop_frames
 #print axioms suffixBeforeMerkle_preserves_countOff
 #print axioms beforeMerkle_countOff_eq_of_sigOff
 #print axioms beforeMerkle_authOff_eq_of_sigOff
