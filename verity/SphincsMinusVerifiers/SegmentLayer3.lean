@@ -2199,6 +2199,35 @@ theorem afterMerkle_preserves_memory_zero_of_loop_frames
     0 (wordNormalize 11)]
   exact beforeMerkle_preserves_memory_zero_of_loop_frames ls hWots hCopy
 
+/-- Range-gated variant of `afterMerkle_preserves_memory_zero_of_loop_frames`.
+The Merkle-step frame may depend on the concrete height bound to `"h"`. -/
+theorem afterMerkle_preserves_memory_zero_of_loop_frames_range
+    (ls : RuntimeState) (D : Nat → Prop)
+    (hWots :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (u 43) wotsOuterBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hCopy :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (u 43) copyBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hMerkle :
+      ∀ (s : RuntimeState) (idx : Nat), D idx →
+        ((stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }).world.memory
+            0x00).val =
+          (s.world.memory 0x00).val)
+    (hD : ∀ i, 0 ≤ i → i < 0 + wordNormalize 11 → D i) :
+    ((afterMerkle ls).world.memory 0x00).val =
+      ((afterDigit ls).world.memory 0x00).val := by
+  unfold afterMerkle
+  rw [ClimbLoop.foldLoop_preserves_memory_val_range "h"
+    (stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr") 0x00 D hMerkle
+    { beforeMerkle ls with
+      bindings := bindValue (beforeMerkle ls).bindings "h" (wordNormalize 0) }
+    0 (wordNormalize 11) hD]
+  exact beforeMerkle_preserves_memory_zero_of_loop_frames ls hWots hCopy
+
 set_option maxHeartbeats 4000000 in
 theorem suffix14_continues (ls : RuntimeState) :
     execStmtList [] (afterDigit ls) suffix14 = .continue (stepLayer ls) := by
@@ -2458,6 +2487,33 @@ theorem stepLayer_preserves_memory_zero_of_loop_frames
   rw [finalLayerTail_continues_from_afterMerkle ls] at hTail
   rw [hTail]
   exact afterMerkle_preserves_memory_zero_of_loop_frames ls hWots hCopy hMerkle
+
+/-- Range-gated variant of `stepLayer_preserves_memory_zero_of_loop_frames`.
+The Merkle-step frame may depend on the concrete height bound to `"h"`. -/
+theorem stepLayer_preserves_memory_zero_of_loop_frames_range
+    (ls : RuntimeState) (D : Nat → Prop)
+    (hWots :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (u 43) wotsOuterBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hCopy :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (u 43) copyBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hMerkle :
+      ∀ (s : RuntimeState) (idx : Nat), D idx →
+        ((stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }).world.memory
+            0x00).val =
+          (s.world.memory 0x00).val)
+    (hD : ∀ i, 0 ≤ i → i < 0 + wordNormalize 11 → D i) :
+    ((stepLayer ls).world.memory 0x00).val =
+      ((afterDigit ls).world.memory 0x00).val := by
+  have hTail := finalLayerTail_preserves_memory_zero (afterMerkle ls)
+  rw [finalLayerTail_continues_from_afterMerkle ls] at hTail
+  rw [hTail]
+  exact afterMerkle_preserves_memory_zero_of_loop_frames_range
+    ls D hWots hCopy hMerkle hD
 
 /-- The final two layer assignments bind `"sigOff"` to `"authOff" + 176`. -/
 theorem finalLayerTail_sigOff_eq_of_authOff
@@ -2797,6 +2853,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms merkleStep_preserves_authOff
 #print axioms afterMerkle_authOff_eq_of_sigOff
 #print axioms afterMerkle_preserves_memory_zero_of_loop_frames
+#print axioms afterMerkle_preserves_memory_zero_of_loop_frames_range
 #print axioms finalLayerTail_continues_from_afterMerkle
 #print axioms stepLayer_sigOff_eq_of_sigOff
 #print axioms stepLayer_preserves_selector_calldata
@@ -2805,6 +2862,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms finalLayerTail_preserves_merkleNode
 #print axioms finalLayerTail_preserves_memory_zero
 #print axioms stepLayer_preserves_memory_zero_of_loop_frames
+#print axioms stepLayer_preserves_memory_zero_of_loop_frames_range
 #print axioms finalLayerTail_sigOff_eq_of_authOff
 #print axioms afterMerkleTail_sigOff_eq_of_sigOff
 #print axioms execLayerBody
