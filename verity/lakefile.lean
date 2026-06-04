@@ -51,6 +51,7 @@ lean_lib SphincsMinusVerifiers where
              `SphincsMinusVerifiers.InitialNodeKeccak,
              `SphincsMinusVerifiers.CurrentNodeFrame,
              `SphincsMinusVerifiers.SegmentLayer3,
+             `SphincsMinusVerifiers.SegmentLayer3MerkleFrame,
              `SphincsMinusVerifiers.SegmentCompose,
              `SphincsMinusVerifiers.SegmentAcceptSpec,
              `SphincsMinusVerifiers.SegmentS4ForsDataObligations,

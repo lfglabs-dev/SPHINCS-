@@ -69,6 +69,7 @@
 import SphincsMinusVerifiers.ProofCore
 import SphincsMinusVerifiers.C13BridgePrep
 import SphincsMinusVerifiers.KeccakBridge
+import SphincsMinusVerifiers.SegmentLayer3MerkleFrame
 import SphincsMinusVerifiers.SiblingCalldata
 
 namespace SphincsMinusVerifiers
