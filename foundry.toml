@@ -6,6 +6,8 @@ via_ir = true
 optimizer = true
 optimizer_runs = 200
 ffi = true
+# Read-only access for the JSON KAT fixture (SLH-DSA-SHA2-128-24-JsonKAT.t.sol).
+fs_permissions = [{ access = "read", path = "./signers/slhvk-sha2-128-24/kat-counter0.json" }]
 
 remappings = [
     "account-abstraction/=lib/account-abstraction/contracts/",
