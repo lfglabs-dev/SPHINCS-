@@ -56,8 +56,8 @@ def c13ForsIndices (pk : PublicKey) (R message : Bytes) : List Nat :=
 def c13ForsIndex (pk : PublicKey) (R message : Bytes) (i : Nat) : Nat :=
   ((c13Digest pk R message).forsIndex[i]?).getD 0
 
-/-- S3 forced-zero guard: the contract reverts when the 7th (forced-zero) FORS
-index is non-zero.  This is `forcedZeroOk c13Variant digest`. -/
+/-- S3 forced-zero guard: the contract returns `false` when the 7th
+(forced-zero) FORS index is non-zero.  This is `forcedZeroOk c13Variant digest`. -/
 def c13ForcedZeroOk (pk : PublicKey) (R message : Bytes) : Bool :=
   forcedZeroOk c13Variant (c13Digest pk R message)
 
@@ -74,7 +74,7 @@ def c13ForsRootBytes (pk : PublicKey) (digest : HMsg) (fors : ForsSig) :
 C13 has `d = 2`.  Each layer of `foldHypertreeAux` does, in order:
   * split `idxTree` into `idxLeaf := idxTree % 2^subtreeH`,
     `nextTree := idxTree / 2^subtreeH`;
-  * a WOTS+C grinding check (revert on miss);
+  * a WOTS+C grinding check (normal `false` return on miss);
   * `wotsPkFromSig`  -> `c13WotsPkBytes`  (S5 work, folded into the loop);
   * `xmssRootFromSig` -> `c13XmssRootBytes` (S6 work, folded into the loop);
   * recurse on the produced root with `layer+1`, `nextTree`.
@@ -147,7 +147,7 @@ def c13VerifyParsedBody (pk : PublicKey) (message : Bytes) (sig : Signature) :
   if ¬ signatureShapeOk c13Variant sig then
     none
   else if ¬ c13ForcedZeroOk pk sig.R message then
-    none
+    some false
   else
     match c13ForsRootBytes pk digest sig.fors with
     | none => some false

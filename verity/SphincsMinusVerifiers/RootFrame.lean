@@ -257,8 +257,12 @@ theorem afterFors_preserves_root (st : RuntimeState) :
 
 theorem stepS3_preserves_root (st : RuntimeState) :
     lookupValue (SegmentS3.stepS3 st).bindings "root" = lookupValue st.bindings "root" := by
-  unfold SegmentS3.stepS3
-  rw [MemoryKit.lookupValue_bindValue_ne _ "sigBase" "root" _ (by decide),
+  unfold SegmentS3.stepS3 SegmentS3.stepS3AfterIdxTree0 SegmentS3.stepS3AfterIdxLeaf0
+    SegmentS3.stepS3AfterSigBase SegmentS3.stepS3AfterDVal SegmentS3.stepS3AfterHtIdx
+  rw [MemoryKit.lookupValue_bindValue_ne _ "forsBase" "root" _ (by decide),
+      MemoryKit.lookupValue_bindValue_ne _ "idxTree0" "root" _ (by decide),
+      MemoryKit.lookupValue_bindValue_ne _ "idxLeaf0" "root" _ (by decide),
+      MemoryKit.lookupValue_bindValue_ne _ "sigBase" "root" _ (by decide),
       MemoryKit.lookupValue_bindValue_ne _ "dVal" "root" _ (by decide),
       MemoryKit.lookupValue_bindValue_ne _ "htIdx" "root" _ (by decide)]
 

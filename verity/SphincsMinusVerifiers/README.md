@@ -81,9 +81,21 @@ verifyParsed
 - `sig_data_offset` corresponds to Solidity assembly `sig.offset`.
 
 The C13 model expands the main Hmsg, FORS+C, WOTS+C, and hypertree assembly
-shape in the Verity EDSL.  It preserves the scratch-memory addresses, masks,
-loop bounds, digest bit extraction, branchless Merkle swaps, and final
+shape in the Verity EDSL.  It now tracks the upstream C13 Solidity body after
+the FIPS-FORS hardening: the `pkSeed`/`pkRoot` canonicality guard, normal
+`false` returns for forced-zero and WOTS checksum failures, the `idxLeaf0` /
+`idxTree0` split, and `forsBase`-keyed FORS leaf/node/root-compression
+addresses.  It preserves the scratch-memory addresses, masks, loop bounds,
+digest bit extraction, branchless Merkle swaps, and final
 `mstore(0x00, valid); return(0x00, 0x20)` behavior.
+
+**2026-06-04 C13 upstream sync.**  `SphincsMinusVerifierSpec.Spec` now models
+forced-zero and WOTS grinding failures as normal `some false` returns.  The C13
+concrete primitives thread `digest.hyperIndex` into all FORS address
+constructors (`adrsForsLeaf`, `adrsForsNode`, `adrsForsRoots`), matching
+`SPHINCs-C13Asm.sol`'s `forsBase`.  `C13Mirror` and its composition theorems
+were updated to this behavior and still build.  `INTERFACE_CONTRACT.md` is the
+current statement-index map for the shifted `c13VerifyBody`.
 
 The C12 model expands the plain FORS, FORS-root compression, WOTS+ checksum and
 chains, WOTS public-key compression, and five XMSS layers.  It follows the
@@ -189,15 +201,19 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
   (`[propext, Classical.choice, Quot.sound]`, no `sorry`, no bridge axiom):
 
   - `SegmentS2.execS2` — H_msg digest block, stmts 1..9, `→ .continue (s2Step ·)`.
-  - `SegmentS3.execSegmentS3` — htIdx/dVal/forced-zero-guard/sigBase, stmts 10..13,
-    `→ if s3Guard = 0 then .continue (stepS3 ·) else .revert`.
+  - `SegmentS3.execSegmentS3` — htIdx/dVal/forced-zero-guard/sigBase plus
+    `idxLeaf0`/`idxTree0`/`forsBase`, currently stmts 11..17 after the upstream
+    public-key guard insertion.  The Solidity guard now returns `false` on a
+    non-zero forced-zero index, so the S3 proof surface must use the normal-return
+    branch rather than `.revert`.
     `SegmentS3.nat_land_low19` and `SegmentS3.s3Guard_eq_forsIndex6` give the
     matching arithmetic presentation of the guard: for a bounded concrete digest
     binding, the interpreter's `Uint256.and` mask is exactly
     `(digest >>> 114) % 2^19`, the C13 FORS-index-6 value.  This is the
     interpreter-side half of the remaining S3 forced-zero bridge.  Axiom-clean
     (`[propext, Classical.choice, Quot.sound]`).
-  - `SegmentS4Fors.execForsOuter` — FORS tree-root `forEach "i" 6`, stmt 14,
+  - `SegmentS4Fors.execForsOuter` — FORS tree-root `forEach "i" 6`, currently
+    stmt 18,
     `→ .continue (foldLoop "i" forsLeafStep ·)` via the generic `ClimbLoop` engine.
     The same module now exposes `forsLeafBody_eq_segments` plus setup/final-store
     frame facts for the seed cell and outer `"i"` binding, now including
@@ -212,26 +228,28 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     the real `i < 6` loop range; the remaining connection point is the inner
     Merkle climb seed frame.
   - `SegmentS4Finalize.execForsFinalize` — FORS finalize block (forced 7th leaf,
-    copy loop, forsPk), stmts 15..21, `→ .continue (forsFinalizeStep ·)`.
-  - `SegmentSeed.execSegmentSeed` — currentNode/idxTree/sigOff seed, stmts 22..24,
+    copy loop, forsPk), currently stmts 19..25, `→ .continue (forsFinalizeStep ·)`.
+  - `SegmentSeed.execSegmentSeed` — currentNode/idxTree/sigOff seed, currently stmts 26..28,
     `→ .continue (stepSeed ·)`.
   - `SegmentLayer3.execLayerLoop` — the hypertree-climb `forEach "layer" 2`,
-    stmt 25, the only *guarded* loop (the WOTS checksum `digitSum = 208` guard
+    currently stmt 29, the only *guarded* loop (the WOTS checksum `digitSum = 208` guard
     mid-body).  Its body lemma `execLayerBody` proves
     `execStmtList [] ls layerBody = if layerGuard ls then .continue (stepLayer ls)
-    else .revert`, and `execLayerLoop` lifts it across the loop via the new
+    else normal-`false` return`, and `execLayerLoop` lifts it across the loop via the new
     guarded loop-threading engine `ClimbLoopGuarded.execStmt_forEach_of_guarded_step`
     (`execForEachLoop_of_guarded_step` + `allGuardsPass`), folding to a pure
     `foldLoop "layer" stepLayer` once the per-iteration guards are discharged.
 
   - `SegmentCompose.execC13Body_thread` — the **full-body composition**.  Under
-    the length guard, the FORS forced-zero guard, and the WOTS-checksum climb
-    guards, it threads all six segment lemmas in sequence (a machine-checked
-    `body_reshape` `rfl` re-associates `c13VerifyBody` into the named segments),
+    the length/preflight guard surface, the FORS forced-zero guard, and the
+    WOTS-checksum climb guards, it threads all six segment lemmas in sequence,
     reducing the entire `c13VerifyBody` run to the 3-statement return tail
-    (`drop 26`) over one composite accept state `afterLayer st`.  It touches
-    neither `execC13` nor the bridge axiom — pure control-flow backbone,
-    `#print axioms` → `[propext, Classical.choice, Quot.sound]`.
+    (`drop 30`) over one composite accept state `afterLayer st`.  After the
+    2026-06-04 upstream sync, the preflight pass-through and whole-body reshape
+    are explicit named axioms: `c13VerifyBody_passes_preflight_guards` and
+    `body_reshape`.  These record the remaining public-key guard bridge and S4
+    FORS `forsBase` migration work; the theorem still touches neither `execC13`
+    nor the bridge axiom.
   - `SegmentCompose.execC13Body_returns` — threads the 3-statement return tail
     (`letVar "valid" (currentNode == root)`, `mstore`, `return mload`) on top of
     `execC13Body_thread`, reducing the **entire** body to a single
@@ -541,9 +559,11 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     root cell correspondence a stable RHS without replaying the spec's `let`
     chain.  `parseSignatureC13_R` fixes the parsed C13 randomness field to
     `read16 sig 0`, `parseSignatureC13_shape` derives the full C13
-    `signatureShapeOk` guard from successful parsing, `publicKeyOk_c13` proves
-    that C13 imposes no low-byte public-key canonicality check, `parsePublicKey_c13`
-    packages the byte-level `pkSeed`/`pkRoot` arguments as the C13 public key,
+    `signatureShapeOk` guard from successful parsing, `publicKeyOk_c13` records
+    that the byte-level C13 spec boundary passes 16-byte hash values, while the
+    executable Verity model now carries Solidity's separate bytes32
+    `pkSeed/root == pkSeed/root & N_MASK` guard.  `parsePublicKey_c13` packages
+    the byte-level `pkSeed`/`pkRoot` arguments as the C13 public key,
     `forcedZeroOk_c13_forsIndex_six` extracts the spec-side
     seventh-FORS-index-is-zero fact from a successful C13 forced-zero check, and
     `hMsgC13_forsIndex_six` exposes that index as the concrete H_msg digest's
@@ -568,8 +588,8 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
     `specRoot_roundtrip_of_c13_fors_fold` applies it to successful C13
     FORS+hypertree outputs.  `hash16OfWord_wordOfHash16_of_size` separately
     closes the public-key-root byte roundtrip from `pkRoot.size = 16`; the size
-    itself remains a boundary premise because the C13 public-key parser does not
-    check low-byte canonicality.  The latest accept adapter separately reduces
+    itself remains a byte-spec boundary premise even though the executable model
+    now includes the Solidity bytes32 canonicality guard.  The latest accept adapter separately reduces
     the S4 seed-cell boundary to a range-gated `forsLeafStep` preservation fact;
     the six normal FORS root cells and forced-root cell remain the S4 root
     correspondence boundary.

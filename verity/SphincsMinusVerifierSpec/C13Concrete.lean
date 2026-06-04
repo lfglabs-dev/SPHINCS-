@@ -297,29 +297,50 @@ For each of the K=7 FORS trees:
   * tree i=6 is forced-zero: `node_6 = th(seed, FORS_TREE adrs (h=0,idx=0), sk_6)`.
 Then compress: `forsPk = th(seed, FORS_ROOTS adrs, node_0..node_6)`.
 
-FORS leaf ADRS (type=3): `or(shl(96,3), or(shl(64, i), idx))`, with the auth-path
-ADRS supplying `shl(32, h+1)` (height) and `parentIdx` (index).  layer=tree=0. -/
+FORS ADRS uses the FIPS field split from `SPHINCs-C13Asm.sol`: split
+`digest.hyperIndex` into the bottom XMSS tree/leaf (`idxTree0 = htIdx >>> 11`,
+`idxLeaf0 = htIdx % 2^11`), then set
+`tree = idxTree0`, `type = FORS_TREE/FORS_ROOTS`, `word1 = idxLeaf0`, and
+`word3 = (forsTree << (A-height)) | node`. -/
 
+/- Legacy unkeyed FORS address constructors kept for older proof modules that
+   have not yet been migrated to the upstream `forsBase` shape.  The concrete
+   C13 primitives below use the `*C13` constructors. -/
 def adrsForsLeaf (i idx : Nat) : Word := (3 <<< 96) ||| (i <<< 64) ||| idx
 def adrsForsNode (i h parentIdx : Nat) : Word :=
   (3 <<< 96) ||| (i <<< 64) ||| ((h + 1) <<< 32) ||| parentIdx
 def adrsForsRoots : Word := 4 <<< 96
 
+def forsIdxLeaf0 (digest : HMsg) : Nat := digest.hyperIndex % (2 ^ 11)
+def forsIdxTree0 (digest : HMsg) : Nat := digest.hyperIndex >>> 11
+
+def adrsForsBaseC13 (digest : HMsg) : Word :=
+  (forsIdxTree0 digest <<< 128) ||| (3 <<< 96) ||| (forsIdxLeaf0 digest <<< 64)
+
+def adrsForsLeafC13 (digest : HMsg) (i idx : Nat) : Word :=
+  adrsForsBaseC13 digest ||| (i <<< 19) ||| idx
+
+def adrsForsNodeC13 (digest : HMsg) (i h parentIdx : Nat) : Word :=
+  adrsForsBaseC13 digest ||| ((h + 1) <<< 32) ||| (i <<< (18 - h)) ||| parentIdx
+
+def adrsForsRootsC13 (digest : HMsg) : Word :=
+  (forsIdxTree0 digest <<< 128) ||| (4 <<< 96) ||| (forsIdxLeaf0 digest <<< 64)
+
 /-- Climb one FORS auth path (A=19) using fuel-bounded recursion.  Mirrors the
 contract's branchless swap: when `pathIdx` is even, `node` is the left child;
 when odd, the right child. -/
-def forsClimb (seed i : Word) (fuel : Nat) (h : Nat) (pathIdx : Nat)
+def forsClimb (seed : Word) (digest : HMsg) (i : Word) (fuel : Nat) (h : Nat) (pathIdx : Nat)
     (node : Word) (auth : List Bytes) : Word :=
   match fuel with
   | 0 => node
   | fuel + 1 =>
     let sibling := wordOfHash16 ((auth[h]?).getD ⟨#[]⟩)
     let parentIdx := pathIdx / 2
-    let adrs := adrsForsNode i h parentIdx
+    let adrs := adrsForsNodeC13 digest i h parentIdx
     let node' :=
       if pathIdx % 2 == 0 then maskN (keccakWords [seed, adrs, node, sibling])
       else maskN (keccakWords [seed, adrs, sibling, node])
-    forsClimb seed i fuel (h + 1) parentIdx node' auth
+    forsClimb seed digest i fuel (h + 1) parentIdx node' auth
 
 def forsPkFromSigC13 (v : Variant) (pk : PublicKey) (digest : HMsg)
     (fors : ForsSig) : Option Bytes :=
@@ -328,13 +349,13 @@ def forsPkFromSigC13 (v : Variant) (pk : PublicKey) (digest : HMsg)
   let roots := (List.range 6).map (fun i =>
     let treeIdx := (digest.forsIndex[i]?).getD 0
     let sk := wordOfHash16 ((fors.sk[i]?).getD ⟨#[]⟩)
-    let leaf := maskN (keccakWords [seed, adrsForsLeaf i treeIdx, sk])
-    forsClimb seed i 19 0 treeIdx leaf ((fors.authPath[i]?).getD []))
+    let leaf := maskN (keccakWords [seed, adrsForsLeafC13 digest i treeIdx, sk])
+    forsClimb seed digest i 19 0 treeIdx leaf ((fors.authPath[i]?).getD []))
   -- forced-zero tree i = 6
   let sk6 := wordOfHash16 ((fors.sk[6]?).getD ⟨#[]⟩)
-  let root6 := maskN (keccakWords [seed, adrsForsLeaf 6 0, sk6])
+  let root6 := maskN (keccakWords [seed, adrsForsLeafC13 digest 6 0, sk6])
   let allRoots := roots ++ [root6]
-  let forsPk := maskN (keccakWords (seed :: adrsForsRoots :: allRoots))
+  let forsPk := maskN (keccakWords (seed :: adrsForsRootsC13 digest :: allRoots))
   some (hash16OfWord forsPk)
 
 /-- The six normal FORS tree roots reconstructed by C13 before adding the
@@ -345,24 +366,24 @@ def forsNormalRootsC13 (pk : PublicKey) (digest : HMsg) (fors : ForsSig) : List 
   (List.range 6).map (fun i =>
     let treeIdx := (digest.forsIndex[i]?).getD 0
     let sk := wordOfHash16 ((fors.sk[i]?).getD ⟨#[]⟩)
-    let leaf := maskN (keccakWords [seed, adrsForsLeaf i treeIdx, sk])
-    forsClimb seed i 19 0 treeIdx leaf ((fors.authPath[i]?).getD []))
+    let leaf := maskN (keccakWords [seed, adrsForsLeafC13 digest i treeIdx, sk])
+    forsClimb seed digest i 19 0 treeIdx leaf ((fors.authPath[i]?).getD []))
 
 /-- The forced-zero seventh FORS root used by C13. -/
-def forsForcedRootC13 (pk : PublicKey) (fors : ForsSig) : Word :=
+def forsForcedRootC13 (pk : PublicKey) (digest : HMsg) (fors : ForsSig) : Word :=
   let seed := wordOfHash16 pk.pkSeed
   let sk6 := wordOfHash16 ((fors.sk[6]?).getD ⟨#[]⟩)
-  maskN (keccakWords [seed, adrsForsLeaf 6 0, sk6])
+  maskN (keccakWords [seed, adrsForsLeafC13 digest 6 0, sk6])
 
 /-- All seven FORS roots in the exact order consumed by C13's FORS public-key
 compression. -/
 def forsAllRootsC13 (pk : PublicKey) (digest : HMsg) (fors : ForsSig) : List Word :=
-  forsNormalRootsC13 pk digest fors ++ [forsForcedRootC13 pk fors]
+  forsNormalRootsC13 pk digest fors ++ [forsForcedRootC13 pk digest fors]
 
 /-- The masked C13 FORS public-key compression word. -/
 def forsPkWordC13 (pk : PublicKey) (digest : HMsg) (fors : ForsSig) : Word :=
   let seed := wordOfHash16 pk.pkSeed
-  maskN (keccakWords (seed :: adrsForsRoots :: forsAllRootsC13 pk digest fors))
+  maskN (keccakWords (seed :: adrsForsRootsC13 digest :: forsAllRootsC13 pk digest fors))
 
 /-- The named FORS root list has the expected C13 length. -/
 theorem forsAllRootsC13_length (pk : PublicKey) (digest : HMsg) (fors : ForsSig) :
@@ -380,8 +401,8 @@ theorem forsNormalRootsC13_getElem?
         (let seed := wordOfHash16 pk.pkSeed
          let treeIdx := (digest.forsIndex[i]?).getD 0
          let sk := wordOfHash16 ((fors.sk[i]?).getD ⟨#[]⟩)
-         let leaf := maskN (keccakWords [seed, adrsForsLeaf i treeIdx, sk])
-         forsClimb seed i 19 0 treeIdx leaf ((fors.authPath[i]?).getD [])) := by
+         let leaf := maskN (keccakWords [seed, adrsForsLeafC13 digest i treeIdx, sk])
+         forsClimb seed digest i 19 0 treeIdx leaf ((fors.authPath[i]?).getD [])) := by
   unfold forsNormalRootsC13
   exact getElem?_map_range _ hi
 
@@ -395,8 +416,8 @@ theorem forsNormalRootsC13_getElem
       (let seed := wordOfHash16 pk.pkSeed
        let treeIdx := (digest.forsIndex[i]?).getD 0
        let sk := wordOfHash16 ((fors.sk[i]?).getD ⟨#[]⟩)
-       let leaf := maskN (keccakWords [seed, adrsForsLeaf i treeIdx, sk])
-       forsClimb seed i 19 0 treeIdx leaf ((fors.authPath[i]?).getD [])) := by
+       let leaf := maskN (keccakWords [seed, adrsForsLeafC13 digest i treeIdx, sk])
+       forsClimb seed digest i 19 0 treeIdx leaf ((fors.authPath[i]?).getD [])) := by
   unfold forsNormalRootsC13
   exact getElem_map_range _ hi
 
@@ -410,8 +431,8 @@ theorem forsAllRootsC13_getElem?_normal
         (let seed := wordOfHash16 pk.pkSeed
          let treeIdx := (digest.forsIndex[i]?).getD 0
          let sk := wordOfHash16 ((fors.sk[i]?).getD ⟨#[]⟩)
-         let leaf := maskN (keccakWords [seed, adrsForsLeaf i treeIdx, sk])
-         forsClimb seed i 19 0 treeIdx leaf ((fors.authPath[i]?).getD [])) := by
+         let leaf := maskN (keccakWords [seed, adrsForsLeafC13 digest i treeIdx, sk])
+         forsClimb seed digest i 19 0 treeIdx leaf ((fors.authPath[i]?).getD [])) := by
   unfold forsAllRootsC13
   rw [List.getElem?_append_left]
   · exact forsNormalRootsC13_getElem? pk digest fors hi
@@ -421,7 +442,7 @@ theorem forsAllRootsC13_getElem?_normal
 /-- The seventh C13 FORS root is exactly the forced-zero root. -/
 theorem forsAllRootsC13_getElem?_forced
     (pk : PublicKey) (digest : HMsg) (fors : ForsSig) :
-    (forsAllRootsC13 pk digest fors)[6]? = some (forsForcedRootC13 pk fors) := by
+    (forsAllRootsC13 pk digest fors)[6]? = some (forsForcedRootC13 pk digest fors) := by
   unfold forsAllRootsC13 forsNormalRootsC13
   simp
 
@@ -435,8 +456,8 @@ theorem forsAllRootsC13_getElem_normal
       (let seed := wordOfHash16 pk.pkSeed
        let treeIdx := (digest.forsIndex[i]?).getD 0
        let sk := wordOfHash16 ((fors.sk[i]?).getD ⟨#[]⟩)
-       let leaf := maskN (keccakWords [seed, adrsForsLeaf i treeIdx, sk])
-       forsClimb seed i 19 0 treeIdx leaf ((fors.authPath[i]?).getD [])) := by
+       let leaf := maskN (keccakWords [seed, adrsForsLeafC13 digest i treeIdx, sk])
+       forsClimb seed digest i 19 0 treeIdx leaf ((fors.authPath[i]?).getD [])) := by
   have hidx : i < (forsAllRootsC13 pk digest fors).length := by
     rw [forsAllRootsC13_length]
     omega
@@ -449,7 +470,7 @@ theorem forsAllRootsC13_getElem_forced
     (pk : PublicKey) (digest : HMsg) (fors : ForsSig) :
     (forsAllRootsC13 pk digest fors)[6]'(by
         rw [forsAllRootsC13_length]
-        omega) = forsForcedRootC13 pk fors := by
+        omega) = forsForcedRootC13 pk digest fors := by
   have hidx : 6 < (forsAllRootsC13 pk digest fors).length := by
     rw [forsAllRootsC13_length]
     omega
@@ -463,8 +484,6 @@ theorem forsPkFromSigC13_eq_named
     (v : Variant) (pk : PublicKey) (digest : HMsg) (fors : ForsSig) :
     forsPkFromSigC13 v pk digest fors
       = some (hash16OfWord (forsPkWordC13 pk digest fors)) := by
-  unfold forsPkFromSigC13 forsPkWordC13 forsAllRootsC13
-    forsNormalRootsC13 forsForcedRootC13
   rfl
 
 /-- If C13 FORS reconstruction returns a byte string, it is exactly the high

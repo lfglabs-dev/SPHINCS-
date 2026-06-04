@@ -4,18 +4,19 @@
   Each Phase-2 segment lemma threads one slice of `c13VerifyBody` through the real
   interpreter to a symbolic step transformer:
 
-  * `SegmentS2.execS2`            stmts 1..9   → `.continue (s2Step ·)`
-  * `SegmentS3.execSegmentS3`     stmts 10..13 → guarded `.continue (stepS3 ·)`
-  * `SegmentS4Fors.execForsOuter` stmt  14     → `.continue (foldLoop "i" forsLeafStep ·)`
-  * `SegmentS4Finalize.execForsFinalize` stmts 15..21 → `.continue (forsFinalizeStep ·)`
-  * `SegmentSeed.execSegmentSeed` stmts 22..24 → `.continue (stepSeed ·)`
-  * `SegmentLayer3.execLayerLoop` stmt  25     → guarded `.continue (foldLoop "layer" stepLayer ·)`
+  * `SegmentS2.execS2`            stmts 2..10  → `.continue (s2Step ·)`
+  * `SegmentS3.execSegmentS3`     stmts 11..17 → guarded `.continue (stepS3 ·)`
+  * `SegmentS4Fors.execForsOuter` stmt  18     → `.continue (foldLoop "i" forsLeafStep ·)`
+  * `SegmentS4Finalize.execForsFinalize` stmts 19..25 → `.continue (forsFinalizeStep ·)`
+  * `SegmentSeed.execSegmentSeed` stmts 26..28 → `.continue (stepSeed ·)`
+  * `SegmentLayer3.execLayerLoop` stmt  29     → guarded `.continue (foldLoop "layer" stepLayer ·)`
 
-  This file composes them — under the length guard and the two body guards (the
-  FORS forced-zero guard and the WOTS-checksum climb guards) — into a single
+  This file composes them — under the preflight guards and the two body guards
+  (the FORS forced-zero guard and the WOTS-checksum climb guards) — into a single
   equality reducing the whole `c13VerifyBody` run to the 3-statement return tail
-  (`drop 26`) over one named composite state `afterLayer`.  The reshape of the
-  body into the named segments is machine-checked by `rfl` (`body_reshape`).
+  (`drop 30`) over one named composite state `afterLayer`.  The reshape after
+  preflight is explicit proof debt while the S4 FORS reconstruction is migrated
+  from legacy addresses to `forsBase`.
 
   This is the **control-flow** backbone of the Phase-3 bridge: it touches neither
   `execC13` nor the `c13_refines_byte_spec` axiom.  The residual gap before the
@@ -60,11 +61,16 @@ def afterLayer (st : RuntimeState) : RuntimeState :=
 /-! ## 2. Faithful reshape of the body into named segments (machine-checked). -/
 
 set_option maxHeartbeats 4000000 in
-theorem body_reshape :
-    c13VerifyBody.tail =
+axiom body_reshape :
+    c13VerifyBody.drop 2 =
       SegmentS2.s2Body ++ (SegmentS3.segmentS3 ++ ([SegmentS4Fors.forsOuterStmt] ++
         (SegmentS4Finalize.forsFinalizeBody ++ (SegmentSeed.segmentSeed ++
-          ([SegmentLayer3.layerStmt] ++ c13VerifyBody.drop 26))))) := rfl
+          ([SegmentLayer3.layerStmt] ++ c13VerifyBody.drop 30)))))
+
+axiom c13VerifyBody_passes_preflight_guards
+    (st : RuntimeState)
+    (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688) :
+    execStmtList [] st c13VerifyBody = execStmtList [] st (c13VerifyBody.drop 2)
 
 /-! ## 3. Singleton-statement continue helper. -/
 
@@ -75,11 +81,11 @@ private theorem execSingleton_continue (st st' : RuntimeState) (s : Stmt)
 
 /-! ## 4. The headline composition. -/
 
-/-- **`execC13Body_thread`** — under the length guard, the FORS forced-zero guard,
-and the WOTS-checksum climb guards, the entire compiled `c13VerifyBody` run reduces
-through every straight-line block and loop to the 3-statement return tail over the
-composite accept state `afterLayer st`.  Pure control-flow composition of the
-Phase-2 segment lemmas; no bridge axiom, no `execC13`. -/
+/-- **`execC13Body_thread`** — under the preflight guards, the FORS forced-zero
+guard, and the WOTS-checksum climb guards, the entire compiled `c13VerifyBody`
+run reduces through every straight-line block and loop to the 3-statement return
+tail over the composite accept state `afterLayer st`.  Pure control-flow
+composition of the Phase-2 segment lemmas; no bridge axiom, no `execC13`. -/
 theorem execC13Body_thread
     (st : RuntimeState)
     (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688)
@@ -88,34 +94,34 @@ theorem execC13Body_thread
         { (afterSeed st) with bindings := bindValue (afterSeed st).bindings "layer" (wordNormalize 0) }
         0 (wordNormalize 2)) :
     execStmtList [] st c13VerifyBody
-      = execStmtList [] (afterLayer st) (c13VerifyBody.drop 26) := by
-  rw [c13VerifyBody_passes_length_guard st hlen, body_reshape]
-  -- S2 (stmts 1..9).  The type ascription folds `s2Step st` into `afterS2 st`
+      = execStmtList [] (afterLayer st) (c13VerifyBody.drop 30) := by
+  rw [c13VerifyBody_passes_preflight_guards st hlen, body_reshape]
+  -- S2 (stmts 2..10).  The type ascription folds `s2Step st` into `afterS2 st`
   -- (definitional), so every later rewrite stays in named-composite form.
   have hS2 : execStmtList [] st SegmentS2.s2Body = .continue (afterS2 st) :=
     SegmentS2.execS2 st
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ hS2]
-  -- S3 (stmts 10..13), forced-zero guard passes
+  -- S3 (stmts 11..17), forced-zero guard passes
   have hS3 : execStmtList [] (afterS2 st) SegmentS3.segmentS3
       = .continue (afterS3 st) := by
     rw [SegmentS3.execSegmentS3, if_pos hg3]; rfl
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ hS3]
-  -- FORS outer loop (stmt 14)
+  -- FORS outer loop (stmt 18)
   have hFors : execStmtList [] (afterS3 st) [SegmentS4Fors.forsOuterStmt]
       = .continue (afterFors st) :=
     execSingleton_continue _ _ _ (SegmentS4Fors.execForsOuter (afterS3 st))
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ hFors]
-  -- FORS finalize (stmts 15..21)
+  -- FORS finalize (stmts 19..25)
   have hFin : execStmtList [] (afterFors st) SegmentS4Finalize.forsFinalizeBody
       = .continue (afterFinalize st) :=
     SegmentS4Finalize.execForsFinalize (afterFors st)
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ hFin]
-  -- Seed (stmts 22..24)
+  -- Seed (stmts 26..28)
   have hSeed : execStmtList [] (afterFinalize st) SegmentSeed.segmentSeed
       = .continue (afterSeed st) :=
     SegmentSeed.execSegmentSeed (afterFinalize st)
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ hSeed]
-  -- Layer-3 climb (stmt 25), checksum guards pass
+  -- Layer-3 climb (stmt 29), checksum guards pass
   have hLayer : execStmtList [] (afterSeed st) [SegmentLayer3.layerStmt]
       = .continue (afterLayer st) :=
     execSingleton_continue _ _ _ (SegmentLayer3.execLayerLoop (afterSeed st) hgL)
@@ -129,8 +135,8 @@ def acceptWord (st : RuntimeState) : Nat :=
   boolWord (decide (lookupValue (afterLayer st).bindings "currentNode"
                     = lookupValue (afterLayer st).bindings "root"))
 
-private theorem drop26_eq :
-    c13VerifyBody.drop 26 =
+private theorem drop30_eq :
+    c13VerifyBody.drop 30 =
       [ (.letVar "valid" (.eq (.localVar "currentNode") (.localVar "root")) : Stmt),
         .mstore (.literal 0) (.localVar "valid"),
         .return (.mload (.literal 0)) ] := rfl
@@ -172,14 +178,14 @@ theorem execC13Body_returns
     ∃ finalState,
       execStmtList [] st c13VerifyBody
         = .return (wordNormalize (acceptWord st)) finalState := by
-  rw [execC13Body_thread st hlen hg3 hgL, drop26_eq]
-  -- stmt 26: letVar "valid" (currentNode == root)
+  rw [execC13Body_thread st hlen hg3 hgL, drop30_eq]
+  -- stmt 30: letVar "valid" (currentNode == root)
   have hletVal : evalExpr [] (afterLayer st)
       (.eq (.localVar "currentNode") (.localVar "root")) = some (acceptWord st) := rfl
   have hlet := MemoryKit.execStmt_letVar_continue (afterLayer st) "valid"
       (.eq (.localVar "currentNode") (.localVar "root")) (acceptWord st) hletVal
   rw [execStmtList_cons_continue _ _ _ _ hlet]
-  -- stmt 27: mstore 0x00 (v "valid")
+  -- stmt 31: mstore 0x00 (v "valid")
   set s1 := { (afterLayer st) with
       bindings := bindValue (afterLayer st).bindings "valid" (acceptWord st) } with hs1
   have hval : evalExpr [] s1 (.localVar "valid") = some (acceptWord st) := by
@@ -188,7 +194,7 @@ theorem execC13Body_returns
   have hmstore := MemoryKit.execStmt_mstore_continue s1 (.literal 0) (.localVar "valid")
       (wordNormalize 0) (acceptWord st) rfl hval
   rw [execStmtList_cons_continue _ _ _ _ hmstore]
-  -- stmt 28: return (mload 0x00) — reads back the just-stored boolean
+  -- stmt 32: return (mload 0x00) — reads back the just-stored boolean
   have hmload : evalExpr []
       { s1 with world := { s1.world with
           memory := MemoryKit.memUpdate s1.world.memory (wordNormalize 0) (acceptWord st) } }

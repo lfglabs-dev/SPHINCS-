@@ -1,26 +1,29 @@
 /-
   SegmentS3 — Layer-2 segment lemma for the C13 index-extraction + forced-zero
-  guard, statements 10..13 of `SphincsMinusVerifiers.c13VerifyBody`
+  guard, statements 11..14 of `SphincsMinusVerifiers.c13VerifyBody`
   (see `INTERFACE_CONTRACT.md`, segment S3).
 
   The four statements are:
 
   ```
-  10. letVar "htIdx"   := (digest >> 133) & 0x3FFFFF        -- hypertree leaf index
-  11. letVar "dVal"    := digest                            -- alias of the digest
-  12. ite ((dVal >> 114) & 0x7FFFF) revert0 []              -- FORS forced-zero guard
-  13. letVar "sigBase" := sig_data_offset                   -- signature base pointer
+  11. letVar "htIdx"   := (digest >> 133) & 0x3FFFFF        -- hypertree leaf index
+  12. letVar "dVal"    := digest                            -- alias of the digest
+  13. ite ((dVal >> 114) & 0x7FFFF) returnFalse []          -- FORS forced-zero guard
+  14. letVar "sigBase" := sig_data_offset                   -- signature base pointer
+  15. letVar "idxLeaf0" := htIdx & 0x7FF                    -- bottom hypertree leaf
+  16. letVar "idxTree0" := htIdx >> 11                      -- bottom hypertree tree
+  17. letVar "forsBase" := (idxTree0 << 128) | (3 << 96) | (idxLeaf0 << 64)
   ```
 
   Statement 12 is the FIPS-205 "forced zero" check: the last FORS index
   (`(digest >> 19*6) & (2^19-1) = (digest >> 114) & 0x7FFFF`) must be zero, else
-  the verifier reverts.  This exactly mirrors `forcedZeroOk` in the byte spec
+  the verifier returns `false`.  This exactly mirrors `forcedZeroOk` in the byte spec
   (`SphincsMinusVerifierSpec.Spec`, t = 6, forsK = 7).
 
   The headline lemma `execSegmentS3` shows that running these four statements over
   the real Verity source interpreter either
     * continues to `stepS3 st` (when the guard value is `0`), or
-    * reverts (when the guard value is non-zero),
+    * returns `false` (when the guard value is non-zero),
   with the branch predicate being precisely the interpreter's evaluation of the
   guard expression.  No `sorry`, no new `axiom`, no `native_decide`.
 -/
@@ -30,7 +33,7 @@ import SphincsMinusVerifiers.Model
 namespace SphincsMinusVerifiers.SegmentS3
 
 open Compiler.Proofs.IRGeneration.SourceSemantics
-open Compiler.CompilationModel (Expr Stmt UnsafeYulFragment)
+open Compiler.CompilationModel (Expr Stmt)
 
 /-! ## 0. The four S3 statements, written with bare public constructors.
 
@@ -39,31 +42,39 @@ does not depend on `Model.lean`'s private EDSL helpers.  `segmentS3_eq_slice`
 below machine-checks (by `rfl`) that this list is *exactly* statements 10..13 of
 the real `c13VerifyBody`, so the replication is faithful by construction. -/
 
-/-- `revert0` — the handwritten `revert(0,0)` fragment, copied verbatim from
-`Model.lean` so the `rfl` faithfulness check against `c13VerifyBody` succeeds. -/
-private def revert0 : List Stmt := [
-  .unsafeYul <|
-    UnsafeYulFragment.rawRevert (.lit 0) (.lit 0)
-      { name := "raw_yul_revert_0_0_refines_solidity_assembly"
-        obligation := "The handwritten Yul revert(0, 0) must match the Solidity assembly observable revert behavior."
-        proofStatus := .assumed }
-      "raw_yul_revert_0_0"
-]
+private def returnFalse : List Stmt :=
+  [ .mstore (.literal 0) (.literal 0)
+  , .return (.mload (.literal 0)) ]
+
+private def seqResult (r : StmtResult) (rest : List Stmt) : StmtResult :=
+  match r with
+  | .continue n => execStmtList [] n rest
+  | .stop n => .stop n
+  | .return rval rst => .return rval rst
+  | .revert => .revert
 
 /-- The forced-zero guard condition expression: `(dVal >> 114) & 0x7FFFF`. -/
 private def s3CondExpr : Expr :=
   .bitAnd (.shr (.literal 114) (.localVar "dVal")) (.literal 0x7FFFF)
 
-/-- The S3 statement segment (statements 10..13 of `c13VerifyBody`). -/
+/-- The S3 statement segment (statements 11..17 of `c13VerifyBody`). -/
 def segmentS3 : List Stmt :=
   [ .letVar "htIdx" (.bitAnd (.shr (.literal 133) (.localVar "digest")) (.literal 0x3FFFFF))
   , .letVar "dVal" (.localVar "digest")
-  , .ite s3CondExpr revert0 []
-  , .letVar "sigBase" (.localVar "sig_data_offset") ]
+  , .ite s3CondExpr returnFalse []
+  , .letVar "sigBase" (.localVar "sig_data_offset")
+  , .letVar "idxLeaf0" (.bitAnd (.localVar "htIdx") (.literal 0x7FF))
+  , .letVar "idxTree0" (.shr (.literal 11) (.localVar "htIdx"))
+  , .letVar "forsBase"
+      (.bitOr
+        (.shl (.literal 128) (.localVar "idxTree0"))
+        (.bitOr
+          (.shl (.literal 96) (.literal 3))
+          (.shl (.literal 64) (.localVar "idxLeaf0")))) ]
 
-/-- Faithfulness: `segmentS3` is *exactly* statements 10..13 of `c13VerifyBody`. -/
+/-- Faithfulness: `segmentS3` is *exactly* statements 11..17 of `c13VerifyBody`. -/
 theorem segmentS3_eq_slice :
-    segmentS3 = (c13VerifyBody.drop 10).take 4 := rfl
+    segmentS3 = (c13VerifyBody.drop 11).take 7 := rfl
 
 /-! ## 1. Resolved values of the three `letVar` writes.
 
@@ -83,12 +94,51 @@ def s3Guard (st : RuntimeState) : Nat :=
     (Verity.Core.Uint256.shr (wordNormalize 114) (lookupValue st.bindings "digest")).val
     (wordNormalize 0x7FFFF)).val
 
-/-- The accept-path state transformer for S3: bind `htIdx`, `dVal`, `sigBase`. -/
+/-- The accept-path state transformer for S3: bind `htIdx`, `dVal`, `sigBase`,
+and the FORS address base locals. -/
+def stepS3AfterHtIdx (st : RuntimeState) : RuntimeState :=
+  { st with bindings := bindValue st.bindings "htIdx" (htIdxVal st) }
+
+def stepS3AfterDVal (st : RuntimeState) : RuntimeState :=
+  let s := stepS3AfterHtIdx st
+  { s with bindings := bindValue s.bindings "dVal" (lookupValue s.bindings "digest") }
+
+def stepS3AfterSigBase (st : RuntimeState) : RuntimeState :=
+  let s := stepS3AfterDVal st
+  { s with bindings := bindValue s.bindings "sigBase" (lookupValue s.bindings "sig_data_offset") }
+
+def idxLeaf0Val (st : RuntimeState) : Nat :=
+  (Verity.Core.Uint256.and
+    (lookupValue st.bindings "htIdx")
+    (wordNormalize 0x7FF)).val
+
+def idxTree0Val (st : RuntimeState) : Nat :=
+  (Verity.Core.Uint256.shr
+    (wordNormalize 11)
+    (lookupValue st.bindings "htIdx")).val
+
+def forsBaseVal (st : RuntimeState) : Nat :=
+  (Verity.Core.Uint256.or
+    (Verity.Core.Uint256.shl
+      (wordNormalize 128)
+      (lookupValue st.bindings "idxTree0")).val
+    (Verity.Core.Uint256.or
+      (Verity.Core.Uint256.shl (wordNormalize 96) (wordNormalize 3)).val
+      (Verity.Core.Uint256.shl
+        (wordNormalize 64)
+        (lookupValue st.bindings "idxLeaf0")).val).val).val
+
+def stepS3AfterIdxLeaf0 (st : RuntimeState) : RuntimeState :=
+  let s := stepS3AfterSigBase st
+  { s with bindings := bindValue s.bindings "idxLeaf0" (idxLeaf0Val s) }
+
+def stepS3AfterIdxTree0 (st : RuntimeState) : RuntimeState :=
+  let s := stepS3AfterIdxLeaf0 st
+  { s with bindings := bindValue s.bindings "idxTree0" (idxTree0Val s) }
+
 def stepS3 (st : RuntimeState) : RuntimeState :=
-  let b1 := bindValue st.bindings "htIdx" (htIdxVal st)
-  let b2 := bindValue b1 "dVal" (lookupValue st.bindings "digest")
-  let b3 := bindValue b2 "sigBase" (lookupValue st.bindings "sig_data_offset")
-  { st with bindings := b3 }
+  let s := stepS3AfterIdxTree0 st
+  { s with bindings := bindValue s.bindings "forsBase" (forsBaseVal s) }
 
 /-! ## 1a. Closed form for the forced-zero guard mask.
 
@@ -243,26 +293,26 @@ private theorem lookupValue_bindValue_ne
 private theorem ite_forcedZero_reduce
     (s : RuntimeState) (g : Nat)
     (hc : evalExpr [] s s3CondExpr = some g) :
-    execStmt [] s (.ite s3CondExpr revert0 []) =
-      if g = 0 then .continue s else .revert := by
+    execStmt [] s (.ite s3CondExpr returnFalse []) =
+      if g = 0 then .continue s else execStmtList [] s returnFalse := by
   show (match evalExpr [] s s3CondExpr with
-        | some r => if r != 0 then execStmtList [] s revert0 else execStmtList [] s []
+        | some r => if r != 0 then execStmtList [] s returnFalse else execStmtList [] s []
         | none => .revert) = _
   rw [hc]
-  show (if (g != 0) = true then execStmtList [] s revert0 else execStmtList [] s [])
-        = if g = 0 then .continue s else .revert
+  show (if (g != 0) = true then execStmtList [] s returnFalse else execStmtList [] s [])
+        = if g = 0 then .continue s else execStmtList [] s returnFalse
   by_cases h : g = 0
   · subst h; rfl
   · rw [if_pos (bne_iff_ne.mpr h), if_neg h]
-    rfl
 
 /-- The same guard reduction, lifted to the head of a statement list. -/
 private theorem ite_cons_reduce
     (s : RuntimeState) (rest : List Stmt) (g : Nat)
     (hc : evalExpr [] s s3CondExpr = some g) :
-    execStmtList [] s (.ite s3CondExpr revert0 [] :: rest)
-      = if g = 0 then execStmtList [] s rest else .revert := by
-  show (match execStmt [] s (.ite s3CondExpr revert0 []) with
+    execStmtList [] s (.ite s3CondExpr returnFalse [] :: rest)
+      = if g = 0 then execStmtList [] s rest
+        else seqResult (execStmtList [] s returnFalse) rest := by
+  show (match execStmt [] s (.ite s3CondExpr returnFalse []) with
         | .continue n => execStmtList [] n rest
         | .stop n => .stop n
         | .return rval rst => .return rval rst
@@ -271,17 +321,20 @@ private theorem ite_cons_reduce
   by_cases h : g = 0
   · simp only [if_pos h]
   · simp only [if_neg h]
+    rfl
 
 /-- Binding `dVal := digest` and then running the forced-zero `ite`: the guard
 value is `s3Guard s` (read off `s`'s `digest`), and on the accept branch we
 continue in the state with `dVal` bound. -/
 private theorem dVal_ite_reduce (s : RuntimeState) (rest : List Stmt) :
     execStmtList [] s
-        (.letVar "dVal" (.localVar "digest") :: .ite s3CondExpr revert0 [] :: rest)
+        (.letVar "dVal" (.localVar "digest") :: .ite s3CondExpr returnFalse [] :: rest)
       = if s3Guard s = 0
         then execStmtList []
               { s with bindings := bindValue s.bindings "dVal" (lookupValue s.bindings "digest") } rest
-        else .revert := by
+        else seqResult (execStmtList []
+              { s with bindings := bindValue s.bindings "dVal" (lookupValue s.bindings "digest") }
+              returnFalse) rest := by
   rw [execStmtList_cons_continue _ _ _ _
         (letVar_continue s "dVal" (.localVar "digest") (lookupValue s.bindings "digest") rfl)]
   have hc : evalExpr []
@@ -299,23 +352,64 @@ private theorem dVal_ite_reduce (s : RuntimeState) (rest : List Stmt) :
 /-! ## 5. The headline segment lemma. -/
 
 set_option maxHeartbeats 1000000 in
-/-- **`execSegmentS3`** — running statements 10..13 of `c13VerifyBody` over the
+/-- **`execSegmentS3`** — running statements 11..17 of `c13VerifyBody` over the
 real interpreter continues to `stepS3 st` when the FORS forced-zero guard value
-is `0`, and reverts otherwise.  Proved unconditionally (no hypotheses on `st`). -/
+is `0`, and returns `false` otherwise.  Proved unconditionally (no hypotheses on `st`). -/
 theorem execSegmentS3 (st : RuntimeState) :
     execStmtList [] st segmentS3
-      = if s3Guard st = 0 then .continue (stepS3 st) else .revert := by
+      = if s3Guard st = 0 then .continue (stepS3 st)
+        else seqResult (execStmtList [] (stepS3AfterDVal st) returnFalse)
+          [ .letVar "sigBase" (.localVar "sig_data_offset")
+          , .letVar "idxLeaf0" (.bitAnd (.localVar "htIdx") (.literal 0x7FF))
+          , .letVar "idxTree0" (.shr (.literal 11) (.localVar "htIdx"))
+          , .letVar "forsBase"
+              (.bitOr
+                (.shl (.literal 128) (.localVar "idxTree0"))
+                (.bitOr
+                  (.shl (.literal 96) (.literal 3))
+                  (.shl (.literal 64) (.localVar "idxLeaf0")))) ] := by
   show execStmtList [] st
         ([ .letVar "htIdx" (.bitAnd (.shr (.literal 133) (.localVar "digest")) (.literal 0x3FFFFF))
          , .letVar "dVal" (.localVar "digest")
-         , .ite s3CondExpr revert0 []
-         , .letVar "sigBase" (.localVar "sig_data_offset") ] : List Stmt)
-      = if s3Guard st = 0 then .continue (stepS3 st) else .revert
+         , .ite s3CondExpr returnFalse []
+         , .letVar "sigBase" (.localVar "sig_data_offset")
+         , .letVar "idxLeaf0" (.bitAnd (.localVar "htIdx") (.literal 0x7FF))
+         , .letVar "idxTree0" (.shr (.literal 11) (.localVar "htIdx"))
+         , .letVar "forsBase"
+              (.bitOr
+                (.shl (.literal 128) (.localVar "idxTree0"))
+                (.bitOr
+                  (.shl (.literal 96) (.literal 3))
+                  (.shl (.literal 64) (.localVar "idxLeaf0")))) ] : List Stmt)
+      = if s3Guard st = 0 then .continue (stepS3 st) else _
   -- step 10: letVar htIdx (explicit bound value so the post-state is nameable)
   rw [execStmtList_cons_continue _ _ _ _
         (letVar_continue st "htIdx"
           (.bitAnd (.shr (.literal 133) (.localVar "digest")) (.literal 0x3FFFFF))
           (htIdxVal st) rfl)]
+  change execStmtList [] (stepS3AfterHtIdx st)
+      ([ .letVar "dVal" (.localVar "digest")
+       , .ite s3CondExpr returnFalse []
+       , .letVar "sigBase" (.localVar "sig_data_offset")
+       , .letVar "idxLeaf0" (.bitAnd (.localVar "htIdx") (.literal 0x7FF))
+       , .letVar "idxTree0" (.shr (.literal 11) (.localVar "htIdx"))
+       , .letVar "forsBase"
+            (.bitOr
+              (.shl (.literal 128) (.localVar "idxTree0"))
+              (.bitOr
+                (.shl (.literal 96) (.literal 3))
+                (.shl (.literal 64) (.localVar "idxLeaf0")))) ] : List Stmt)
+    = if s3Guard st = 0 then .continue (stepS3 st)
+      else seqResult (execStmtList [] (stepS3AfterDVal st) returnFalse)
+        [ .letVar "sigBase" (.localVar "sig_data_offset")
+        , .letVar "idxLeaf0" (.bitAnd (.localVar "htIdx") (.literal 0x7FF))
+        , .letVar "idxTree0" (.shr (.literal 11) (.localVar "htIdx"))
+        , .letVar "forsBase"
+            (.bitOr
+              (.shl (.literal 128) (.localVar "idxTree0"))
+              (.bitOr
+                (.shl (.literal 96) (.literal 3))
+                (.shl (.literal 64) (.localVar "idxLeaf0")))) ]
   -- steps 11-12: letVar dVal then the forced-zero ite
   rw [dVal_ite_reduce]
   -- fold `s3Guard RAW10` back to `s3Guard st` (depends only on the `digest` binding)
@@ -328,24 +422,49 @@ theorem execSegmentS3 (st : RuntimeState) :
           = s3Guard st
     rw [lookupValue_bindValue_ne st.bindings "htIdx" "digest" (htIdxVal st) (by decide)]
     rfl
-  rw [hgg]
+  rw [show s3Guard (stepS3AfterHtIdx st) = s3Guard st by
+    simpa [stepS3AfterHtIdx] using hgg]
   by_cases h : s3Guard st = 0
   · -- accept path
     rw [if_pos h, if_pos h]
-    -- step 13: letVar sigBase
+    -- step 14: letVar sigBase
     rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "sigBase" _ _ rfl)]
+    change execStmtList [] (stepS3AfterSigBase st)
+      ([ .letVar "idxLeaf0" (.bitAnd (.localVar "htIdx") (.literal 0x7FF))
+       , .letVar "idxTree0" (.shr (.literal 11) (.localVar "htIdx"))
+       , .letVar "forsBase"
+            (.bitOr
+              (.shl (.literal 128) (.localVar "idxTree0"))
+              (.bitOr
+                (.shl (.literal 96) (.literal 3))
+                (.shl (.literal 64) (.localVar "idxLeaf0")))) ] : List Stmt)
+        = .continue (stepS3 st)
+    rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "idxLeaf0" _ _ rfl)]
+    change execStmtList [] (stepS3AfterIdxLeaf0 st)
+      ([ .letVar "idxTree0" (.shr (.literal 11) (.localVar "htIdx"))
+       , .letVar "forsBase"
+            (.bitOr
+              (.shl (.literal 128) (.localVar "idxTree0"))
+              (.bitOr
+                (.shl (.literal 96) (.literal 3))
+                (.shl (.literal 64) (.localVar "idxLeaf0")))) ] : List Stmt)
+        = .continue (stepS3 st)
+    rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "idxTree0" _ _ rfl)]
+    change execStmtList [] (stepS3AfterIdxTree0 st)
+      ([ .letVar "forsBase"
+            (.bitOr
+              (.shl (.literal 128) (.localVar "idxTree0"))
+              (.bitOr
+                (.shl (.literal 96) (.literal 3))
+                (.shl (.literal 64) (.localVar "idxLeaf0")))) ] : List Stmt)
+        = .continue (stepS3 st)
+    rw [execStmtList_cons_continue _ _ _ _ (letVar_continue _ "forsBase" _ _ rfl)]
     show StmtResult.continue _ = StmtResult.continue (stepS3 st)
-    congr 1
-    unfold stepS3
-    show ({ st with bindings := _ } : RuntimeState) = { st with bindings := _ }
-    congr 1
-    rw [lookupValue_bindValue_ne
-          (bindValue st.bindings "htIdx" (htIdxVal st)) "dVal" "sig_data_offset"
-          (lookupValue (bindValue st.bindings "htIdx" (htIdxVal st)) "digest") (by decide),
-        lookupValue_bindValue_ne st.bindings "htIdx" "sig_data_offset" (htIdxVal st) (by decide),
-        lookupValue_bindValue_ne st.bindings "htIdx" "digest" (htIdxVal st) (by decide)]
+    rfl
   · -- reject path
     rw [if_neg h, if_neg h]
+    unfold stepS3AfterDVal
+    rfl
 
 /-! ## 6. Axiom audit. -/
 

@@ -179,8 +179,8 @@ structure Primitives where
   forsPkFromSig   : (v : Variant) → PublicKey → HMsg → ForsSig → Option Bytes
   wotsPkFromSig   : (v : Variant) → PublicKey → Nat → Nat → Bytes → WotsSig → Option Bytes
   /-- Whether a layer's WOTS+C signature meets its grinding `targetSum`. Only
-      consulted for `WotsMode.grindingTarget` variants; the contract reverts when
-      this fails. -/
+      consulted for `WotsMode.grindingTarget` variants; the contract returns
+      `false` when this fails. -/
   wotsGrindingOk  : (v : Variant) → PublicKey → Nat → Nat → Bytes → WotsSig → Bool
   xmssRootFromSig : (v : Variant) → PublicKey → Nat → Nat → Bytes → List Bytes → Option Bytes
 
@@ -223,20 +223,20 @@ def publicKeyOk (v : Variant) (pk : PublicKey) : Bool :=
   (v.fullPkSeed || pkPartCanonical v pk.pkSeed) &&
   (v.fullPkRoot || pkPartCanonical v pk.pkRoot)
 
-/-- Outcome of the hypertree climb, distinguishing the contract's two failure
-modes: a hard `revert` (e.g. a WOTS+C grinding-target miss) versus a normal
-`false` return (reconstruction produced a root that need not match). -/
+/-- Outcome of the hypertree climb, distinguishing hard `revert`s from normal
+`false` returns. -/
 inductive HyperResult where
-  /-- The contract `revert`s before returning (grinding-target check failed). -/
+  /-- The contract `revert`s before returning. -/
   | reverted
-  /-- Reconstruction could not complete; the contract returns `false`. -/
+  /-- Reconstruction could not complete, or a grinding-target guard failed; the
+      contract returns `false`. -/
   | rejected
   /-- The climb produced a final root to compare against `pkRoot`. -/
   | ok (root : Bytes)
   deriving Nonempty
 
 /-- Whether the layer's WOTS+C signature fails its grinding target. Standard
-WOTS+ variants never grind, so they never revert here. -/
+WOTS+ variants never grind, so they never reject here. -/
 def wotsGrindingFails
     (p : Primitives) (v : Variant) (pk : PublicKey)
     (treeIdx leafIdx : Nat) (node : Bytes) (wots : WotsSig) : Bool :=
@@ -271,7 +271,7 @@ def foldHypertreeAux
       let idxLeaf := idxTree % 2 ^ v.subtreeH
       let nextTree := idxTree / 2 ^ v.subtreeH
       if wotsGrindingFails p v pk nextTree idxLeaf node lsig.wots then
-        .reverted
+        .rejected
       else
         match p.wotsPkFromSig v pk nextTree idxLeaf node lsig.wots with
         | none => .rejected
@@ -302,8 +302,8 @@ def verifyParsed (p : Primitives) (v : Variant)
   if ¬ signatureShapeOk v sig then
     none
   else if ¬ forcedZeroOk v digest then
-    -- The forced-zero FORS bits were non-zero: the contract reverts.
-    none
+    -- The forced-zero FORS bits were non-zero: the contract returns false.
+    some false
   else
     match p.forsPkFromSig v pk digest sig.fors with
     | none => some false

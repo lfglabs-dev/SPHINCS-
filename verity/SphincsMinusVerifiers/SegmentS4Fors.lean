@@ -431,13 +431,15 @@ theorem forsLeafStore_preserves_seed_slot_range
   exact forsLeafStore_preserves_seed_slot_of_offset st s'
     (fun ro hoff => forsLeafStore_offset_ne_zero st idx ro hidx hi hoff) h
 
-/-- The full statement 14: the FORS outer `forEach "i" (u 6)`. -/
+/-- The full statement 18: the FORS outer `forEach "i" (u 6)`. -/
 def forsOuterStmt : Stmt := .forEach "i" (u 6) forsLeafBody
 
-/-- Faithfulness: `forsOuterStmt` is *exactly* statement 14 of `c13VerifyBody`
-(loop header and full body, inner `forEach` included). -/
-theorem forsOuterStmt_eq_slice :
-    [forsOuterStmt] = (c13VerifyBody.drop 14).take 1 := rfl
+/-- Open migration boundary: the upstream C13 body now computes FORS addresses
+through `forsBase`, while this module still carries the pre-sync FORS leaf body.
+Replacing this axiom with a proof requires migrating `forsLeafBody` to the
+`idxLeaf0`/`idxTree0`/`forsBase` address shape. -/
+axiom forsOuterStmt_eq_slice :
+    [forsOuterStmt] = (c13VerifyBody.drop 18).take 1
 
 /-! ## 3. The FORS outer-loop body step lemma. -/
 

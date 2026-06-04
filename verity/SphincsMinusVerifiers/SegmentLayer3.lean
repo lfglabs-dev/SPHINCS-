@@ -1,13 +1,13 @@
 /-
-  SegmentLayer3 — the Layer-3 hypertree-climb loop body (statement 25 of
+  SegmentLayer3 — the Layer-3 hypertree-climb loop body (statement 29 of
   `c13VerifyBody`, the `forEach "layer" (u 2)` outer climb).
 
   The layer body is *guarded*: after accumulating the WOTS checksum `digitSum`
-  it reverts unless `digitSum = 208` (Model.lean:167).  So unlike the totally
-  continuing FORS/Merkle loops, this body has the shape
+  it returns `false` unless `digitSum = 208` (Model.lean:182).  So unlike the
+  totally continuing FORS/Merkle loops, this body has the shape
 
   ```
-  execStmtList [] ls layerBody = if layerGuard ls then .continue (stepLayer ls) else .revert
+  execStmtList [] ls layerBody = if layerGuard ls then .continue (stepLayer ls) else returnFalse
   ```
 
   proved here as `execLayerBody`.  This is exactly the `hstep` hypothesis of the
@@ -17,7 +17,7 @@
 
   Faithfulness is machine-checked: `layerStmt_eq_slice` (`rfl`) shows the
   reconstructed statement — loop header and full body, every inner `forEach` and
-  the checksum-guard `ite` included — is exactly statement 25 of `c13VerifyBody`.
+  the checksum-guard `ite` included — is exactly statement 29 of `c13VerifyBody`.
   No `sorry`, no new `axiom`, no `native_decide`.
 -/
 
@@ -55,13 +55,9 @@ private def mloadE (off : Expr) : Expr := .mload off
 private def mstore (off : Nat) (val : Expr) : Stmt := .mstore (u off) val
 private def mstoreE (off val : Expr) : Stmt := .mstore off val
 
-private def revert0 : List Stmt :=
-  [ .unsafeYul <|
-      UnsafeYulFragment.rawRevert (.lit 0) (.lit 0)
-        { name := "raw_yul_revert_0_0_refines_solidity_assembly"
-          obligation := "The handwritten Yul revert(0, 0) must match the Solidity assembly observable revert behavior."
-          proofStatus := .assumed }
-        "raw_yul_revert_0_0" ]
+private def returnFalse : List Stmt :=
+  [ .mstore (.literal 0) (.literal 0)
+  , .return (.mload (.literal 0)) ]
 
 /-- The checksum-guard condition: `digitSum ≠ 208`. -/
 private def condE : Expr := notE (eqE (v "digitSum") (u 208))
@@ -167,15 +163,15 @@ def suffix14 : List Stmt :=
   , .assignVar "currentNode" (v "merkleNode")
   , .assignVar "sigOff" (addE (v "authOff") (u 176)) ]
 
-def layerBody : List Stmt := prefix11 ++ (.ite condE revert0 [] :: suffix14)
+def layerBody : List Stmt := prefix11 ++ (.ite condE returnFalse [] :: suffix14)
 
 def layerStmt : Stmt := .forEach "layer" (u 2) layerBody
 
 set_option maxHeartbeats 8000000 in
-/-- Faithfulness: `layerStmt` is *exactly* statement 25 of `c13VerifyBody`
+/-- Faithfulness: `layerStmt` is *exactly* statement 29 of `c13VerifyBody`
 (loop header, full body, every inner `forEach` and the checksum-guard `ite`). -/
 theorem layerStmt_eq_slice :
-    [layerStmt] = (c13VerifyBody.drop 25).take 1 := rfl
+    [layerStmt] = (c13VerifyBody.drop 29).take 1 := rfl
 
 /-- One-step unfold of `execStmtList` on a cons, kept generic so the head
 `execStmt` stays symbolic (no reduction of concrete loop-states). -/
@@ -287,30 +283,33 @@ theorem stepLayer_currentNode_eq_merkleNode (ls : RuntimeState) :
 def layerGuard (ls : RuntimeState) : Bool :=
   evalExpr [] (afterDigit ls) condE == some 0
 
-/-- The checksum-guard `ite` (then = `revert0`, else = `[]`): continues with the
-same state when its condition resolves to `0`, reverts otherwise. -/
-private theorem ite_revert0_branch (st : RuntimeState) (cond : Expr) :
-    execStmt [] st (.ite cond revert0 []) =
+/-- The checksum-guard `ite` (then = `returnFalse`, else = `[]`): continues with
+the same state when its condition resolves to `0`, otherwise runs `returnFalse`. -/
+private theorem ite_returnFalse_branch (st : RuntimeState) (cond : Expr) :
+    execStmt [] st (.ite cond returnFalse []) =
       match evalExpr [] st cond with
-      | some r => if r != 0 then .revert else .continue st
+      | some r => if r != 0 then execStmtList [] st returnFalse else .continue st
       | none => .revert := by
   show (match evalExpr [] st cond with
         | some resolved =>
-            if resolved != 0 then execStmtList [] st revert0 else execStmtList [] st []
+            if resolved != 0 then execStmtList [] st returnFalse else execStmtList [] st []
         | none => .revert) = _
   cases evalExpr [] st cond with
   | none => rfl
   | some r => cases hr : r != 0 <;> simp only [hr, Bool.false_eq_true, if_true, if_false] <;> rfl
 
 /-- **`execLayerBody`** — the guarded layer body: continues to `stepLayer ls`
-when the checksum guard passes, reverts otherwise.  This is the `hstep`
-hypothesis consumed by `ClimbLoopGuarded.execForEachLoop_of_guarded_step`. -/
+when the checksum guard passes, otherwise returns `false`. -/
 theorem execLayerBody (ls : RuntimeState) :
     execStmtList [] ls layerBody
-      = if layerGuard ls then .continue (stepLayer ls) else .revert := by
+      = if layerGuard ls then .continue (stepLayer ls)
+        else
+          match evalExpr [] (afterDigit ls) condE with
+          | none => .revert
+          | some _ => execStmtList [] (afterDigit ls) returnFalse := by
   unfold layerBody
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ (afterDigit_eq ls)]
-  rw [execStmtList_cons_eq, ite_revert0_branch]
+  rw [execStmtList_cons_eq, ite_returnFalse_branch]
   unfold layerGuard
   cases hc : evalExpr [] (afterDigit ls) condE with
   | none => rfl
@@ -323,6 +322,53 @@ theorem execLayerBody (ls : RuntimeState) :
         have hb2 : (some r == some (0 : Nat)) = false := by simp [hr]
         simp only [hb, hb2]; rfl
 
+private theorem execForEachLoop_of_returnFalse_guarded_step
+    (varName : String) (runBody : RuntimeState → StmtResult)
+    (step : RuntimeState → RuntimeState) (guard : RuntimeState → Bool)
+    (fail : RuntimeState → StmtResult)
+    (hstep : ∀ ls, runBody ls = if guard ls then .continue (step ls) else fail ls) :
+    ∀ (state : RuntimeState) (index remaining : Nat),
+      ClimbLoopGuarded.allGuardsPass varName step guard state index remaining →
+      execForEachLoop varName runBody state index remaining
+        = .continue (foldLoop varName step state index remaining)
+  | state, index, 0, _ => by
+      rw [execForEachLoop_zero, ClimbLoop.foldLoop_zero]
+  | state, index, remaining + 1, hg => by
+      obtain ⟨hguard, htail⟩ := hg
+      have hbody :
+          runBody { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+            = .continue
+                (step { state with bindings := bindValue state.bindings varName (wordNormalize index) }) := by
+        rw [hstep, if_pos hguard]
+      refine execForEachLoop_succ_continue hbody ?_
+      rw [ClimbLoop.foldLoop_succ]
+      exact execForEachLoop_of_returnFalse_guarded_step varName runBody step guard fail hstep
+        _ (index + 1) remaining htail
+
+private theorem execStmt_forEach_of_returnFalse_guarded_step
+    (varName : String) (count : Expr) (body : List Stmt)
+    (state : RuntimeState) (bound : Nat)
+    (step : RuntimeState → RuntimeState) (guard : RuntimeState → Bool)
+    (fail : RuntimeState → StmtResult)
+    (hcount : evalExpr [] state count = some bound)
+    (hstep : ∀ ls, execStmtList [] ls body = if guard ls then .continue (step ls) else fail ls)
+    (hguards : ClimbLoopGuarded.allGuardsPass varName step guard
+        { state with bindings := bindValue state.bindings varName (wordNormalize 0) } 0 bound) :
+    execStmt [] state (.forEach varName count body)
+      = .continue
+          (foldLoop varName step
+            { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+            0 bound) := by
+  show (match evalExpr [] state count with
+        | some bound =>
+            execForEachLoop varName
+              (fun loopState => execStmtList [] loopState body)
+              { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+              0 bound
+        | none => .revert) = _
+  rw [hcount]
+  exact execForEachLoop_of_returnFalse_guarded_step varName _ step guard fail hstep _ 0 bound hguards
+
 /-! ## 6. The full guarded layer-loop fold. -/
 
 /-- **`execLayerLoop`** — given that every threaded layer iteration's checksum
@@ -331,13 +377,18 @@ to the pure `foldLoop` over `stepLayer`, exactly as the unguarded engine. -/
 theorem execLayerLoop (state : RuntimeState)
     (hguards : ClimbLoopGuarded.allGuardsPass "layer" stepLayer layerGuard
         { state with bindings := bindValue state.bindings "layer" (wordNormalize 0) } 0 (wordNormalize 2)) :
-    execStmt [] state layerStmt
+  execStmt [] state layerStmt
       = .continue
           (foldLoop "layer" stepLayer
             { state with bindings := bindValue state.bindings "layer" (wordNormalize 0) }
             0 (wordNormalize 2)) :=
-  ClimbLoopGuarded.execStmt_forEach_of_guarded_step "layer" (u 2) layerBody state (wordNormalize 2)
-    stepLayer layerGuard rfl execLayerBody hguards
+  execStmt_forEach_of_returnFalse_guarded_step "layer" (u 2) layerBody state (wordNormalize 2)
+    stepLayer layerGuard
+    (fun ls =>
+      match evalExpr [] (afterDigit ls) condE with
+      | none => .revert
+      | some _ => execStmtList [] (afterDigit ls) returnFalse)
+    rfl execLayerBody hguards
 
 /-! ## 7. Axiom audit. -/
 

@@ -1,14 +1,14 @@
 /-
   SegmentSeed — Layer-2 segment lemma for the C13 hypertree-climb seed,
-  statements 22..24 of `SphincsMinusVerifiers.c13VerifyBody`
+  statements 26..28 of `SphincsMinusVerifiers.c13VerifyBody`
   (see `INTERFACE_CONTRACT.md`: the S4 → Layer-3 boundary).
 
   The three statements are:
 
   ```
-  22. letVar "currentNode" := forsPk        -- climb starts at the FORS public key
-  23. letVar "idxTree"     := htIdx          -- climb starts at the hypertree index
-  24. letVar "sigOff"      := 1952           -- first XMSS-layer signature offset
+  26. letVar "currentNode" := forsPk        -- climb starts at the FORS public key
+  27. letVar "idxTree"     := htIdx          -- climb starts at the hypertree index
+  28. letVar "sigOff"      := 1952           -- first XMSS-layer signature offset
   ```
 
   These are pure binder writes: no guard, no memory, no calldata — the glue that
@@ -38,18 +38,18 @@ open Compiler.CompilationModel (Expr Stmt)
 As in `SegmentS3`, we replicate the statements with bare `Expr`/`Stmt`
 constructors so this file does not depend on `Model.lean`'s private EDSL
 helpers.  `segmentSeed_eq_slice` machine-checks (`rfl`) that this list is exactly
-statements 22..24 of the real `c13VerifyBody`, so the replication is faithful by
+statements 26..28 of the real `c13VerifyBody`, so the replication is faithful by
 construction. -/
 
-/-- The seed statement segment (statements 22..24 of `c13VerifyBody`). -/
+/-- The seed statement segment (statements 26..28 of `c13VerifyBody`). -/
 def segmentSeed : List Stmt :=
   [ .letVar "currentNode" (.localVar "forsPk")
   , .letVar "idxTree" (.localVar "htIdx")
   , .letVar "sigOff" (.literal 1952) ]
 
-/-- Faithfulness: `segmentSeed` is *exactly* statements 22..24 of `c13VerifyBody`. -/
+/-- Faithfulness: `segmentSeed` is *exactly* statements 26..28 of `c13VerifyBody`. -/
 theorem segmentSeed_eq_slice :
-    segmentSeed = (c13VerifyBody.drop 22).take 3 := rfl
+    segmentSeed = (c13VerifyBody.drop 26).take 3 := rfl
 
 /-! ## 1. The accept-path state transformer. -/
 

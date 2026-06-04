@@ -1,6 +1,6 @@
 /-
   SegmentS2 — Layer-2 segment lemma for the C13 H_msg digest block,
-  statements 1..9 of `SphincsMinusVerifiers.c13VerifyBody`.
+  statements 2..10 of `SphincsMinusVerifiers.c13VerifyBody`.
 
   The nine statements are:
 
@@ -95,7 +95,7 @@ theorem evalExpr_keccak_symMem
   rw [hmemEq]
   exact symMem_keccak_hmem base entries off ws hlk
 
-/-! ## 3. The H_msg block threading (statements 1..9 of `c13VerifyBody`).
+/-! ## 3. The H_msg block threading (statements 2..10 of `c13VerifyBody`).
 
 EDSL constructors matching `Model.lean`'s private helpers, so the reconstructed
 block is *defeq* to the real statements (machine-checked by `s2Body_eq_slice`). -/
@@ -108,7 +108,7 @@ private def cdload (off : Expr) : Expr := .calldataload off
 private def keccak (off size : Nat) : Expr := .keccak256 (u off) (u size)
 private def mstore (off : Nat) (val : Expr) : Stmt := .mstore (u off) val
 
-/-- Statements 1..9 of `c13VerifyBody`: the H_msg digest block (`seed`/`root`
+/-- Statements 2..10 of `c13VerifyBody`: the H_msg digest block (`seed`/`root`
 locals, the five scratch mstores `0x00`/`0x20`/`0x40`/`0x60`/`0x80`, and the
 `digest` keccak over `[0x00, 0xA0)`). -/
 def s2Body : List Stmt :=
@@ -122,8 +122,8 @@ def s2Body : List Stmt :=
   , mstore 0x80 (u 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
   , .letVar "digest" (keccak 0x00 0xA0) ]
 
-/-- Faithfulness: `s2Body` is *exactly* statements 1..9 of `c13VerifyBody`. -/
-theorem s2Body_eq_slice : s2Body = (c13VerifyBody.drop 1).take 9 := rfl
+/-- Faithfulness: `s2Body` is *exactly* statements 2..10 of `c13VerifyBody`. -/
+theorem s2Body_eq_slice : s2Body = (c13VerifyBody.drop 2).take 9 := rfl
 
 /-- The pure transformer for the H_msg block: the `.continue` payload of running
 `s2Body`.  Total — every statement is a `letVar`/`mstore` that continues

@@ -175,6 +175,23 @@ The current narrow C13 accept handoff still has real residual obligations:
   consumed by `stepMerkle_preserves_seed_slot_of_s4_eval` and lifted through the
   inner climb and full outer loop by the `*_of_s4_eval` adapters;
 - six named normal FORS root cells plus the forced root cell;
+- public-key canonicality guard bridge: show the executable `pkSeed/root &
+  N_MASK` guard corresponds to the intended bytes32 Solidity boundary while the
+  existing byte-spec handoffs continue to operate on 16-byte hash values;
+- false-return guard paths: update/extend the S3 forced-zero and layer WOTS
+  checksum control-flow lemmas so the failing branches produce returned `false`
+  instead of `.revert`, matching current `SPHINCs-C13Asm.sol`;
+- FORS-base address correspondence: prove the model cells for `idxLeaf0`,
+  `idxTree0`, `forsBase`, `adrsForsLeaf`, `adrsForsNode`, and `adrsForsRoots`
+  equal the concrete spec constructors threaded by `digest.hyperIndex`;
+- explicit compose/control-flow debt introduced by the 2026-06-04 sync:
+  discharge `SegmentCompose.c13VerifyBody_passes_preflight_guards`,
+  `SegmentCompose.body_reshape`, `SegmentS4Fors.forsOuterStmt_eq_slice`, and
+  `SegmentS4Finalize.forsFinalizeBody_eq_slice` after the S4 FORS bodies are
+  migrated from the legacy unkeyed address reconstruction to `forsBase`;
+- high-level accept handoff: `SegmentAcceptSpec` currently exceeds the default
+  heartbeat budget after the C13 body shift and should be refactored around the
+  named compose/FORS obligations before re-enabling it in the passing target set;
 - per-layer guarded WOTS/XMSS correspondence;
 - remaining concrete data-cell proof for the new C13 hypertree layer step and
   hypertree fold correspondence;
@@ -239,7 +256,9 @@ also derives the `afterFors` seed-cell fact from the range-gated FORS
 `CurrentNodeFrame.afterFors_seed_slot_mkC13State_of_forsLeafStep_range_preserves`;
 this is now the narrowest byte-shaped handoff.  It does not derive the public-key
 root size from C13 public-key parsing, since `C13Concrete.publicKeyOk_c13`
-records that C13 imposes no such low-byte public-key canonicality check.
+belongs to the 16-byte byte-spec boundary.  The executable Verity model now
+separately mirrors Solidity's bytes32 `pkSeed/root == pkSeed/root & N_MASK`
+canonicality guard.
 
 ## Safety Checks
 
