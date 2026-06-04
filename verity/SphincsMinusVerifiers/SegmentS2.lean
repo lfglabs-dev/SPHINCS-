@@ -122,8 +122,8 @@ def s2Body : List Stmt :=
   , mstore 0x80 (u 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
   , .letVar "digest" (keccak 0x00 0xA0) ]
 
-/-- Faithfulness: `s2Body` is *exactly* statements 1..9 of `c13VerifyBody`. -/
-theorem s2Body_eq_slice : s2Body = (c13VerifyBody.drop 1).take 9 := rfl
+/-- Faithfulness: `s2Body` is *exactly* the first nine algorithmic C13 statements. -/
+theorem s2Body_eq_slice : s2Body = c13VerifyBodyTail.take 9 := rfl
 
 /-- The pure transformer for the H_msg block: the `.continue` payload of running
 `s2Body`.  Total — every statement is a `letVar`/`mstore` that continues

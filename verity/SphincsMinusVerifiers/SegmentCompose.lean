@@ -61,10 +61,10 @@ def afterLayer (st : RuntimeState) : RuntimeState :=
 
 set_option maxHeartbeats 4000000 in
 theorem body_reshape :
-    c13VerifyBody.tail =
+    c13VerifyBodyTail =
       SegmentS2.s2Body ++ (SegmentS3.segmentS3 ++ ([SegmentS4Fors.forsOuterStmt] ++
         (SegmentS4Finalize.forsFinalizeBody ++ (SegmentSeed.segmentSeed ++
-          ([SegmentLayer3.layerStmt] ++ c13VerifyBody.drop 26))))) := rfl
+          ([SegmentLayer3.layerStmt] ++ c13VerifyBodyTail.drop 25))))) := rfl
 
 /-! ## 3. Singleton-statement continue helper. -/
 
@@ -83,13 +83,17 @@ Phase-2 segment lemmas; no bridge axiom, no `execC13`. -/
 theorem execC13Body_thread
     (st : RuntimeState)
     (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688)
+    (hpkSeed : lookupValue st.bindings "pkSeed" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val)
+    (hpkRoot : lookupValue st.bindings "pkRoot" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val)
     (hg3 : SegmentS3.s3Guard (afterS2 st) = 0)
     (hgL : ClimbLoopGuarded.allGuardsPass "layer" SegmentLayer3.stepLayer SegmentLayer3.layerGuard
         { (afterSeed st) with bindings := bindValue (afterSeed st).bindings "layer" (wordNormalize 0) }
         0 (wordNormalize 2)) :
     execStmtList [] st c13VerifyBody
-      = execStmtList [] (afterLayer st) (c13VerifyBody.drop 26) := by
-  rw [c13VerifyBody_passes_length_guard st hlen, body_reshape]
+      = execStmtList [] (afterLayer st) (c13VerifyBodyTail.drop 25) := by
+  rw [c13VerifyBody_passes_preflight_guards st hlen hpkSeed hpkRoot, body_reshape]
   -- S2 (stmts 1..9).  The type ascription folds `s2Step st` into `afterS2 st`
   -- (definitional), so every later rewrite stays in named-composite form.
   have hS2 : execStmtList [] st SegmentS2.s2Body = .continue (afterS2 st) :=
@@ -120,6 +124,7 @@ theorem execC13Body_thread
       = .continue (afterLayer st) :=
     execSingleton_continue _ _ _ (SegmentLayer3.execLayerLoop (afterSeed st) hgL)
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ hLayer]
+  rw [← body_reshape]
 
 /-! ## 5. Threading the 3-statement return tail to a concrete boolean. -/
 
@@ -130,7 +135,7 @@ def acceptWord (st : RuntimeState) : Nat :=
                     = lookupValue (afterLayer st).bindings "root"))
 
 private theorem drop26_eq :
-    c13VerifyBody.drop 26 =
+    c13VerifyBodyTail.drop 25 =
       [ (.letVar "valid" (.eq (.localVar "currentNode") (.localVar "root")) : Stmt),
         .mstore (.literal 0) (.localVar "valid"),
         .return (.mload (.literal 0)) ] := rfl
@@ -165,6 +170,10 @@ decision).  Touches neither `execC13` nor the bridge axiom. -/
 theorem execC13Body_returns
     (st : RuntimeState)
     (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688)
+    (hpkSeed : lookupValue st.bindings "pkSeed" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val)
+    (hpkRoot : lookupValue st.bindings "pkRoot" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val)
     (hg3 : SegmentS3.s3Guard (afterS2 st) = 0)
     (hgL : ClimbLoopGuarded.allGuardsPass "layer" SegmentLayer3.stepLayer SegmentLayer3.layerGuard
         { (afterSeed st) with bindings := bindValue (afterSeed st).bindings "layer" (wordNormalize 0) }
@@ -172,7 +181,7 @@ theorem execC13Body_returns
     ∃ finalState,
       execStmtList [] st c13VerifyBody
         = .return (wordNormalize (acceptWord st)) finalState := by
-  rw [execC13Body_thread st hlen hg3 hgL, drop26_eq]
+  rw [execC13Body_thread st hlen hpkSeed hpkRoot hg3 hgL, drop26_eq]
   -- stmt 26: letVar "valid" (currentNode == root)
   have hletVal : evalExpr [] (afterLayer st)
       (.eq (.localVar "currentNode") (.localVar "root")) = some (acceptWord st) := rfl

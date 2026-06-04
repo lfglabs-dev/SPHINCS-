@@ -49,7 +49,7 @@ def segmentSeed : List Stmt :=
 
 /-- Faithfulness: `segmentSeed` is *exactly* statements 22..24 of `c13VerifyBody`. -/
 theorem segmentSeed_eq_slice :
-    segmentSeed = (c13VerifyBody.drop 22).take 3 := rfl
+    segmentSeed = (c13VerifyBodyTail.drop 21).take 3 := rfl
 
 /-! ## 1. The accept-path state transformer. -/
 

@@ -54,16 +54,16 @@ private def revert0 : List Stmt := [
 private def s3CondExpr : Expr :=
   .bitAnd (.shr (.literal 114) (.localVar "dVal")) (.literal 0x7FFFF)
 
-/-- The S3 statement segment (statements 10..13 of `c13VerifyBody`). -/
+/-- The S3 statement segment (statements 9..12 of `c13VerifyBodyTail`). -/
 def segmentS3 : List Stmt :=
   [ .letVar "htIdx" (.bitAnd (.shr (.literal 133) (.localVar "digest")) (.literal 0x3FFFFF))
   , .letVar "dVal" (.localVar "digest")
   , .ite s3CondExpr revert0 []
   , .letVar "sigBase" (.localVar "sig_data_offset") ]
 
-/-- Faithfulness: `segmentS3` is *exactly* statements 10..13 of `c13VerifyBody`. -/
+/-- Faithfulness: `segmentS3` is *exactly* statements 9..12 of `c13VerifyBodyTail`. -/
 theorem segmentS3_eq_slice :
-    segmentS3 = (c13VerifyBody.drop 10).take 4 := rfl
+    segmentS3 = (c13VerifyBodyTail.drop 9).take 4 := rfl
 
 /-! ## 1. Resolved values of the three `letVar` writes.
 

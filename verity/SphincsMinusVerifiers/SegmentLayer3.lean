@@ -562,6 +562,28 @@ theorem wotsOuterFold_preserves_memory_zero (st : RuntimeState) :
     0 (wordNormalize 43)
     (fun i _ hi => by simpa using hi)]
 
+/-- The actual WOTS outer-loop statement preserves seed cell `0x00`.  This uses
+the interpreter-loop memory frame directly instead of converting the loop to a
+pure fold at each call site. -/
+theorem wotsOuterForEach_preserves_memory_zero
+    (s s'' : RuntimeState)
+    (hexec : execStmt [] s (.forEach "i" (u 43) wotsOuterBody) = .continue s'') :
+    (s''.world.memory 0x00).val = (s.world.memory 0x00).val := by
+  refine SphincsMinusVerifiers.MemoryFrame.execStmt_forEach_preserves_memory_val_range
+    "i" 0x00 (u 43) wotsOuterBody (fun i => i < 43) s s'' ?_ ?_ hexec
+  · intro t i hi t'' hbody
+    have hI :
+        lookupValue ({ t with bindings := bindValue t.bindings "i" (wordNormalize i) }).bindings
+            "i" = wordNormalize i := by
+      exact MemoryKit.lookupValue_bindValue_self t.bindings "i" (wordNormalize i)
+    exact wotsOuterBody_preserves_memory_zero_of_i
+      { t with bindings := bindValue t.bindings "i" (wordNormalize i) } t'' i hi hI hbody
+  · intro bound i hbound _ hi
+    change some (wordNormalize 43) = some bound at hbound
+    injection hbound with hbound'
+    rw [← hbound'] at hi
+    simpa using hi
+
 /-- One WOTS public-key copy step preserves seed cell `0x00` for the actual C13
 loop-index range. -/
 theorem copyStep_preserves_memory_zero_of_i
@@ -622,6 +644,28 @@ theorem copyFold_preserves_memory_zero (st : RuntimeState) :
     { st with bindings := bindValue st.bindings "i" (wordNormalize 0) }
     0 (wordNormalize 43)
     (fun i _ hi => by simpa using hi)]
+
+/-- The actual WOTS-public-key copy statement preserves seed cell `0x00`. -/
+theorem copyForEach_preserves_memory_zero
+    (s s'' : RuntimeState)
+    (hexec : execStmt [] s (.forEach "i" (u 43) copyBody) = .continue s'') :
+    (s''.world.memory 0x00).val = (s.world.memory 0x00).val := by
+  refine SphincsMinusVerifiers.MemoryFrame.execStmt_forEach_preserves_memory_val_range
+    "i" 0x00 (u 43) copyBody (fun i => i < 43) s s'' ?_ ?_ hexec
+  · intro t i hi t'' hbody
+    have hI :
+        lookupValue ({ t with bindings := bindValue t.bindings "i" (wordNormalize i) }).bindings
+            "i" = wordNormalize i := by
+      exact MemoryKit.lookupValue_bindValue_self t.bindings "i" (wordNormalize i)
+    rw [copyStepLemma] at hbody
+    cases hbody
+    exact copyStep_preserves_memory_zero_of_i
+      { t with bindings := bindValue t.bindings "i" (wordNormalize i) } i hi hI
+  · intro bound i hbound _ hi
+    change some (wordNormalize 43) = some bound at hbound
+    injection hbound with hbound'
+    rw [← hbound'] at hi
+    simpa using hi
 
 /-! ## 3. The Layer-3 body reconstruction (Model.lean:154-203), split around the
 checksum-guard `ite` as `prefix11 ++ (ite :: suffix14)`. -/
@@ -755,7 +799,7 @@ set_option maxHeartbeats 8000000 in
 /-- Faithfulness: `layerStmt` is *exactly* statement 25 of `c13VerifyBody`
 (loop header, full body, every inner `forEach` and the checksum-guard `ite`). -/
 theorem layerStmt_eq_slice :
-    [layerStmt] = (c13VerifyBody.drop 25).take 1 := rfl
+    [layerStmt] = (c13VerifyBodyTail.drop 24).take 1 := rfl
 
 /-- One-step unfold of `execStmtList` on a cons, kept generic so the head
 `execStmt` stays symbolic (no reduction of concrete loop-states). -/
@@ -3475,8 +3519,10 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms wotsOuterBody_preserves_i_lookup
 #print axioms wotsOuterStep_preserves_i_lookup
 #print axioms wotsOuterFold_preserves_memory_zero
+#print axioms wotsOuterForEach_preserves_memory_zero
 #print axioms copyStep_preserves_memory_zero_of_i
 #print axioms copyFold_preserves_memory_zero
+#print axioms copyForEach_preserves_memory_zero
 #print axioms beforeDigest_idxLeaf_eq_of_idxTree
 #print axioms beforeDigest_idxTree_eq_of_idxTree
 #print axioms beforeDigitLoop_idxTree_eq_of_idxTree

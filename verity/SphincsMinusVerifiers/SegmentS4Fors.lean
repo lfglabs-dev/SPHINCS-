@@ -1197,7 +1197,7 @@ def forsOuterStmt : Stmt := .forEach "i" (u 6) forsLeafBody
 /-- Faithfulness: `forsOuterStmt` is *exactly* statement 14 of `c13VerifyBody`
 (loop header and full body, inner `forEach` included). -/
 theorem forsOuterStmt_eq_slice :
-    [forsOuterStmt] = (c13VerifyBody.drop 14).take 1 := rfl
+    [forsOuterStmt] = (c13VerifyBodyTail.drop 13).take 1 := rfl
 
 /-! ## 3. The FORS outer-loop body step lemma. -/
 

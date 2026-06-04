@@ -74,7 +74,7 @@ private def errorStringRevert (word : Expr) : List Stmt := [
       "raw_yul_revert_0_100"
 ]
 
-private def N_MASK : Nat :=
+def N_MASK : Nat :=
   0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00000000000000000000000000000000
 
 private def verifyParams : List Param := [
@@ -89,14 +89,23 @@ private def returnBoolFromWord (name : String) : List Stmt := [
   .return (mload 0x00)
 ]
 
+def c13LengthGuard : Stmt :=
+  .ite (notE (eqE (v "sig_length") (u 3688))) (errorStringRevert invalidSigLengthWord) []
+
+def publicKeyCanonicalityGuard : Stmt :=
+  .ite
+    (orE
+      (notE (eqE (p "pkSeed") (andE (p "pkSeed") (u N_MASK))))
+      (notE (eqE (p "pkRoot") (andE (p "pkRoot") (u N_MASK)))))
+    (errorStringRevert invalidPublicKeyWord) []
+
 /-- Model of `SPHINCs-C13Asm.verify`.
 
 The code follows the Yul loops and memory layout from `SPHINCs-C13Asm.sol`.
 It is not factored into helpers because the Solidity implementation is also a
 single inlined assembly block, and line-by-line refinement is the proof target.
 -/
-def c13VerifyBody : List Stmt := [
-  .ite (notE (eqE (v "sig_length") (u 3688))) (errorStringRevert invalidSigLengthWord) [],
+def c13VerifyBodyTail : List Stmt := [
   .letVar "seed" (p "pkSeed"),
   .letVar "root" (p "pkRoot"),
   mstore 0x00 (v "seed"),
@@ -204,6 +213,15 @@ def c13VerifyBody : List Stmt := [
   ],
   .letVar "valid" (eqE (v "currentNode") (v "root"))
 ] ++ returnBoolFromWord "valid"
+
+/-- The C13 body after the length guard.  This keeps the public-key guard and
+the algorithmic body tail named separately, so proof scripts can expose the
+preflight surface without unfolding the full verifier body. -/
+def c13PublicKeyGuardTail : List Stmt :=
+  publicKeyCanonicalityGuard :: c13VerifyBodyTail
+
+def c13VerifyBody : List Stmt :=
+  c13LengthGuard :: c13PublicKeyGuardTail
 
 private def verifierFunction (body : List Stmt) (pure : Bool := true) : FunctionSpec := {
   name := "verify",
@@ -632,13 +650,196 @@ theorem verifyBody_passes_length_guard
   rw [hite]
 
 open Compiler.Proofs.IRGeneration.SourceSemantics in
-/-- C13: with `sig.length = 3688` the length guard is a no-op and execution
-proceeds into the body. Proved, no bridge axiom. -/
+/-- C13: with `sig.length = 3688`, the length guard is a no-op and execution
+proceeds to the named public-key guard tail.  This exposes the first preflight
+step without unfolding the full verifier body. -/
 theorem c13VerifyBody_passes_length_guard
     (st : RuntimeState)
     (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688) :
-    execStmtList [] st c13VerifyBody = execStmtList [] st c13VerifyBody.tail :=
-  verifyBody_passes_length_guard 3688 st c13VerifyBody.tail hlen
+    execStmtList [] st c13VerifyBody = execStmtList [] st c13PublicKeyGuardTail := by
+  rw [show c13VerifyBody = c13LengthGuard :: c13PublicKeyGuardTail from rfl]
+  rw [show c13LengthGuard =
+    (.ite (notE (eqE (v "sig_length") (u 3688)))
+      (errorStringRevert invalidSigLengthWord) [] : Stmt) from rfl]
+  exact verifyBody_passes_length_guard 3688 st c13PublicKeyGuardTail hlen
+
+open Compiler.Proofs.IRGeneration.SourceSemantics in
+/-- C13: if both ABI public-key words are already canonical high-16-byte values,
+the public-key canonicality guard is a no-op and execution proceeds into the
+named algorithmic body tail. -/
+theorem c13PublicKeyGuardTail_passes_public_key_guard
+    (st : RuntimeState)
+    (hpkSeed : lookupValue st.bindings "pkSeed" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val)
+    (hpkRoot : lookupValue st.bindings "pkRoot" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val) :
+    execStmtList [] st c13PublicKeyGuardTail = execStmtList [] st c13VerifyBodyTail := by
+  change execStmtList [] st (publicKeyCanonicalityGuard :: c13VerifyBodyTail) =
+    execStmtList [] st c13VerifyBodyTail
+  have hseedEq : decide (lookupValue st.bindings "pkSeed" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val) = true :=
+    decide_eq_true hpkSeed
+  have hrootEq : decide (lookupValue st.bindings "pkRoot" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val) = true :=
+    decide_eq_true hpkRoot
+  have hcond :
+      evalExpr [] st
+        (orE
+          (notE (eqE (p "pkSeed") (andE (p "pkSeed") (u N_MASK))))
+          (notE (eqE (p "pkRoot") (andE (p "pkRoot") (u N_MASK)))))
+        = some 0 := by
+    show some (Verity.Core.Uint256.or
+          (boolWord (decide (boolWord (decide
+              (lookupValue st.bindings "pkSeed" =
+                (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val)) = 0)))
+          (boolWord (decide (boolWord (decide
+              (lookupValue st.bindings "pkRoot" =
+                (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val)) = 0)))).val
+        = some 0
+    rw [hseedEq, hrootEq]
+    rfl
+  have hite : execStmt [] st publicKeyCanonicalityGuard = .continue st := by
+    show (match evalExpr [] st
+          (orE
+            (notE (eqE (p "pkSeed") (andE (p "pkSeed") (u N_MASK))))
+            (notE (eqE (p "pkRoot") (andE (p "pkRoot") (u N_MASK))))) with
+        | some resolved =>
+            if resolved != 0 then execStmtList [] st (errorStringRevert invalidPublicKeyWord)
+            else execStmtList [] st []
+        | none => .revert) = .continue st
+    rw [hcond]
+    rfl
+  show (match execStmt [] st publicKeyCanonicalityGuard with
+        | .continue n => execStmtList [] n c13VerifyBodyTail
+        | .stop n => .stop n
+        | .return rval rst => .return rval rst
+        | .revert => .revert) = execStmtList [] st c13VerifyBodyTail
+  rw [hite]
+
+open Compiler.Proofs.IRGeneration.SourceSemantics in
+/-- C13: with `sig.length = 3688` and canonical high-16-byte public-key words,
+both preflight guards are no-ops and execution proceeds into the named body tail.
+Proved through the real interpreter, no bridge axiom. -/
+theorem c13VerifyBody_passes_preflight_guards
+    (st : RuntimeState)
+    (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688)
+    (hpkSeed : lookupValue st.bindings "pkSeed" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val)
+    (hpkRoot : lookupValue st.bindings "pkRoot" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val) :
+    execStmtList [] st c13VerifyBody = execStmtList [] st c13VerifyBodyTail := by
+  rw [c13VerifyBody_passes_length_guard st hlen]
+  exact c13PublicKeyGuardTail_passes_public_key_guard st hpkSeed hpkRoot
+
+open Compiler.Proofs.IRGeneration.SourceSemantics in
+/-- C13: after the length guard passes, the public-key canonicality guard reverts
+when the ABI-decoded `pkSeed` word is not already masked by `N_MASK`. -/
+theorem c13VerifyBody_reverts_on_bad_pkSeed
+    (st : RuntimeState)
+    (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688)
+    (hpkSeed : lookupValue st.bindings "pkSeed" ≠
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val) :
+    execStmtList [] st c13VerifyBody = .revert := by
+  rw [show c13VerifyBody = c13LengthGuard :: c13PublicKeyGuardTail from rfl]
+  rw [show c13LengthGuard =
+    (.ite (notE (eqE (v "sig_length") (u 3688)))
+      (errorStringRevert invalidSigLengthWord) [] : Stmt) from rfl]
+  rw [verifyBody_passes_length_guard 3688 st c13PublicKeyGuardTail hlen]
+  change execStmtList [] st (publicKeyCanonicalityGuard :: c13VerifyBodyTail) = .revert
+  have hseedEq : decide (lookupValue st.bindings "pkSeed" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val) = false :=
+    decide_eq_false hpkSeed
+  have hcond :
+      evalExpr [] st
+        (orE
+          (notE (eqE (p "pkSeed") (andE (p "pkSeed") (u N_MASK))))
+          (notE (eqE (p "pkRoot") (andE (p "pkRoot") (u N_MASK)))))
+        = some 1 := by
+    show some (Verity.Core.Uint256.or
+          (boolWord (decide (boolWord (decide
+              (lookupValue st.bindings "pkSeed" =
+                (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val)) = 0)))
+          (boolWord (decide (boolWord (decide
+              (lookupValue st.bindings "pkRoot" =
+                (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val)) = 0)))).val
+        = some 1
+    rw [hseedEq]
+    by_cases hroot : lookupValue st.bindings "pkRoot" =
+        (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val
+    · rw [decide_eq_true hroot]; rfl
+    · rw [decide_eq_false hroot]; rfl
+  have hite : execStmt [] st publicKeyCanonicalityGuard = .revert := by
+    show (match evalExpr [] st
+          (orE
+            (notE (eqE (p "pkSeed") (andE (p "pkSeed") (u N_MASK))))
+            (notE (eqE (p "pkRoot") (andE (p "pkRoot") (u N_MASK))))) with
+        | some resolved =>
+            if resolved != 0 then execStmtList [] st (errorStringRevert invalidPublicKeyWord)
+            else execStmtList [] st []
+        | none => .revert) = .revert
+    rw [hcond]
+    rfl
+  show (match execStmt [] st publicKeyCanonicalityGuard with
+        | .continue n => execStmtList [] n c13VerifyBodyTail
+        | .stop n => .stop n
+        | .return rval rst => .return rval rst
+        | .revert => .revert) = .revert
+  rw [hite]
+
+open Compiler.Proofs.IRGeneration.SourceSemantics in
+/-- C13: after the length guard passes, the public-key canonicality guard reverts
+when the ABI-decoded `pkRoot` word is not already masked by `N_MASK`. -/
+theorem c13VerifyBody_reverts_on_bad_pkRoot
+    (st : RuntimeState)
+    (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688)
+    (hpkRoot : lookupValue st.bindings "pkRoot" ≠
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val) :
+    execStmtList [] st c13VerifyBody = .revert := by
+  rw [show c13VerifyBody = c13LengthGuard :: c13PublicKeyGuardTail from rfl]
+  rw [show c13LengthGuard =
+    (.ite (notE (eqE (v "sig_length") (u 3688)))
+      (errorStringRevert invalidSigLengthWord) [] : Stmt) from rfl]
+  rw [verifyBody_passes_length_guard 3688 st c13PublicKeyGuardTail hlen]
+  change execStmtList [] st (publicKeyCanonicalityGuard :: c13VerifyBodyTail) = .revert
+  have hrootEq : decide (lookupValue st.bindings "pkRoot" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val) = false :=
+    decide_eq_false hpkRoot
+  have hcond :
+      evalExpr [] st
+        (orE
+          (notE (eqE (p "pkSeed") (andE (p "pkSeed") (u N_MASK))))
+          (notE (eqE (p "pkRoot") (andE (p "pkRoot") (u N_MASK)))))
+        = some 1 := by
+    show some (Verity.Core.Uint256.or
+          (boolWord (decide (boolWord (decide
+              (lookupValue st.bindings "pkSeed" =
+                (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val)) = 0)))
+          (boolWord (decide (boolWord (decide
+              (lookupValue st.bindings "pkRoot" =
+                (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val)) = 0)))).val
+        = some 1
+    rw [hrootEq]
+    by_cases hseed : lookupValue st.bindings "pkSeed" =
+        (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val
+    · rw [decide_eq_true hseed]; rfl
+    · rw [decide_eq_false hseed]; rfl
+  have hite : execStmt [] st publicKeyCanonicalityGuard = .revert := by
+    show (match evalExpr [] st
+          (orE
+            (notE (eqE (p "pkSeed") (andE (p "pkSeed") (u N_MASK))))
+            (notE (eqE (p "pkRoot") (andE (p "pkRoot") (u N_MASK))))) with
+        | some resolved =>
+            if resolved != 0 then execStmtList [] st (errorStringRevert invalidPublicKeyWord)
+            else execStmtList [] st []
+        | none => .revert) = .revert
+    rw [hcond]
+    rfl
+  show (match execStmt [] st publicKeyCanonicalityGuard with
+        | .continue n => execStmtList [] n c13VerifyBodyTail
+        | .stop n => .stop n
+        | .return rval rst => .return rval rst
+        | .revert => .revert) = .revert
+  rw [hite]
 
 open Compiler.Proofs.IRGeneration.SourceSemantics in
 /-- C12: with `sig.length = 6512` the length guard is a no-op and execution
