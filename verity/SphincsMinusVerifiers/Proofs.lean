@@ -816,6 +816,139 @@ theorem c13SecondLayerBeforeMerkle_mIdx_hyperIndex
         (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
         (by decide : 2 ^ 22 < 2 ^ 256)))
 
+/-- A C13 XMSS-tree address assembled from bounded layer/tree indices is already
+an EVM word. -/
+theorem c13_adrsXmssTree_lt_of_bounds
+    (layer treeIdx : Nat)
+    (hLayer : layer < 2 ^ 32)
+    (hTree : treeIdx < 2 ^ 22) :
+    C13Concrete.adrsXmssTree layer treeIdx < 2 ^ 256 := by
+  have h224 : layer <<< 224 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      layer * 2 ^ 224 < 2 ^ 32 * 2 ^ 224 :=
+        Nat.mul_lt_mul_of_pos_right hLayer (by decide)
+      _ = 2 ^ 256 := by norm_num [Nat.pow_add]
+  have h128 : treeIdx <<< 128 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      treeIdx * 2 ^ 128 < 2 ^ 22 * 2 ^ 128 :=
+        Nat.mul_lt_mul_of_pos_right hTree (by decide)
+      _ < 2 ^ 256 := by decide
+  have h96 : 2 <<< 96 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    decide
+  have hinner : (treeIdx <<< 128 ||| 2 <<< 96) < 2 ^ 256 :=
+    Nat.bitwise_lt_two_pow h128 h96
+  simpa [C13Concrete.adrsXmssTree, Nat.lor_assoc] using
+    Nat.bitwise_lt_two_pow h224 hinner
+
+/-- Layer-0 `beforeMerkle` is a concrete frozen C13 Merkle site. -/
+theorem c13FirstLayerBeforeMerkle_layerFrozenSite
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    SegmentLayer3MerkleFrame.LayerFrozenSite 0 pkSeed pkRoot message sig
+      (SegmentLayer3.beforeMerkle
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)) := by
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  let treeAdrs : Nat := C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048)
+  refine ⟨treeAdrs, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · exact
+      (SegmentLayer3.beforeMerkle_preserves_selector_calldata
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).1.trans
+        (c13FirstLayerGuardState_selector pkSeed pkRoot message sig)
+  · exact
+      (SegmentLayer3.beforeMerkle_preserves_selector_calldata
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).2.trans
+        (c13FirstLayerGuardState_calldata pkSeed pkRoot message sig)
+  · have hSigOffRaw :
+        lookupValue (c13FirstLayerGuardState pkSeed pkRoot message sig).bindings
+            "sigOff" = 1952 := by
+      rw [c13FirstLayerGuardState_sigOff]
+      exact SegmentS2.wordNormalize_of_lt (by decide : 1952 < 2 ^ 256)
+    have hPtr :=
+      SegmentLayer3.beforeMerkle_merklePtr_eq_of_sigBase_sigOff
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)
+        sigDataOffset 1952
+        (c13FirstLayerGuardState_sigBase pkSeed pkRoot message sig)
+        hSigOffRaw
+        (by decide : sigDataOffset < 2 ^ 256)
+        (by decide : 1952 < 2 ^ 256)
+        (by decide : 1952 + 688 < 2 ^ 256)
+        (by decide : 1952 + 692 < 2 ^ 256)
+        (by decide : sigDataOffset + (1952 + 692) < 2 ^ 256)
+    simpa using hPtr
+  · dsimp [treeAdrs]
+    exact SegmentLayer3.beforeMerkle_treeAdrs_eq_of_layer_idxTree
+      (c13FirstLayerGuardState pkSeed pkRoot message sig)
+      0 digest.hyperIndex
+      (c13FirstLayerGuardState_layer pkSeed pkRoot message sig)
+      (c13FirstLayerGuardState_idxTree_hyperIndex pkSeed pkRoot message sig hParse)
+      (by decide : 0 < 2 ^ 32)
+      (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
+  · dsimp [treeAdrs]
+    exact c13_adrsXmssTree_lt_of_bounds 0 (digest.hyperIndex / 2048)
+      (by decide : 0 < 2 ^ 32)
+      (lt_of_le_of_lt (Nat.div_le_self _ _)
+        (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message))
+  · rw [c13FirstLayerBeforeMerkle_mIdx_hyperIndex pkSeed pkRoot message sig sigParsed hParse]
+    exact lt_trans (Nat.mod_lt _ (by decide : 0 < 2048))
+      (by decide : 2048 < 2 ^ 256)
+
+/-- Layer-1 `beforeMerkle` is a concrete frozen C13 Merkle site. -/
+theorem c13SecondLayerBeforeMerkle_layerFrozenSite
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    SegmentLayer3MerkleFrame.LayerFrozenSite 1 pkSeed pkRoot message sig
+      (SegmentLayer3.beforeMerkle
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)) := by
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  let treeAdrs : Nat := C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048)
+  refine ⟨treeAdrs, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · exact
+      (SegmentLayer3.beforeMerkle_preserves_selector_calldata
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)).1.trans
+        (c13SecondLayerGuardState_selector pkSeed pkRoot message sig)
+  · exact
+      (SegmentLayer3.beforeMerkle_preserves_selector_calldata
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)).2.trans
+        (c13SecondLayerGuardState_calldata pkSeed pkRoot message sig)
+  · have hPtr :=
+      SegmentLayer3.beforeMerkle_merklePtr_eq_of_sigBase_sigOff
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)
+        sigDataOffset 2820
+        (c13SecondLayerGuardState_sigBase pkSeed pkRoot message sig)
+        (c13SecondLayerGuardState_sigOff pkSeed pkRoot message sig)
+        (by decide : sigDataOffset < 2 ^ 256)
+        (by decide : 2820 < 2 ^ 256)
+        (by decide : 2820 + 688 < 2 ^ 256)
+        (by decide : 2820 + 692 < 2 ^ 256)
+        (by decide : sigDataOffset + (2820 + 692) < 2 ^ 256)
+    simpa using hPtr
+  · dsimp [treeAdrs]
+    exact SegmentLayer3.beforeMerkle_treeAdrs_eq_of_layer_idxTree
+      (c13SecondLayerGuardState pkSeed pkRoot message sig)
+      1 (digest.hyperIndex / 2048)
+      (c13SecondLayerGuardState_layer pkSeed pkRoot message sig)
+      (c13SecondLayerGuardState_idxTree_hyperIndex pkSeed pkRoot message sig hParse)
+      (by decide : 1 < 2 ^ 32)
+      (lt_of_le_of_lt
+        (Nat.div_le_self _ _)
+        (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message))
+  · dsimp [treeAdrs]
+    exact c13_adrsXmssTree_lt_of_bounds 1 ((digest.hyperIndex / 2048) / 2048)
+      (by decide : 1 < 2 ^ 32)
+      (lt_of_le_of_lt
+        (Nat.div_le_self _ _)
+        (lt_of_le_of_lt
+          (Nat.div_le_self _ _)
+          (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)))
+  · rw [c13SecondLayerBeforeMerkle_mIdx_hyperIndex pkSeed pkRoot message sig sigParsed hParse]
+    exact lt_trans (Nat.mod_lt _ (by decide : 0 < 2048))
+      (by decide : 2048 < 2 ^ 256)
+
 /-- Layer-0 pre-digest `"wotsAdrs"` is the C13 WOTS hash-base address assembled
 from layer zero and the split parsed hypertree index. -/
 theorem c13FirstLayerBeforeDigest_wotsAdrs_hyperIndex
@@ -2756,6 +2889,9 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13FirstLayerBeforeDigest_idxTree_hyperIndex
 #print axioms c13FirstLayerBeforeMerkle_mIdx_hyperIndex
 #print axioms c13SecondLayerBeforeMerkle_mIdx_hyperIndex
+#print axioms c13_adrsXmssTree_lt_of_bounds
+#print axioms c13FirstLayerBeforeMerkle_layerFrozenSite
+#print axioms c13SecondLayerBeforeMerkle_layerFrozenSite
 #print axioms c13FirstLayerBeforeDigest_wotsAdrs_hyperIndex
 #print axioms c13FirstLayer_wotsAdrs_hyperIndex_norm
 #print axioms c13SecondLayer_wotsAdrs_hyperIndex_norm
