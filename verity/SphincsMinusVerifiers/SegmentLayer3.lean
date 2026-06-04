@@ -1871,6 +1871,41 @@ theorem beforeAuthOff_eq (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsPk" _ _ rfl)]
   rfl
 
+/-- The prefix before binding `"authOff"` preserves seed cell `0x00` once the two
+loop statements are supplied as bounded frame facts. This keeps the straight-line
+frame separate from the heavier WOTS/copy loop adapters. -/
+theorem beforeAuthOff_preserves_memory_zero_of_loop_frames
+    (ls : RuntimeState)
+    (hWots :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (u 43) wotsOuterBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hCopy :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (u 43) copyBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val) :
+    ((beforeAuthOff ls).world.memory 0x00).val =
+      ((afterDigit ls).world.memory 0x00).val := by
+  refine SphincsMinusVerifiers.MemoryFrame.execStmtList_preserves_memory_val
+    0x00 suffixBeforeAuthOff (afterDigit ls) (beforeAuthOff ls) ?_
+    (beforeAuthOff_eq ls)
+  intro s s'' stmt hmem hexec
+  simp [suffixBeforeAuthOff, mstore] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl
+  · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' 0x00 "wotsPtr" _ hexec
+  · exact hWots s s'' hexec
+  · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' 0x00 "pkAdrs" _ hexec
+  · refine SphincsMinusVerifiers.MemoryFrame.execStmt_mstore_preserves_memory_val
+      s s'' 0x00 _ _ ?_ hexec
+    intro ro rv hoff _
+    cases hoff
+    decide
+  · exact hCopy s s'' hexec
+  · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' 0x00 "wotsPk" _ hexec
+
 /-- The suffix prefix before `"authOff"` does not rebind `"countOff"`. -/
 theorem suffixBeforeAuthOff_preserves_countOff (ls : RuntimeState) :
     lookupValue (beforeAuthOff ls).bindings "countOff" =
@@ -2650,6 +2685,7 @@ theorem execLayerLoop_reverts_on_second_guard
 #print axioms layerGuard_of_afterDigit_digitSum_eq
 #print axioms layerGuard_of_afterDigit_digitSum_ne
 #print axioms beforeAuthOff_eq
+#print axioms beforeAuthOff_preserves_memory_zero_of_loop_frames
 #print axioms suffixBeforeAuthOff_preserves_countOff
 #print axioms beforeAuthOff_countOff_eq_of_sigOff
 #print axioms beforeMerkle_eq
