@@ -251,7 +251,7 @@ theorem runC13BodyObserved_accept_from_fold_ok_current_nodes_wordcmp
       CurrentNodeFrame.forsPkCompressWord (afterFors st) =
         C13Concrete.wordOfHash16 forsPk := by
     rw [CurrentNodeFrame.forsPkCompressWord_eq_of_afterFors_concrete_mkC13State_six_plus_last
-      pkSeed pkRoot message sig (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)
+      pkSeed pkRoot message sig digest (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)
       (C13Concrete.forsAllRootsC13_length pk digest sigParsed.fors)]
     · simpa [pk, digest, C13Concrete.forsPkWordC13] using hForsPkWord
     · intro j hj

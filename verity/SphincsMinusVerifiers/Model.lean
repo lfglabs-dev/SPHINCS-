@@ -221,7 +221,7 @@ def c13PublicKeyGuardTail : List Stmt :=
   publicKeyCanonicalityGuard :: c13VerifyBodyTail
 
 def c13VerifyBody : List Stmt :=
-  c13LengthGuard :: c13PublicKeyGuardTail
+  c13LengthGuard :: c13VerifyBodyTail
 
 private def verifierFunction (body : List Stmt) (pure : Bool := true) : FunctionSpec := {
   name := "verify",
@@ -651,17 +651,17 @@ theorem verifyBody_passes_length_guard
 
 open Compiler.Proofs.IRGeneration.SourceSemantics in
 /-- C13: with `sig.length = 3688`, the length guard is a no-op and execution
-proceeds to the named public-key guard tail.  This exposes the first preflight
-step without unfolding the full verifier body. -/
+proceeds to the named algorithmic body tail.  This matches `SPHINCs-C13Asm.sol`,
+whose C13 verifier has no public-key canonicality guard. -/
 theorem c13VerifyBody_passes_length_guard
     (st : RuntimeState)
     (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688) :
-    execStmtList [] st c13VerifyBody = execStmtList [] st c13PublicKeyGuardTail := by
-  rw [show c13VerifyBody = c13LengthGuard :: c13PublicKeyGuardTail from rfl]
+    execStmtList [] st c13VerifyBody = execStmtList [] st c13VerifyBodyTail := by
+  rw [show c13VerifyBody = c13LengthGuard :: c13VerifyBodyTail from rfl]
   rw [show c13LengthGuard =
     (.ite (notE (eqE (v "sig_length") (u 3688)))
       (errorStringRevert invalidSigLengthWord) [] : Stmt) from rfl]
-  exact verifyBody_passes_length_guard 3688 st c13PublicKeyGuardTail hlen
+  exact verifyBody_passes_length_guard 3688 st c13VerifyBodyTail hlen
 
 open Compiler.Proofs.IRGeneration.SourceSemantics in
 /-- C13: if both ABI public-key words are already canonical high-16-byte values,
@@ -717,34 +717,29 @@ theorem c13PublicKeyGuardTail_passes_public_key_guard
   rw [hite]
 
 open Compiler.Proofs.IRGeneration.SourceSemantics in
-/-- C13: with `sig.length = 3688` and canonical high-16-byte public-key words,
-both preflight guards are no-ops and execution proceeds into the named body tail.
-Proved through the real interpreter, no bridge axiom. -/
+/-- C13: with `sig.length = 3688`, the only C13 preflight guard is a no-op and
+execution proceeds into the named body tail.  The public-key hypotheses are kept
+as unused compatibility arguments for downstream proofs that were written while
+the local model temporarily carried a public-key guard. -/
 theorem c13VerifyBody_passes_preflight_guards
     (st : RuntimeState)
     (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688)
-    (hpkSeed : lookupValue st.bindings "pkSeed" =
+    (_hpkSeed : lookupValue st.bindings "pkSeed" =
       (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val)
-    (hpkRoot : lookupValue st.bindings "pkRoot" =
+    (_hpkRoot : lookupValue st.bindings "pkRoot" =
       (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val) :
     execStmtList [] st c13VerifyBody = execStmtList [] st c13VerifyBodyTail := by
-  rw [c13VerifyBody_passes_length_guard st hlen]
-  exact c13PublicKeyGuardTail_passes_public_key_guard st hpkSeed hpkRoot
+  exact c13VerifyBody_passes_length_guard st hlen
 
 open Compiler.Proofs.IRGeneration.SourceSemantics in
-/-- C13: after the length guard passes, the public-key canonicality guard reverts
-when the ABI-decoded `pkSeed` word is not already masked by `N_MASK`. -/
-theorem c13VerifyBody_reverts_on_bad_pkSeed
+/-- Standalone public-key guard helper: after an already-passed length guard, the
+named guard tail would revert when `pkSeed` is not masked by `N_MASK`.  This
+helper is not part of the active C13 body in `SPHINCs-C13Asm.sol`. -/
+theorem c13PublicKeyGuardTail_reverts_on_bad_pkSeed
     (st : RuntimeState)
-    (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688)
     (hpkSeed : lookupValue st.bindings "pkSeed" ≠
       (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val) :
-    execStmtList [] st c13VerifyBody = .revert := by
-  rw [show c13VerifyBody = c13LengthGuard :: c13PublicKeyGuardTail from rfl]
-  rw [show c13LengthGuard =
-    (.ite (notE (eqE (v "sig_length") (u 3688)))
-      (errorStringRevert invalidSigLengthWord) [] : Stmt) from rfl]
-  rw [verifyBody_passes_length_guard 3688 st c13PublicKeyGuardTail hlen]
+    execStmtList [] st c13PublicKeyGuardTail = .revert := by
   change execStmtList [] st (publicKeyCanonicalityGuard :: c13VerifyBodyTail) = .revert
   have hseedEq : decide (lookupValue st.bindings "pkSeed" =
       (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val) = false :=
@@ -787,19 +782,14 @@ theorem c13VerifyBody_reverts_on_bad_pkSeed
   rw [hite]
 
 open Compiler.Proofs.IRGeneration.SourceSemantics in
-/-- C13: after the length guard passes, the public-key canonicality guard reverts
-when the ABI-decoded `pkRoot` word is not already masked by `N_MASK`. -/
-theorem c13VerifyBody_reverts_on_bad_pkRoot
+/-- Standalone public-key guard helper: after an already-passed length guard, the
+named guard tail would revert when `pkRoot` is not masked by `N_MASK`.  This
+helper is not part of the active C13 body in `SPHINCs-C13Asm.sol`. -/
+theorem c13PublicKeyGuardTail_reverts_on_bad_pkRoot
     (st : RuntimeState)
-    (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688)
     (hpkRoot : lookupValue st.bindings "pkRoot" ≠
       (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val) :
-    execStmtList [] st c13VerifyBody = .revert := by
-  rw [show c13VerifyBody = c13LengthGuard :: c13PublicKeyGuardTail from rfl]
-  rw [show c13LengthGuard =
-    (.ite (notE (eqE (v "sig_length") (u 3688)))
-      (errorStringRevert invalidSigLengthWord) [] : Stmt) from rfl]
-  rw [verifyBody_passes_length_guard 3688 st c13PublicKeyGuardTail hlen]
+    execStmtList [] st c13PublicKeyGuardTail = .revert := by
   change execStmtList [] st (publicKeyCanonicalityGuard :: c13VerifyBodyTail) = .revert
   have hrootEq : decide (lookupValue st.bindings "pkRoot" =
       (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val) = false :=

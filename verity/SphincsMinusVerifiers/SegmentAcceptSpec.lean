@@ -717,7 +717,7 @@ theorem forsPkWordC13_roundtrip
     wordOfHash16 (hash16OfWord (C13Concrete.forsPkWordC13 pk digest fors))
       = C13Concrete.forsPkWordC13 pk digest fors := by
   let seed := wordOfHash16 pk.pkSeed
-  let words := seed :: C13Concrete.adrsForsRoots ::
+  let words := seed :: C13Concrete.adrsForsRootsC13 digest ::
     C13Concrete.forsAllRootsC13 pk digest fors
   have hlt : C13Concrete.keccakWords words < 2 ^ 256 := by
     simpa [Compiler.Constants.evmModulus] using
@@ -975,7 +975,10 @@ theorem accept_path_returns_verifyParsed_bool_from_fors_roots_and_layer_step_ran
     (hForsPkCompress :
         C13Concrete.maskN
           (C13Concrete.keccakWords
-            (C13Concrete.wordOfHash16 pkSeed :: C13Concrete.adrsForsRoots :: roots))
+            (C13Concrete.wordOfHash16 pkSeed ::
+              C13Concrete.adrsForsRootsC13
+                (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message) ::
+              roots))
           = C13Concrete.wordOfHash16 forsPk)
     (hLayerStep : ∀ (s : RuntimeState) (node : ByteArray) (idx : Nat),
         CurrentNodeRel wordOfHash16 s node →
@@ -994,8 +997,9 @@ theorem accept_path_returns_verifyParsed_bool_from_fors_roots_and_layer_step_ran
   have hForsCompress :
       CurrentNodeFrame.forsPkCompressWord
         (afterFors (mkC13State pkSeed pkRoot message sig)) = wordOfHash16 forsPk := by
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
     rw [CurrentNodeFrame.forsPkCompressWord_eq_of_afterFors_mkC13State_six_plus_last_range
-      pkSeed pkRoot message sig roots hRootsLen hLeaf hmRlo hmRlast]
+      pkSeed pkRoot message sig digest roots hRootsLen hLeaf hmRlo hmRlast]
     exact hForsPkCompress
   exact accept_path_returns_verifyParsed_bool_from_fors_compress_and_layer_step
     pkSeed pkRoot message sig pk sigParsed forsPk specRoot specStep hPk
@@ -1043,7 +1047,10 @@ theorem accept_path_returns_verifyParsed_bool_from_seed_and_fors_roots_and_layer
     (hForsPkCompress :
         C13Concrete.maskN
           (C13Concrete.keccakWords
-            (C13Concrete.wordOfHash16 pkSeed :: C13Concrete.adrsForsRoots :: roots))
+            (C13Concrete.wordOfHash16 pkSeed ::
+              C13Concrete.adrsForsRootsC13
+                (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message) ::
+              roots))
           = C13Concrete.wordOfHash16 forsPk)
     (hLayerStep : ∀ (s : RuntimeState) (node : ByteArray) (idx : Nat),
         CurrentNodeRel wordOfHash16 s node →
@@ -1062,8 +1069,9 @@ theorem accept_path_returns_verifyParsed_bool_from_seed_and_fors_roots_and_layer
   have hForsCompress :
       CurrentNodeFrame.forsPkCompressWord
         (afterFors (mkC13State pkSeed pkRoot message sig)) = wordOfHash16 forsPk := by
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
     rw [CurrentNodeFrame.forsPkCompressWord_eq_of_afterFors_seed_mkC13State_six_plus_last
-      pkSeed pkRoot message sig roots hRootsLen hmSeed hmRlo hmRlast]
+      pkSeed pkRoot message sig digest roots hRootsLen hmSeed hmRlo hmRlast]
     exact hForsPkCompress
   exact accept_path_returns_verifyParsed_bool_from_fors_compress_and_layer_step
     pkSeed pkRoot message sig pk sigParsed forsPk specRoot specStep hPk
@@ -1140,7 +1148,7 @@ theorem accept_path_returns_verifyParsed_bool_from_named_fors_roots_and_layer_st
   have hForsPkCompress :
       C13Concrete.maskN
         (C13Concrete.keccakWords
-          (C13Concrete.wordOfHash16 pkSeed :: C13Concrete.adrsForsRoots ::
+          (C13Concrete.wordOfHash16 pkSeed :: C13Concrete.adrsForsRootsC13 digest ::
             C13Concrete.forsAllRootsC13 pk digest sigParsed.fors))
         = C13Concrete.wordOfHash16 forsPk := by
     subst hPk
@@ -1228,7 +1236,7 @@ theorem accept_path_returns_verifyParsed_bool_from_seed_and_named_fors_roots_and
   have hForsPkCompress :
       C13Concrete.maskN
         (C13Concrete.keccakWords
-          (C13Concrete.wordOfHash16 pkSeed :: C13Concrete.adrsForsRoots ::
+          (C13Concrete.wordOfHash16 pkSeed :: C13Concrete.adrsForsRootsC13 digest ::
             C13Concrete.forsAllRootsC13 pk digest sigParsed.fors))
         = C13Concrete.wordOfHash16 forsPk := by
     subst hPk
@@ -2498,7 +2506,7 @@ theorem layerStart_of_seed_named_fors_roots_roundtrip
   have hForsPkCompress :
       C13Concrete.maskN
         (C13Concrete.keccakWords
-          (C13Concrete.wordOfHash16 pkSeed :: C13Concrete.adrsForsRoots ::
+          (C13Concrete.wordOfHash16 pkSeed :: C13Concrete.adrsForsRootsC13 digest ::
             C13Concrete.forsAllRootsC13 pk digest sigParsed.fors))
         = C13Concrete.wordOfHash16 forsPk := by
     subst hPk
@@ -2507,7 +2515,7 @@ theorem layerStart_of_seed_named_fors_roots_roundtrip
       CurrentNodeFrame.forsPkCompressWord
         (afterFors (mkC13State pkSeed pkRoot message sig)) = wordOfHash16 forsPk := by
     rw [CurrentNodeFrame.forsPkCompressWord_eq_of_afterFors_seed_mkC13State_six_plus_last
-      pkSeed pkRoot message sig (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)
+      pkSeed pkRoot message sig digest (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)
       (C13Concrete.forsAllRootsC13_length pk digest sigParsed.fors) hmSeed]
     · exact hForsPkCompress
     · intro j hj
@@ -4024,7 +4032,7 @@ theorem accept_path_returns_verifyParsed_bool_from_concrete_layer_current_node_t
   have hForsCompress :
       CurrentNodeFrame.forsPkCompressWord (afterFors st) = wordOfHash16 forsPk := by
     rw [CurrentNodeFrame.forsPkCompressWord_eq_of_afterFors_concrete_mkC13State_six_plus_last
-      pkSeed pkRoot message sig (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)
+      pkSeed pkRoot message sig digest (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)
       (C13Concrete.forsAllRootsC13_length pk digest sigParsed.fors)]
     · simpa [pk, digest, C13Concrete.forsPkWordC13] using hForsPkWord
     · intro j hj

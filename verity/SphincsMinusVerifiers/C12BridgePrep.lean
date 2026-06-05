@@ -1093,8 +1093,6 @@ theorem c12_wots_pk_node_eq
   rw [hsz] at key
   exact key
 
-#print axioms c12_wots_pk_node_eq
-
 /-- Spec-shaped C12 WOTS public-key final Keccak: once the scratch image holds
 the public seed, WOTS-PK address, and 45 reconstructed chain ends, the executable
 masked Keccak is exactly `wotsPkWordC12`. -/
@@ -1152,9 +1150,6 @@ theorem c12LayerStateBeforeAuthOff_wotsPk_eq_wotsPkWord_of_beforeWotsPk_memory
   rw [hEval]
   rfl
 
-#print axioms c12_wots_pk_node_eq_spec
-#print axioms c12LayerStateBeforeAuthOff_wotsPk_eq_wotsPkWord_of_beforeWotsPk_memory
-
 theorem c12FoldRootUnrolled5_eq_layerRoot4
     (pkSeed : ByteArray) (idxTree : Nat) (startNode : ByteArray)
     (layers : List XmssLayerSig) :
@@ -1175,10 +1170,10 @@ theorem c12_unrolled5_current_node_of_layer_root4_current_node
           "currentNode" =
           SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
             (c12UnrolledLayerRoot4 pkSeed
-              (C12Concrete.hMsgC12 c12
-                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex
-              ((C12Concrete.forsPkFromSigC12 c12
-                  { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C12Concrete.hMsgC12 c12
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex
+          ((C12Concrete.forsPkFromSigC12 c12
+              { pkSeed := pkSeed, pkRoot := pkRoot }
                   (C12Concrete.hMsgC12 c12
                     { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
                   sigParsed.fors).getD ⟨#[]⟩)
@@ -1558,8 +1553,16 @@ theorem c12_layer4_before_xmss_node_wotsPk_of_before_authOff
               sigParsed.layers)
             ((sigParsed.layers[4]?).getD c12EmptyXmssLayerSig)) := by
   intro pkSeed pkRoot message sig sigParsed hParse
-  rw [C12SegmentWotsSetup.c12LayerStateBeforeXmssNode_wotsPk_eq_beforeAuthOff]
-  exact hLayer4WotsPkBeforeAuthOff pkSeed pkRoot message sig sigParsed hParse
+  let st :=
+    c12LayerBodyInput4
+      (C12SegmentForsCompress.c12StepForsCompress
+        (C12SegmentFors.c12StepFors
+          (C12SegmentSeed.c12StepSeed
+            (MkC13State.mkC13State pkSeed pkRoot message sig))))
+  have hPres :=
+    C12SegmentWotsSetup.c12LayerStateBeforeXmssNode_wotsPk_eq_beforeAuthOff st
+  exact Eq.trans hPres
+    (hLayer4WotsPkBeforeAuthOff pkSeed pkRoot message sig sigParsed hParse)
 
 /-- The layer-4 `"wotsPk"` semantic fact can be proved at the smaller exact
 executable boundary before `"merkleNode"`/`"mIdx"` are introduced; those two
@@ -1833,8 +1836,7 @@ theorem c12Layer4EntryAuthPtr_of_prebody_sigBase
 /-- Layer-4 XMSS entry uses the C12 signature offset plus the first four
 complete WOTS/XMSS-auth spans and the layer-4 WOTS span. -/
 theorem c12Layer4EntryAuthPtr
-    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
-    (hParse : C12Concrete.parseSignatureC12 c12 sig = some sigParsed) :
+    (pkSeed pkRoot message sig : ByteArray) :
     lookupValue
         (c12Layer4XmssEntryState pkSeed pkRoot message sig).bindings "authPtr" =
       MkC13State.sigDataOffset + (2592 + 784 * 4 + 720) := by
@@ -3364,8 +3366,6 @@ theorem c12Layer4CurLeafAfter3
   rw [c12_layer4_curLeaf_expr_of_treeIdx treeIdx hTreeLt,
     c12Layer4Leaf_packed_hyperIndex treeIdx leafIdx hLeafLt]
 
-#print axioms c12Layer4CurLeafAfter3
-
 /-- After the fourth C12 hypertree layer, the 16-bit C12 tree index has been
 shifted out completely, so layer 4 enters with `"curTree" = 0`. -/
 theorem c12Layer4CurTreeAfter3
@@ -3406,8 +3406,6 @@ theorem c12Layer4CurTreeAfter3
               treeIdx).val)).val)).val)).val = 0
   exact c12_layer4_curTree_expr_of_treeIdx treeIdx hTreeLt
 
-#print axioms c12Layer4CurTreeAfter3
-
 /-- Layer-4 XMSS entry binds `"xmssBase"` to the parsed C12 layer-4 XMSS base.
 This discharges the former public entry-site base premise. -/
 theorem c12Layer4EntryXmssBase
@@ -3428,8 +3426,6 @@ theorem c12Layer4EntryXmssBase
   unfold c12Layer4ParsedBase C12Concrete.xmssBaseC12
   rw [c12Layer4NextTree_of_parsed_eq_zero]
   decide
-
-#print axioms c12Layer4EntryXmssBase
 
 /-- `c12Layer4ParsedBase` is naturally bounded below `2 ^ 256`: with the
 next-tree index collapsing to `0`, the parsed base is `(4 <<< 224) | (2 <<<
@@ -4679,6 +4675,154 @@ theorem c12Layer4PreBodyState_wotsBase_eval
   change some (Nat.lor (Nat.lor (4 <<< 224) (0 <<< 160)) (leaf <<< 96)) =
     some ((4 <<< 224) ||| (0 <<< 160) ||| (leaf <<< 96))
   rfl
+
+private theorem c12_nat_lor_lt_two_pow {x y n : Nat}
+    (hx : x < 2 ^ n) (hy : y < 2 ^ n) :
+    Nat.lor x y < 2 ^ n := by
+  show Nat.bitwise or x y < 2 ^ n
+  exact Nat.bitwise_lt_two_pow hx hy
+
+/-- At the layer-4 WOTS setup prefix just before binding `"pkAdrs"`, evaluating
+the WOTS-PK ADRS expression matches the parsed C12 layer-4 WOTS-PK address. -/
+theorem c12Layer4BeforePkAdrs_wotsPkAdrs_eval
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hParse : C12Concrete.parseSignatureC12 c12 sig = some sigParsed) :
+    evalExpr []
+        (C12SegmentWotsSetup.c12LayerStateBeforePkAdrs
+          (c12Layer4PreBodyState pkSeed pkRoot message sig))
+        C12SegmentWotsSetup.c12LayerPkAdrsExpr =
+      some
+        (C12Concrete.wotsPkAdrsC12 4
+          (c12Layer4NextTree
+            (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+          (c12Layer4Leaf
+            (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)) := by
+  let idx := (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex
+  let leaf := c12Layer4Leaf idx
+  let st :=
+    C12SegmentWotsSetup.c12LayerStateBeforePkAdrs
+      (c12Layer4PreBodyState pkSeed pkRoot message sig)
+  have h224Lit : evalExpr [] st (.literal 224) = some 224 := by
+    show some (wordNormalize 224) = some 224
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  have h160Lit : evalExpr [] st (.literal 160) = some 160 := by
+    show some (wordNormalize 160) = some 160
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  have h128Lit : evalExpr [] st (.literal 128) = some 128 := by
+    show some (wordNormalize 128) = some 128
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  have h96Lit : evalExpr [] st (.literal 96) = some 96 := by
+    show some (wordNormalize 96) = some 96
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  have h1Lit : evalExpr [] st (.literal 1) = some 1 := by
+    show some (wordNormalize 1) = some 1
+    rfl
+  have hLayerEval : evalExpr [] st (.localVar "layer") = some 4 := by
+    show some (lookupValue st.bindings "layer") = some 4
+    dsimp [st]
+    rw [C12SegmentWotsSetup.c12LayerStateBeforePkAdrs_layer_eq]
+    unfold c12Layer4PreBodyState
+    rw [c12LayerBodyInput4_layer_eq]
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  have hCurTreeEval : evalExpr [] st (.localVar "curTree") = some 0 := by
+    show some (lookupValue st.bindings "curTree") = some 0
+    dsimp [st]
+    rw [C12SegmentWotsSetup.c12LayerStateBeforePkAdrs_curTree_eq]
+    unfold c12Layer4PreBodyState
+    rw [c12LayerBodyInput4_curTree_eq]
+    exact congrArg some
+      (c12Layer4CurTreeAfter3 pkSeed pkRoot message sig sigParsed hParse)
+  have hCurLeafEval : evalExpr [] st (.localVar "curLeaf") = some leaf := by
+    show some (lookupValue st.bindings "curLeaf") = some leaf
+    dsimp [st]
+    rw [C12SegmentWotsSetup.c12LayerStateBeforePkAdrs_curLeaf_eq]
+    unfold c12Layer4PreBodyState
+    rw [c12LayerBodyInput4_curLeaf_eq]
+    exact congrArg some
+      (c12Layer4CurLeafAfter3 pkSeed pkRoot message sig sigParsed hParse)
+  have h4ShiftLt : 4 <<< 224 < 2 ^ 256 := by decide
+  have h0ShiftLt : 0 <<< 160 < 2 ^ 256 := by decide
+  have h1ShiftLt : 1 <<< 128 < 2 ^ 256 := by decide
+  have hLeafShiftLt : leaf <<< 96 < 2 ^ 256 := by
+    have hLeafLt16 : leaf < 16 := c12Layer4Leaf_lt_16 idx
+    rw [Nat.shiftLeft_eq]
+    calc
+      leaf * 2 ^ 96 < 16 * 2 ^ 96 :=
+        Nat.mul_lt_mul_of_pos_right hLeafLt16 (by decide)
+      _ < 2 ^ 256 := by decide
+  have h224 : evalExpr [] st
+      (.shl (.literal 224) (.localVar "layer")) = some (4 <<< 224) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st (.literal 224) (.localVar "layer") 224 4 h224Lit hLayerEval
+      (by decide) (by decide) h4ShiftLt
+  have h160 : evalExpr [] st
+      (.shl (.literal 160) (.localVar "curTree")) = some (0 <<< 160) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st (.literal 160) (.localVar "curTree") 160 0 h160Lit hCurTreeEval
+      (by decide) (by decide) h0ShiftLt
+  have h128 : evalExpr [] st
+      (.shl (.literal 128) (.literal 1)) = some (1 <<< 128) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st (.literal 128) (.literal 1) 128 1 h128Lit h1Lit
+      (by decide) (by decide) h1ShiftLt
+  have h96 : evalExpr [] st
+      (.shl (.literal 96) (.localVar "curLeaf")) = some (leaf <<< 96) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st (.literal 96) (.localVar "curLeaf") 96 leaf h96Lit hCurLeafEval
+      (by decide) (c12Layer4Leaf_lt_two_pow_256 idx) hLeafShiftLt
+  have hLayerTree : evalExpr [] st
+      (.bitOr
+        (.shl (.literal 224) (.localVar "layer"))
+        (.shl (.literal 160) (.localVar "curTree"))) =
+        some (Nat.lor (4 <<< 224) (0 <<< 160)) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+      st
+      (.shl (.literal 224) (.localVar "layer"))
+      (.shl (.literal 160) (.localVar "curTree"))
+      (4 <<< 224) (0 <<< 160) h224 h160 h4ShiftLt h0ShiftLt
+  have hTypeLeaf : evalExpr [] st
+      (.bitOr
+        (.shl (.literal 128) (.literal 1))
+        (.shl (.literal 96) (.localVar "curLeaf"))) =
+        some (Nat.lor (1 <<< 128) (leaf <<< 96)) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+      st
+      (.shl (.literal 128) (.literal 1))
+      (.shl (.literal 96) (.localVar "curLeaf"))
+      (1 <<< 128) (leaf <<< 96) h128 h96 h1ShiftLt hLeafShiftLt
+  have hLayerTreeLt : Nat.lor (4 <<< 224) (0 <<< 160) < 2 ^ 256 :=
+    c12_nat_lor_lt_two_pow h4ShiftLt h0ShiftLt
+  have hTypeLeafLt : Nat.lor (1 <<< 128) (leaf <<< 96) < 2 ^ 256 :=
+    c12_nat_lor_lt_two_pow h1ShiftLt hLeafShiftLt
+  have hFull : evalExpr [] st C12SegmentWotsSetup.c12LayerPkAdrsExpr =
+      some (Nat.lor (Nat.lor (4 <<< 224) (0 <<< 160))
+        (Nat.lor (1 <<< 128) (leaf <<< 96))) := by
+    unfold C12SegmentWotsSetup.c12LayerPkAdrsExpr
+    exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+      st
+      (.bitOr
+        (.shl (.literal 224) (.localVar "layer"))
+        (.shl (.literal 160) (.localVar "curTree")))
+      (.bitOr
+        (.shl (.literal 128) (.literal 1))
+        (.shl (.literal 96) (.localVar "curLeaf")))
+      (Nat.lor (4 <<< 224) (0 <<< 160))
+      (Nat.lor (1 <<< 128) (leaf <<< 96))
+      hLayerTree hTypeLeaf hLayerTreeLt hTypeLeafLt
+  rw [hFull]
+  unfold C12Concrete.wotsPkAdrsC12
+  rw [c12Layer4NextTree_of_parsed_eq_zero]
+  change some (Nat.lor (Nat.lor (4 <<< 224) (0 <<< 160))
+      (Nat.lor (1 <<< 128) (leaf <<< 96))) =
+    some (Nat.lor (Nat.lor (Nat.lor (4 <<< 224) (0 <<< 160)) (1 <<< 128))
+      (leaf <<< 96))
+  exact congrArg some
+    (Nat.lor_assoc (Nat.lor (4 <<< 224) (0 <<< 160)) (1 <<< 128) (leaf <<< 96)).symm
 
 /-- **Top-level C12 layer-4 generic xmssClimb under the frozen site.**  Mirrors
 `c12_layer4_generic_xmss_of_step_after3_curLeaf_and_wotsPk`, but the bare
@@ -7612,6 +7756,175 @@ def C12Layer4WotsPkBeforeWotsPkMemoryPremise : Prop :=
                 (c12Layer4Node pkSeed pkRoot message sigParsed))
               (c12Layer4Sig sigParsed).wots)[j]
 
+/-- Smaller layer-4 WOTS-PK memory premise at the pre-copy cutpoint: the WOTS
+message/checksum loops have generated the chain-end words at `0x80 + 32*j`, and
+the WOTS-PK address has just been stored at `0x20`. -/
+def C12Layer4WotsPkBeforeWotsPkCopyMemoryPremise : Prop :=
+      ∀ pkSeed pkRoot message sig sigParsed,
+        C12Concrete.parseSignatureC12 c12 sig = some sigParsed →
+        (((c12Layer4BeforeWotsPkCopyState pkSeed pkRoot message sig).world.memory 0x00).val =
+          c12Layer4ParsedSeed pkSeed) ∧
+        (((c12Layer4BeforeWotsPkCopyState pkSeed pkRoot message sig).world.memory 0x20).val =
+          C12Concrete.wotsPkAdrsC12 4
+            (c12Layer4NextTree
+              (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+            (c12Layer4Leaf
+              (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)) ∧
+        ∀ j, (h : j < 45) →
+          ((c12Layer4BeforeWotsPkCopyState pkSeed pkRoot message sig).world.memory
+              (0x80 + 32 * j)).val =
+          (c12WotsChainsEnd
+              (c12Layer4ParsedSeed pkSeed) 4
+              (c12Layer4NextTree
+                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+              (c12Layer4Leaf
+                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+              (SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
+                (c12Layer4Node pkSeed pkRoot message sigParsed))
+              (c12Layer4Sig sigParsed).wots)[j]
+
+/-- Layer-4 pre-copy WOTS-PK memory premise after discharging the seed cell:
+only the final address store and generated chain-end cells remain. -/
+def C12Layer4WotsPkBeforeWotsPkCopyAddrCellsPremise : Prop :=
+      ∀ pkSeed pkRoot message sig sigParsed,
+        C12Concrete.parseSignatureC12 c12 sig = some sigParsed →
+        (((c12Layer4BeforeWotsPkCopyState pkSeed pkRoot message sig).world.memory 0x20).val =
+          C12Concrete.wotsPkAdrsC12 4
+            (c12Layer4NextTree
+              (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+            (c12Layer4Leaf
+              (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)) ∧
+        ∀ j, (h : j < 45) →
+          ((c12Layer4BeforeWotsPkCopyState pkSeed pkRoot message sig).world.memory
+              (0x80 + 32 * j)).val =
+          (c12WotsChainsEnd
+              (c12Layer4ParsedSeed pkSeed) 4
+              (c12Layer4NextTree
+                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+              (c12Layer4Leaf
+                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+              (SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
+                (c12Layer4Node pkSeed pkRoot message sigParsed))
+              (c12Layer4Sig sigParsed).wots)[j]
+
+/-- Layer-4 pre-copy WOTS-PK memory premise after discharging the seed and
+address cells: only the generated chain-end cells remain. -/
+def C12Layer4WotsPkBeforeWotsPkCopyCellsPremise : Prop :=
+      ∀ pkSeed pkRoot message sig sigParsed,
+        C12Concrete.parseSignatureC12 c12 sig = some sigParsed →
+        ∀ j, (h : j < 45) →
+          ((c12Layer4BeforeWotsPkCopyState pkSeed pkRoot message sig).world.memory
+              (0x80 + 32 * j)).val =
+          (c12WotsChainsEnd
+              (c12Layer4ParsedSeed pkSeed) 4
+              (c12Layer4NextTree
+                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+              (c12Layer4Leaf
+                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+              (SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
+                (c12Layer4Node pkSeed pkRoot message sigParsed))
+              (c12Layer4Sig sigParsed).wots)[j]
+
+/-- The layer-4 pre-copy WOTS-PK address slot is the concrete parsed C12
+WOTS-PK ADRS word. -/
+theorem c12Layer4BeforeWotsPkCopy_pkAdrs_slot
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hParse : C12Concrete.parseSignatureC12 c12 sig = some sigParsed) :
+    ((c12Layer4BeforeWotsPkCopyState pkSeed pkRoot message sig).world.memory 0x20).val =
+      C12Concrete.wotsPkAdrsC12 4
+        (c12Layer4NextTree
+          (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+        (c12Layer4Leaf
+          (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex) := by
+  unfold c12Layer4BeforeWotsPkCopyState
+  rw [C12SegmentWotsSetup.c12LayerStateBeforeWotsPkCopy_pkAdrs_slot_of_eval
+    (c12Layer4InputState pkSeed pkRoot message sig)
+    (C12Concrete.wotsPkAdrsC12 4
+      (c12Layer4NextTree
+        (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+      (c12Layer4Leaf
+        (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex))]
+  · rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl]
+    rw [Nat.mod_eq_of_lt]
+    unfold C12Concrete.wotsPkAdrsC12
+    rw [c12Layer4NextTree_of_parsed_eq_zero]
+    let idx := (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex
+    let leaf := c12Layer4Leaf idx
+    have h4ShiftLt : 4 <<< 224 < 2 ^ 256 := by decide
+    have h0ShiftLt : 0 <<< 160 < 2 ^ 256 := by decide
+    have h1ShiftLt : 1 <<< 128 < 2 ^ 256 := by decide
+    have hLeafShiftLt : leaf <<< 96 < 2 ^ 256 := by
+      have hLeafLt16 : leaf < 16 := c12Layer4Leaf_lt_16 idx
+      rw [Nat.shiftLeft_eq]
+      calc
+        leaf * 2 ^ 96 < 16 * 2 ^ 96 :=
+          Nat.mul_lt_mul_of_pos_right hLeafLt16 (by decide)
+        _ < 2 ^ 256 := by decide
+    exact c12_nat_lor_lt_two_pow
+      (c12_nat_lor_lt_two_pow
+        (c12_nat_lor_lt_two_pow h4ShiftLt h0ShiftLt)
+        h1ShiftLt)
+      hLeafShiftLt
+  · simpa [c12Layer4InputState, c12Layer4PreBodyState] using
+      c12Layer4BeforePkAdrs_wotsPkAdrs_eval
+        pkSeed pkRoot message sig sigParsed hParse
+
+/-- The pre-copy seed and address cells are proved, so the layer-4 pre-copy
+memory premise reduces to only generated chain cells. -/
+theorem c12Layer4BeforeWotsPkCopy_addr_cells_of_cells
+    (hCells : C12Layer4WotsPkBeforeWotsPkCopyCellsPremise) :
+    C12Layer4WotsPkBeforeWotsPkCopyAddrCellsPremise := by
+  intro pkSeed pkRoot message sig sigParsed hParse
+  exact ⟨
+    c12Layer4BeforeWotsPkCopy_pkAdrs_slot pkSeed pkRoot message sig sigParsed hParse,
+    hCells pkSeed pkRoot message sig sigParsed hParse⟩
+
+/-- The pre-copy seed cell is proved by segment-level memory preservation, so
+the layer-4 pre-copy memory premise reduces to the address and generated chain
+cells. -/
+theorem c12Layer4BeforeWotsPkCopy_memory_of_addr_cells
+    (hAddrCells : C12Layer4WotsPkBeforeWotsPkCopyAddrCellsPremise) :
+    C12Layer4WotsPkBeforeWotsPkCopyMemoryPremise := by
+  intro pkSeed pkRoot message sig sigParsed hParse
+  rcases hAddrCells pkSeed pkRoot message sig sigParsed hParse with ⟨hm1, hmC⟩
+  refine ⟨?_, hm1, hmC⟩
+  unfold c12Layer4BeforeWotsPkCopyState
+  rw [C12SegmentWotsSetup.c12LayerStateBeforeWotsPkCopy_preserves_memory_zero]
+  simpa [c12Layer4InputState, c12Layer4PreBodyState] using
+    c12Layer4PreBodyState_preserves_memory_zero pkSeed pkRoot message sig
+
+/-- The layer-4 pre-WOTS-PK cutpoint preserves the public seed scratch cell. -/
+theorem c12Layer4BeforeWotsPk_seed
+    (pkSeed pkRoot message sig : ByteArray) :
+    ((c12Layer4BeforeWotsPkState pkSeed pkRoot message sig).world.memory 0x00).val =
+      c12Layer4ParsedSeed pkSeed := by
+  unfold c12Layer4BeforeWotsPkState
+  rw [C12SegmentWotsSetup.c12LayerStateBeforeWotsPk_preserves_memory_zero]
+  simpa [c12Layer4InputState, c12Layer4PreBodyState] using
+    c12Layer4PreBodyState_preserves_memory_zero pkSeed pkRoot message sig
+
+/-- Transport the layer-4 WOTS-PK memory premise across the final 45-word copy
+loop.  The proof uses only the two slot-level copy-loop lemmas, avoiding the
+large packaged transport theorem that is too expensive for Lean here. -/
+theorem c12Layer4BeforeWotsPk_memory_of_beforeCopy_memory
+    (hCopy : C12Layer4WotsPkBeforeWotsPkCopyMemoryPremise) :
+    C12Layer4WotsPkBeforeWotsPkMemoryPremise := by
+  intro pkSeed pkRoot message sig sigParsed hParse
+  rcases hCopy pkSeed pkRoot message sig sigParsed hParse with ⟨_hm0, hm1, hmC⟩
+  refine ⟨?_, ?_, ?_⟩
+  · exact c12Layer4BeforeWotsPk_seed pkSeed pkRoot message sig
+  · unfold c12Layer4BeforeWotsPkState
+    rw [C12SegmentWotsSetup.c12LayerStateBeforeWotsPk_eq_copyLoop]
+    unfold C12SegmentWotsSetup.c12LayerStateAfterWotsPkCopyLoop
+    rw [C12SegmentWotsSetup.c12WotsPkCopyLoop_preserves_pkAdrs_slot]
+    simpa [c12Layer4BeforeWotsPkCopyState] using hm1
+  · intro j hj
+    unfold c12Layer4BeforeWotsPkState
+    rw [C12SegmentWotsSetup.c12LayerStateBeforeWotsPk_eq_copyLoop]
+    unfold C12SegmentWotsSetup.c12LayerStateAfterWotsPkCopyLoop
+    rw [C12SegmentWotsSetup.c12WotsPkCopyLoop_copies_chain_word _ j hj]
+    simpa [c12Layer4BeforeWotsPkCopyState] using hmC j hj
+
 /-- Layer-4 WOTS-PK handoff from explicit post-copy-loop scratch facts.  This
 is the small core used before packaging the facts into a public premise. -/
 theorem c12Layer4BeforeAuthOff_wotsPk_of_beforeWotsPk_memory_facts
@@ -7701,136 +8014,8 @@ theorem C12Layer4WotsPkBeforeAuthOffPremise_of_beforeWotsPk_memory
     C12Layer4WotsPkBeforeAuthOffPremise := by
   intro pkSeed pkRoot message sig sigParsed hParse
   rcases hMem pkSeed pkRoot message sig sigParsed hParse with ⟨hm0, hm1, hmC⟩
-  rw [show
-      lookupValue
-          (C12SegmentWotsSetup.c12LayerStateBeforeAuthOff
-            (c12LayerBodyInput4
-              (C12SegmentForsCompress.c12StepForsCompress
-                (C12SegmentFors.c12StepFors
-                  (C12SegmentSeed.c12StepSeed
-                    (MkC13State.mkC13State pkSeed pkRoot message sig)))))).bindings
-          "wotsPk" =
-        lookupValue
-          (c12Layer4BeforeAuthOffState pkSeed pkRoot message sig).bindings
-          "wotsPk" by rfl]
-  exact
-    c12Layer4BeforeAuthOff_wotsPk_of_beforeWotsPk_memory_facts
-      pkSeed pkRoot message sig sigParsed hm0 hm1 hmC
-
-/-- Copy-loop reduction for the C12 WOTS-PK handoff.  The generated chain-end
-cells at `0x80 + 32*j` are copied to the final Keccak preimage cells
-`0x40 + 32*j`, while the WOTS-PK address slot at `0x20` is preserved. -/
-theorem c12WotsPkCopyLoop_pkAdrs_and_cells
-    (s : RuntimeState) (pkAdrs : Nat) (cells : Nat → Nat)
-    (hPkAdrs : (s.world.memory 0x20).val = pkAdrs)
-    (hCells : ∀ j, j < 45 → (s.world.memory (0x80 + 32 * j)).val = cells j) :
-    let out :=
-      SphincsMinusVerifiers.ClimbLoop.foldLoop
-        "i" C12SegmentWotsSetup.c12WotsPkCopyStep s 0 45
-    ((out.world.memory 0x20).val = pkAdrs) ∧
-    ∀ j, (h : j < 45) →
-      (out.world.memory (0x40 + 32 * j)).val = cells j := by
-  dsimp
-  exact ⟨
-    C12SegmentWotsSetup.c12WotsPkCopyLoop_preserves_pkAdrs_slot_value
-      s pkAdrs hPkAdrs,
-    C12SegmentWotsSetup.c12WotsPkCopyLoop_copied_cells s cells hCells⟩
-
-set_option maxHeartbeats 600000 in
-/-- The layer-4 `beforeWotsPk` state is the WOTS-PK copy loop applied to the
-pre-copy cutpoint, projected only at one memory address. -/
-theorem c12Layer4BeforeWotsPkState_memory_eq_copyLoop
-    (pkSeed pkRoot message sig : ByteArray) (addr : Nat) :
-    ((c12Layer4BeforeWotsPkState pkSeed pkRoot message sig).world.memory addr).val =
-      ((SphincsMinusVerifiers.ClimbLoop.foldLoop "i"
-        C12SegmentWotsSetup.c12WotsPkCopyStep
-        (c12Layer4BeforeWotsPkCopyState pkSeed pkRoot message sig) 0 45).world.memory
-        addr).val := by
-  unfold c12Layer4BeforeWotsPkState c12Layer4BeforeWotsPkCopyState
-  unfold C12SegmentWotsSetup.c12LayerStateBeforeWotsPk
-  rw [C12SegmentWotsSetup.c12LayerBodyBeforeWotsPk_eq_beforeCopy_append]
-  rw [SphincsMinusVerifiers.MemoryKit.execStmtList_append_continue _ _ _ _
-    (C12SegmentWotsSetup.execC12LayerBodyBeforeWotsPkCopy
-      (c12Layer4InputState pkSeed pkRoot message sig))]
-  rw [SphincsMinusVerifiers.ClimbKit.execStmtList_cons_continue _ _ _ _
-    (SphincsMinusVerifiers.ClimbLoop.execStmt_forEach_of_step "i" (C12SegmentWotsSetup.u 45)
-      C12SegmentWotsSetup.c12WotsPkCopyBody _ (wordNormalize 45)
-      C12SegmentWotsSetup.c12WotsPkCopyStep rfl
-      C12SegmentWotsSetup.execC12WotsPkCopyBody)]
-  rfl
-
-set_option maxHeartbeats 600000 in
-/-- Build the layer-4 post-copy-loop WOTS-PK scratch premise from the pre-copy
-cutpoint: the copy loop preserves `pkAdrs` at `0x20` and moves chain-end cells
-from `0x80 + 32*j` to the final-Keccak preimage at `0x40 + 32*j`. -/
-theorem C12Layer4WotsPkBeforeWotsPkMemoryPremise_of_beforeCopy
-    (hPkAdrs :
-      ∀ pkSeed pkRoot message sig sigParsed,
-        C12Concrete.parseSignatureC12 c12 sig = some sigParsed →
-        ((c12Layer4BeforeWotsPkCopyState pkSeed pkRoot message sig).world.memory
-          0x20).val =
-          C12Concrete.wotsPkAdrsC12 4
-            (c12Layer4NextTree
-              (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
-            (c12Layer4Leaf
-              (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex))
-    (hCells :
-      ∀ pkSeed pkRoot message sig sigParsed,
-        C12Concrete.parseSignatureC12 c12 sig = some sigParsed →
-        ∀ j, (h : j < 45) →
-          ((c12Layer4BeforeWotsPkCopyState pkSeed pkRoot message sig).world.memory
-              (0x80 + 32 * j)).val =
-            (c12WotsChainsEnd
-              (c12Layer4ParsedSeed pkSeed) 4
-              (c12Layer4NextTree
-                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
-              (c12Layer4Leaf
-                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
-              (SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
-                (c12Layer4Node pkSeed pkRoot message sigParsed))
-              (c12Layer4Sig sigParsed).wots)[j]) :
-    C12Layer4WotsPkBeforeWotsPkMemoryPremise := by
-  intro pkSeed pkRoot message sig sigParsed hParse
-  let copyIn := c12Layer4BeforeWotsPkCopyState pkSeed pkRoot message sig
-  let pkAdrs :=
-    C12Concrete.wotsPkAdrsC12 4
-      (c12Layer4NextTree
-        (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
-      (c12Layer4Leaf
-        (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
-  let cells : Nat → Nat := fun j =>
-    if h : j < 45 then
-      (c12WotsChainsEnd
-        (c12Layer4ParsedSeed pkSeed) 4
-        (c12Layer4NextTree
-          (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
-        (c12Layer4Leaf
-          (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
-        (SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
-          (c12Layer4Node pkSeed pkRoot message sigParsed))
-        (c12Layer4Sig sigParsed).wots)[j]
-    else 0
-  have hCopy := c12WotsPkCopyLoop_pkAdrs_and_cells copyIn pkAdrs cells
-    (by
-      dsimp [copyIn, pkAdrs]
-      exact hPkAdrs pkSeed pkRoot message sig sigParsed hParse)
-    (by
-      intro j hj
-      dsimp [copyIn, cells]
-      simp [hj]
-      exact hCells pkSeed pkRoot message sig sigParsed hParse j hj)
-  refine ⟨?_, ?_, ?_⟩
-  · simpa [c12Layer4BeforeWotsPkState, c12Layer4InputState, c12Layer4PreBodyState]
-      using
-        (C12SegmentWotsSetup.c12LayerStateBeforeWotsPk_preserves_memory_zero
-          (c12Layer4InputState pkSeed pkRoot message sig) ▸
-          c12Layer4PreBodyState_preserves_memory_zero pkSeed pkRoot message sig)
-  · rw [c12Layer4BeforeWotsPkState_memory_eq_copyLoop]
-    exact hCopy.1
-  · intro j hj
-    rw [c12Layer4BeforeWotsPkState_memory_eq_copyLoop]
-    dsimp [cells] at hCopy
-    simpa [hj] using hCopy.2 j hj
+  exact c12Layer4BeforeAuthOff_wotsPk_of_beforeWotsPk_memory_facts
+    pkSeed pkRoot message sig sigParsed hm0 hm1 hmC
 
 /-- C12 byte-spec cover with the layer-4 `"authPtr"` entry fact discharged by
 the segment-level `sigBase`/`sigOff` preservation chain and the layer-4 seed
@@ -7840,8 +8025,9 @@ theorem c12_refines_byte_spec_of_layer4_known_authPtr_cover
     (hLayer4WotsPkBeforeAuthOff : C12Layer4WotsPkBeforeAuthOffPremise) :
     ByteLevel.ImplementsByteVerifier c12Primitives c12 runC12BodyObserved := by
   exact
-    c12_refines_byte_spec_of_layer4_entry_components_cover
-      c12Layer4EntryAuthPtr
+      c12_refines_byte_spec_of_layer4_entry_components_cover
+      (fun pkSeed pkRoot message sig _ _ =>
+        c12Layer4EntryAuthPtr pkSeed pkRoot message sig)
       c12Layer4EntryXmssBase
       (fun pkSeed pkRoot message sig sigParsed _ =>
         c12Layer4EntrySeed pkSeed pkRoot message sig sigParsed)
@@ -7856,93 +8042,5 @@ theorem c12_refines_byte_spec_of_layer4_beforeWotsPk_memory_cover
     ByteLevel.ImplementsByteVerifier c12Primitives c12 runC12BodyObserved := by
   exact c12_refines_byte_spec_of_layer4_known_authPtr_cover
     (C12Layer4WotsPkBeforeAuthOffPremise_of_beforeWotsPk_memory hMem)
-
-#print axioms runC12BodyObserved_revert_on_bad_length
-#print axioms parseSignatureC12_size_of_some
-#print axioms c12_sig_length_of_parseSignatureC12
-#print axioms runC12BodyObserved_passes_length_guard_of_parse
-#print axioms runC12BodyObserved_eq_verifyParsed_of_parse_and_tail
-#print axioms runC12BodyObserved_eq_verifyParsed_of_parse_and_after_seed
-#print axioms runC12BodyObserved_eq_verifyParsed_of_parse_and_after_fors
-#print axioms runC12BodyObserved_eq_verifyParsed_of_parse_and_after_fors_compress
-#print axioms runC12BodyObserved_eq_verifyParsed_of_parse_and_after_layer_loop
-#print axioms runC12BodyObserved_eq_verifyParsed_of_parse_and_final_result
-#print axioms c12_verifyBytes_eq_verifyParsed_of_parse
-#print axioms runC12BodyObserved_eq_verifyBytes_of_parse_and_final_semantics
-#print axioms runC12BodyObserved_eq_verifyBytes_of_parse_and_verifyParsed
-#print axioms wordCmp_of_wordOfHash16_rootMatchesPk_c12
-#print axioms c12_signatureShapeOk_of_parse
-#print axioms c12_verifyParsed_root_roundtrip_of_parse
-#print axioms c12_verifyParsed_root_roundtrip_and_fold_ok_of_parse
-#print axioms c12_parsed_final_facts_of_executable_bindings
-#print axioms c12_parsed_final_facts_of_current_node_binding
-#print axioms c12_parsed_final_facts_of_layer_loop_fold_current_node
-#print axioms c12_refines_byte_spec_of_parsed_executable_cover
-#print axioms c12_refines_byte_spec_of_parsed_final_semantic_cover
-#print axioms c12_parsed_final_facts_of_root_roundtrip
-#print axioms c12_refines_byte_spec_of_parsed_final_root_roundtrip_cover
-#print axioms c12_refines_byte_spec_of_parsed_layer_loop_fold_cover
-#print axioms c12_foldHypertree_ok_specRoot_eq_unrolled5_of_parse
-#print axioms c12_layer_loop_fold_current_node_of_unrolled5_current_node
-#print axioms c12_unrolled5_current_node_of_layer_root4_current_node
-#print axioms c12_refines_byte_spec_of_parsed_unrolled5_current_node_cover
-#print axioms c12LayerBodyInput4_layer_eq
-#print axioms c12LayerBodyInput4_curTree_eq
-#print axioms c12LayerBodyInput4_sigOff_eq
-#print axioms c12LayerBodyInput4_sigBase_eq
-#print axioms c12LayerStateAfter0_sigOff_eq_after_fors_compress
-#print axioms c12LayerStateAfter1_sigOff_eq_after_fors_compress
-#print axioms c12LayerStateAfter2_sigOff_eq_after_fors_compress
-#print axioms c12LayerStateAfter3_sigOff_eq_after_fors_compress
-#print axioms c12LayerStateAfter0_curLeaf_eq_after_fors_compress
-#print axioms c12LayerStateAfter0_curTree_eq_after_fors_compress
-#print axioms c12LayerStateAfter1_curLeaf_eq_after_fors_compress
-#print axioms c12LayerStateAfter1_curTree_eq_after_fors_compress
-#print axioms c12LayerStateAfter2_curLeaf_eq_after_fors_compress
-#print axioms c12LayerStateAfter2_curTree_eq_after_fors_compress
-#print axioms c12LayerStateAfter3_curLeaf_eq_after_fors_compress
-#print axioms c12LayerStateAfter3_curTree_eq_after_fors_compress
-#print axioms c12Layer4PreBodyState_sigOff_eq
-#print axioms c12Layer4PreBodyState_sigBase_eq
-#print axioms c12Layer4EntryAuthPtr_of_prebody_sigBase
-#print axioms c12Layer4EntryAuthPtr
-#print axioms c12LayerLoopFold_preserves_memory_zero
-#print axioms c12LayerStateAfter3_preserves_memory_zero
-#print axioms c12LayerBodyInput4_preserves_memory_zero
-#print axioms c12Layer4PreBodyState_preserves_memory_zero
-#print axioms c12Layer4EntrySeed_of_prebody_seed
-#print axioms c12Layer4EntrySeed
-#print axioms c12Layer4StepLocalEvalObligations_of_raw_load_adr
-#print axioms c12_layer4_stepRawAdvance_of_seed_load_adr_obligations
-#print axioms c12Layer4StepAdr_h3_and_frame_of_xmssBase
-#print axioms c12_layer4_stepRawAdvance_of_seed_load_xmssBase_obligations
-#print axioms hMsgC12_hyperIndex_lt
-#print axioms c12Layer4ParsedMessage_hyperIndex_lt
-#print axioms c12Layer4NextTree_of_parsed_eq_zero
-#print axioms c12Layer4ParsedBase_lt
-#print axioms c12_layer4_stepRawAdvance_of_seed_load_xmssBase_no_base_bound
-#print axioms c12Layer4StepLoad_h1_of_state_shape
-#print axioms c12_layer4_stepRawAdvance_of_seed_xmssBase_calldata_authPtr_obligations
-#print axioms C12Layer4FrozenSite.h_inject
-#print axioms c12_layer4_stepRawAdvance_of_frozenSite_obligations
-#print axioms C12Layer4FrozenSite_stepMerkle_preserved
-#print axioms c12Layer4_foldLoopRaw_advances_of_entry_site_and_step
-#print axioms c12Layer4_foldLoop_merkleNode_eq_xmssClimb_of_entry_site_and_step
-#print axioms c12Layer4Leaf_lt_two_pow_256
-#print axioms c12_layer4_generic_xmss_of_site_step_after3_curLeaf_and_wotsPk
-#print axioms c12_layer4_before_xmss_node_wotsPk_of_before_authOff
-#print axioms c12Layer4_stepRawAdvance_under_frozenSite
-#print axioms c12_layer4_generic_xmss_of_entry_site_and_handoffs
-#print axioms c12LayerStateBeforeXmssLoop_preserves_selector_calldata
-#print axioms c12Layer4PreBodyState_preserves_selector_calldata
-#print axioms c12Layer4PreBodyState_selector_eq
-#print axioms c12Layer4PreBodyState_calldata_eq
-#print axioms C12Layer4FrozenSite_of_pre_body_sc_and_components
-#print axioms c12_layer4_generic_xmss_of_pre_body_components_and_handoffs
-#print axioms c12_layer4_generic_xmss_of_entry_components_and_handoffs
-#print axioms c12_refines_byte_spec_of_layer4_entry_components_cover
-#print axioms c12_refines_byte_spec_of_layer4_known_authPtr_cover
-#print axioms c12_layer4_wotsChain_read16_of_parse
-#print axioms c12_layer4_masked_wots_read_eq_wordOfHash16
 
 end SphincsMinusVerifiers.C12BridgePrep

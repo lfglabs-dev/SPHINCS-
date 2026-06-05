@@ -138,43 +138,15 @@ Each axiom asserts that one compiled Verity model refines its byte-level spec.
 These are the assumed left link of the refinement chain; see the file header and
 `SphincsMinusVerifiers/README.md`. They are deliberately fixed per verifier
 (distinct primitive packages) and are the only model-specific assumptions the
-theorems below rest on. -/
-
-/-- Assumed: the exported opaque C13 runner `execC13` refines the byte-level
-spec under `c13Primitives`.  The concrete bridge work below targets
-`execC13Concrete` and must be completed before this exported runner is exposed
-definitionally. -/
-axiom c13_refines_byte_spec :
-  ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13
-
-/-- Assumed: the concrete C12 source-semantics runner `execC12` refines the
-byte-level spec under `c12Primitives`. -/
-axiom c12_refines_byte_spec :
-  ByteLevel.ImplementsByteVerifier c12Primitives c12 execC12
+theorems below rest on. The C13 and C12 bridges are narrowed later in this file
+to their remaining concrete residuals before being re-exported at the byte-spec
+boundary. -/
 
 /-- Assumed: the compiled SHA2 SLH-DSA model refines the byte-level spec under
 `slhDsaSha2_128_24_Primitives`. (MODEL-EXEC-BRIDGE.) -/
 axiom slhDsaSha2_128_24_refines_byte_spec :
   ByteLevel.ImplementsByteVerifier
     slhDsaSha2_128_24_Primitives slhDsaSha2_128_24 execSlhDsaSha2_128_24
-
-/-- C13: the compiled model refines the abstract algorithmic spec. Unconditional,
-resting on `c13_refines_byte_spec` (MODEL-EXEC-BRIDGE) and the proved
-`byteVerifier_refines_spec`. -/
-theorem c13_refines_spec
-    (pkSeed pkRoot message sig : Bytes) :
-    execC13 pkSeed pkRoot message sig =
-      verifySpec c13Primitives c13
-        { pkSeed := pkSeed, pkRoot := pkRoot } message sig :=
-  byteVerifier_refines_spec c13_refines_byte_spec pkSeed pkRoot message sig
-
-/-- C12: the compiled model refines the abstract algorithmic spec. -/
-theorem c12_refines_spec
-    (pkSeed pkRoot message sig : Bytes) :
-    execC12 pkSeed pkRoot message sig =
-      verifySpec c12Primitives c12
-        { pkSeed := pkSeed, pkRoot := pkRoot } message sig :=
-  byteVerifier_refines_spec c12_refines_byte_spec pkSeed pkRoot message sig
 
 /-- SHA2 SLH-DSA: the compiled model refines the abstract algorithmic spec. -/
 theorem slhDsaSha2_128_24_refines_spec
@@ -183,18 +155,6 @@ theorem slhDsaSha2_128_24_refines_spec
       verifySpec slhDsaSha2_128_24_Primitives slhDsaSha2_128_24
         { pkSeed := pkSeed, pkRoot := pkRoot } message sig :=
   byteVerifier_refines_spec slhDsaSha2_128_24_refines_byte_spec pkSeed pkRoot message sig
-
-/-- C13 packaged at the `ImplementsVerifier` boundary. -/
-theorem c13_implements_spec :
-    ImplementsVerifier c13Primitives c13
-      (fun pk message sig => execC13 pk.pkSeed pk.pkRoot message sig) :=
-  byteVerifier_implements_spec c13_refines_byte_spec
-
-/-- C12 packaged at the `ImplementsVerifier` boundary. -/
-theorem c12_implements_spec :
-    ImplementsVerifier c12Primitives c12
-      (fun pk message sig => execC12 pk.pkSeed pk.pkRoot message sig) :=
-  byteVerifier_implements_spec c12_refines_byte_spec
 
 /-- SHA2 SLH-DSA packaged at the `ImplementsVerifier` boundary. -/
 theorem slhDsaSha2_128_24_implements_spec :
@@ -498,7 +458,7 @@ theorem c13AfterFinalize_forsPk_of_parse_fors
       CurrentNodeFrame.forsPkCompressWord (afterFors st) =
         C13Concrete.wordOfHash16 forsPk := by
     rw [CurrentNodeFrame.forsPkCompressWord_eq_of_afterFors_concrete_mkC13State_six_plus_last
-      pkSeed pkRoot message sig (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)
+      pkSeed pkRoot message sig digest (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)
       (C13Concrete.forsAllRootsC13_length pk digest sigParsed.fors)]
     · simpa [pk, digest, C13Concrete.forsPkWordC13] using hForsPkWord
     · intro j hj
@@ -3676,6 +3636,25 @@ def C13FoldOkBeforeAuthOffWotsPkWordDataLayer1
         ((digest.hyperIndex / 2048) % 2048)
         (C13Concrete.wordOfHash16 d.root0) d.lsig1.wots
 
+/-- Reverted-layer analogue of the layer-0 WOTS-start executable fact at the
+`beforeAuthOff` cutpoint, stated in the raw `wotsPkWord` form.  This deliberately
+does not mention an `.ok` fold witness or final root. -/
+def C13FoldRevertedBeforeAuthOffWotsPkWordDataLayer0
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+      pk digest forsPk sigParsed.layers,
+    lookupValue
+        (SegmentLayer3.beforeAuthOff
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+        "wotsPk" =
+      C13Concrete.wotsPkWord
+        (C13Concrete.wordOfHash16 pkSeed) 0
+        (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+        (C13Concrete.wordOfHash16 forsPk) d.lsig0.wots
+
 /-- Layer-0 final-keccak cutpoint behind
 `C13FoldOkBeforeAuthOffWotsPkWordDataLayer0`.  This separates the executable
 `"wotsPk"` binding from the evaluation of the final 45-word masked Keccak. -/
@@ -4111,6 +4090,44 @@ theorem c13_wotsPkWord_eq_wordOfHash16_of_wots_success
               let chainBase := wotsAdrs ||| (i <<< 32)
               C13Concrete.chainHash (C13Concrete.wordOfHash16 pk.pkSeed)
                 chainBase digit steps 0 val)))).symm
+
+/-- Reverted-layer before-auth WOTS-PK fact from the raw executable
+`wotsPkWord` binding.  The concrete reverted witness supplies only the
+byte/word conversion via `d.hWots0`; the executable binding equation stays as
+the remaining cutpoint premise. -/
+theorem c13_reverted_beforeAuthOff_wotsPk0_of_wotsPkWord
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk : Bytes)
+    (hWotsPkWord : C13FoldRevertedBeforeAuthOffWotsPkWordDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    ∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+        pk digest forsPk sigParsed.layers,
+      lookupValue
+          (SegmentLayer3.beforeAuthOff
+            (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+          "wotsPk" = C13Concrete.wordOfHash16 d.wotsPk0 := by
+  intro pk digest d
+  calc
+    lookupValue
+        (SegmentLayer3.beforeAuthOff
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+        "wotsPk"
+        = C13Concrete.wotsPkWord
+            (C13Concrete.wordOfHash16 pkSeed) 0
+            (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+            (C13Concrete.wordOfHash16 forsPk) d.lsig0.wots := by
+              simpa [pk, digest] using hWotsPkWord d
+    _ = C13Concrete.wordOfHash16 d.wotsPk0 := by
+      exact c13_wotsPkWord_eq_wordOfHash16_of_wots_success
+        pk 0 (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+        forsPk d.wotsPk0 d.lsig0.wots
+        (by
+          simpa [C13Concrete.c13PrimitivesConcrete, pk, digest,
+            SegmentAcceptSpec.c13LayerNextTree, SegmentAcceptSpec.c13LayerLeafIdx,
+            SegmentAcceptSpec.c13LayerTreeIdx, c13,
+            C13Concrete.wotsPkFromSigC13AtLayer_zero] using d.hWots0)
 
 /-- Layer-0 WOTS before-auth residual reduced to the raw executable
 `wotsPkWord` binding.  The C13 success witness supplies only the byte/word
@@ -5283,6 +5300,301 @@ theorem c13AfterMerkleNormalizedXmssClimb_of_layer_site_bounded
   unfold SegmentLayer3.afterMerkle
   rw [h11]
   exact hframeFinal.toRel.node
+
+/-- Local bounded-step exact model lift: the raw `afterMerkle` node equals the
+spec `xmssClimb` at one C13 layer site.  This strengthens
+`c13AfterMerkleNormalizedXmssClimb_of_layer_site_bounded` by threading the exact
+`MerkleClimbRawRel` alongside the frame invariant, avoiding the broad universal
+raw-step premise used by `c13AfterMerkleRawXmssClimb_of_raw_premises_at`. -/
+theorem c13AfterMerkleRawXmssClimb_of_layer_site_bounded
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs : Nat) (layer : Nat) (auth : List Bytes)
+    (hLayer : layer < 2)
+    (hTreeLt : treeAdrs < 2 ^ 256)
+    (ls : RuntimeState) (mIdx node : Nat)
+    (hData : ∀ i, i < 11 →
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * layer + 692))) i)
+    (hFrame : SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+            "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+            pkSeed pkRoot message sig seed treeAdrs
+            (sigDataOffset + (1952 + 868 * layer + 692))
+            { SegmentLayer3.beforeMerkle ls with
+              bindings := bindValue (SegmentLayer3.beforeMerkle ls).bindings "h"
+                (wordNormalize 0) }
+            (mIdx, node))
+    (hRaw : SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRawRel
+            "merkleNode" "mIdx"
+            { SegmentLayer3.beforeMerkle ls with
+              bindings := bindValue (SegmentLayer3.beforeMerkle ls).bindings "h"
+                (wordNormalize 0) }
+            (mIdx, node))
+    (hMIdxNorm : wordNormalize mIdx = mIdx) :
+    lookupValue (SegmentLayer3.afterMerkle ls).bindings "merkleNode"
+      = C13Concrete.xmssClimb seed treeAdrs 11 0 mIdx node auth := by
+  let R : RuntimeState → Nat × Nat → Prop := fun s a =>
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+      "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+      pkSeed pkRoot message sig seed treeAdrs
+      (sigDataOffset + (1952 + 868 * layer + 692)) s a ∧
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRawRel
+      "merkleNode" "mIdx" s a ∧
+    wordNormalize a.1 = a.1
+  let D : Nat → Prop := fun idx =>
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * layer + 692))) idx ∧ idx < 11
+  have hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+      D idx → R s a →
+      R (SphincsMinusVerifiers.ClimbKit.stepMerkle
+            "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+        (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep seed treeAdrs auth
+          idx a) := by
+    intro s a idx hD hR'
+    rcases hR' with ⟨hFrame', hRaw', hmIdxNorm⟩
+    rcases a with ⟨mIdx', node'⟩
+    have hWitness :=
+      c13AfterMerkleXmssFrameStepWitnessPremiseAt_of_c13_layer_site_bounds
+        pkSeed pkRoot message sig seed treeAdrs layer auth hLayer hTreeLt
+        s (mIdx', node') idx hD.2 hmIdxNorm hD.1 hFrame'
+    rcases hWitness with
+      ⟨vsib, vpar, vadr, sval, o5, vnode, o6, vsib2,
+        hparOff, hvpar, hnode, hStepData,
+        h1, h2, h3, h4, h5off, h5val, h6off, h6val⟩
+    have hFrameNext :
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+          "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+          pkSeed pkRoot message sig seed treeAdrs
+          (sigDataOffset + (1952 + 868 * layer + 692))
+          (SphincsMinusVerifiers.ClimbKit.stepMerkle
+            "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+          (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
+            seed treeAdrs auth idx (mIdx', node')) :=
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame_hstep
+        "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+        pkSeed pkRoot message sig seed treeAdrs
+        (sigDataOffset + (1952 + 868 * layer + 692))
+        s mIdx' node' idx auth
+        vsib vpar vadr sval o5 vnode o6 vsib2 hFrame'
+        hparOff hvpar hnode hStepData
+        h1 h2 h3 h4 h5off h5val h6off h6val
+    have hPair :
+        (lookupValue
+            (SphincsMinusVerifiers.ClimbKit.stepMerkle
+              "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+              { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }).bindings
+            "mIdx",
+          lookupValue
+            (SphincsMinusVerifiers.ClimbKit.stepMerkle
+              "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+              { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }).bindings
+            "merkleNode")
+          =
+          SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
+            seed treeAdrs auth idx (mIdx', node') := by
+      exact SphincsMinusVerifiers.ClimbMemFrameMerkle.stepMerkle_eq_merkleSpecStep
+        "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+        { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+        vsib vpar vadr sval o5 vnode o6 vsib2
+        seed treeAdrs idx mIdx' node' auth
+        (by decide) (by decide) hparOff hvpar hStepData.1 hStepData.2.1
+        hnode hStepData.2.2 h1 h2 h3 h4 h5off h5val h6off h6val
+    have hRawNext :
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRawRel
+          "merkleNode" "mIdx"
+          (SphincsMinusVerifiers.ClimbKit.stepMerkle
+            "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+          (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
+            seed treeAdrs auth idx (mIdx', node')) :=
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRawRel_of_pair
+        "merkleNode" "mIdx"
+        (SphincsMinusVerifiers.ClimbKit.stepMerkle
+          "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+          { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+        seed treeAdrs idx mIdx' node' auth hPair
+    refine ⟨hFrameNext, hRawNext, ?_⟩
+    rw [merkleSpecStep_fst]
+    exact wordNormalize_div_two_of_eq_self hmIdxNorm
+  have hRange : ∀ i, 0 ≤ i → i < 0 + 11 → D i := fun i _ hi =>
+    ⟨hData i (by omega), by omega⟩
+  have hR0 : R { SegmentLayer3.beforeMerkle ls with
+                  bindings := bindValue (SegmentLayer3.beforeMerkle ls).bindings "h"
+                    (wordNormalize 0) }
+                 (mIdx, node) := ⟨hFrame, hRaw, hMIdxNorm⟩
+  have hresult :=
+    SphincsMinusVerifiers.ClimbLoop.foldLoop_invariant_cond "h"
+      (SphincsMinusVerifiers.ClimbKit.stepMerkle
+        "merkleNode" "mIdx" "treeAdrs" "merklePtr")
+      (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep seed treeAdrs auth)
+      R D hstep
+      { SegmentLayer3.beforeMerkle ls with
+        bindings := bindValue (SegmentLayer3.beforeMerkle ls).bindings "h"
+          (wordNormalize 0) }
+      (mIdx, node) 0 11 hRange hR0
+  rcases hresult with ⟨_, hrawFinal, _⟩
+  have h11 : wordNormalize 11 = 11 :=
+    SegmentS2.wordNormalize_of_lt (by decide : 11 < 2 ^ 256)
+  rw [SphincsMinusVerifiers.ClimbMemFrameMerkle.xmssClimb_eq_specFold]
+  show lookupValue (SegmentLayer3.afterMerkle ls).bindings "merkleNode" = _
+  unfold SegmentLayer3.afterMerkle
+  rw [h11]
+  exact hrawFinal.node
+
+/-- Reverted layer-1 branch: the raw layer-0 `afterMerkle` XMSS equality follows
+from the executable WOTS-PK start-node binding at `beforeAuthOff`.  The Merkle
+loop itself is discharged by the bounded exact frame/raw invariant, so the
+remaining caller surface is the WOTS public-key reconstruction cutpoint. -/
+theorem c13_reverted_afterMerkle_raw_xmss_of_wotsPkWord
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature) (forsPk : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hWotsPkWord : C13FoldRevertedBeforeAuthOffWotsPkWordDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk) :
+    ∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers,
+      lookupValue
+          (SegmentLayer3.afterMerkle
+            (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+          "merkleNode" =
+        C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 0
+            ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+          11 0
+          ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+          (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath := by
+  intro d
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  have hData :
+      ∀ i, i < 11 →
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData
+          d.lsig0.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 0 + 692))) i := by
+    simpa [pk, c13XmssAuthCdAt] using
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.xmss_climb_data_range
+        pkSeed pkRoot message sig c13 sigParsed d.lsig0 0
+        (sigDataOffset + (1952 + 868 * 0 + 692))
+        hParse (by decide : 0 < 2) d.hLayer0 rfl
+  have hTreeLt :
+      C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048) < 2 ^ 256 :=
+    c13_adrsXmssTree_lt_of_bounds 0 (digest.hyperIndex / 2048)
+      (by decide : 0 < 2 ^ 32)
+      (lt_of_le_of_lt (Nat.div_le_self _ _)
+        (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message))
+  have hWotsPk :
+      lookupValue
+          (SegmentLayer3.beforeMerkle
+            (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+          "wotsPk" = C13Concrete.wordOfHash16 d.wotsPk0 := by
+    rw [beforeMerkle_wotsPk_eq_beforeAuthOff_wotsPk]
+    exact c13_reverted_beforeAuthOff_wotsPk0_of_wotsPkWord
+      pkSeed pkRoot message sig sigParsed forsPk hWotsPkWord d
+  have hRaw :
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRawRel
+        "merkleNode" "mIdx"
+        { SegmentLayer3.beforeMerkle
+            (c13FirstLayerGuardState pkSeed pkRoot message sig) with
+          bindings := bindValue
+            (SegmentLayer3.beforeMerkle
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "h" (wordNormalize 0) }
+        (digest.hyperIndex % 2048, C13Concrete.wordOfHash16 d.wotsPk0) := by
+    refine SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRawRel.intro ?_ ?_ ?_
+    · rw [MemoryKit.lookupValue_bindValue_ne _ "h" "mIdx" _ (by decide)]
+      simpa [pk, digest] using
+        c13FirstLayerBeforeMerkle_mIdx_hyperIndex
+          pkSeed pkRoot message sig sigParsed hParse
+    · rw [MemoryKit.lookupValue_bindValue_ne _ "h" "merkleNode" _ (by decide)]
+      rw [beforeMerkle_merkleNode_eq_wotsPk]
+      exact hWotsPk
+    · exact SphincsMinusVerifiers.ClimbMemFrameMerkle.wordNormalize_wordOfHash16 d.wotsPk0
+  have hFrame :
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+        "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+        pkSeed pkRoot message sig (C13Concrete.wordOfHash16 pkSeed)
+        (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+        (sigDataOffset + (1952 + 868 * 0 + 692))
+        { SegmentLayer3.beforeMerkle
+            (c13FirstLayerGuardState pkSeed pkRoot message sig) with
+          bindings := bindValue
+            (SegmentLayer3.beforeMerkle
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "h" (wordNormalize 0) }
+        (digest.hyperIndex % 2048, C13Concrete.wordOfHash16 d.wotsPk0) := by
+    have hSite :=
+      c13FirstLayerBeforeMerkle_layerFrozenSite
+        pkSeed pkRoot message sig sigParsed hParse
+    rcases hSite with ⟨treeAdrs, hSel, hCd, hPtr, _hTree, _hTreeLt, _hmIdxLt⟩
+    refine ⟨?_, ?_, ?_, ?_, ?_, ?_,
+      by decide, by decide, by decide, by decide, by decide,
+      by decide, by decide, by decide, by decide,
+      by decide, by decide, by decide, by decide, by decide, by decide,
+      by decide, by decide, by decide, by decide, by decide, by decide⟩
+    · exact hRaw.toRel
+    · change lookupValue
+          (bindValue
+            (SegmentLayer3.beforeMerkle
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "h" (wordNormalize 0)) "treeAdrs" =
+          C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048)
+      rw [MemoryKit.lookupValue_bindValue_ne _ "h" "treeAdrs" _ (by decide)]
+      simpa [pk, digest] using
+        SegmentLayer3.beforeMerkle_treeAdrs_eq_of_layer_idxTree
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)
+          0 digest.hyperIndex
+          (c13FirstLayerGuardState_layer pkSeed pkRoot message sig)
+          (c13FirstLayerGuardState_idxTree_hyperIndex
+            pkSeed pkRoot message sig hParse)
+          (by decide : 0 < 2 ^ 32)
+          (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
+    · change lookupValue
+          (bindValue
+            (SegmentLayer3.beforeMerkle
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "h" (wordNormalize 0)) "merklePtr" =
+          sigDataOffset + (1952 + 868 * 0 + 692)
+      rw [MemoryKit.lookupValue_bindValue_ne _ "h" "merklePtr" _ (by decide)]
+      exact hPtr
+    · change ((SegmentLayer3.beforeMerkle
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+          C13Concrete.wordOfHash16 pkSeed
+      have hMem :
+          ((SegmentLayer3.beforeMerkle
+            (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+            ((SegmentLayer3.afterDigit
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val := by
+        exact SegmentLayer3.beforeMerkle_preserves_memory_zero_of_loop_frames
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)
+          SegmentLayer3.wotsOuterForEach_preserves_memory_zero
+          SegmentLayer3.copyForEach_preserves_memory_zero
+      have hDigit :
+          ((SegmentLayer3.afterDigit
+            (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+            C13Concrete.wordOfHash16 pkSeed := by
+        rw [SegmentLayer3.afterDigit_preserves_memory_zero]
+        exact c13FirstLayerGuardState_seed_slot pkSeed pkRoot message sig
+      exact hMem.trans hDigit
+    · exact hSel
+    · exact hCd
+  simpa [pk, digest] using
+    c13AfterMerkleRawXmssClimb_of_layer_site_bounded
+      pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+      0 d.lsig0.authPath (by decide : 0 < 2) hTreeLt
+      (c13FirstLayerGuardState pkSeed pkRoot message sig)
+      (digest.hyperIndex % 2048)
+      (C13Concrete.wordOfHash16 d.wotsPk0)
+      hData hFrame hRaw (wordNormalize_mod_2048 digest.hyperIndex)
 
 /-- Concrete layer-0 C13 frame-step witness: the static layer and XMSS-tree
 address word bounds are discharged from the C13 hypertree-index bound.  The only
@@ -9912,8 +10224,11 @@ theorem c13_refines_byte_spec_of_two_step_current_node_and_reverted_digest_scrat
       (hOkObs pkSeed pkRoot message sig sigParsed forsPk specRoot
         hParse hZero hFors hFold)
 
-/-- C12 bridge reducer: the full concrete C12 byte-refinement follows from its
-good-length branch plus the proved malformed-length observable bridge. -/
+/-- C13 bridge reducer with split accept-side guard/current-node facts and the
+reverted branch reduced to WOTS digest scratch cells.  This uses the
+word-comparison current-node boundary, so it does not require the legacy
+universal `pkRoot.size = 16` premise from the older two-step observation
+package. -/
 theorem c13_refines_byte_spec_of_accept_guard_current_node_and_reverted_digest_scratch_cover
 
     (hGuard0 :
@@ -10092,8 +10407,6 @@ theorem c13_refines_byte_spec_of_accept_guard_current_node_and_reverted_digest_s
 
           = C13Concrete.wordOfHash16 specRoot)
 
-    (hPkRootSize : ∀ pkRoot : ByteArray, pkRoot.size = 16)
-
     (hRevertedScratchData :
 
       ∀ pkSeed pkRoot message sig sigParsed forsPk,
@@ -10131,30 +10444,108 @@ theorem c13_refines_byte_spec_of_accept_guard_current_node_and_reverted_digest_s
     ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
 
   refine
-
-    c13_refines_byte_spec_of_two_step_current_node_and_reverted_digest_scratch_cover
-
+    c13_refines_byte_spec_of_current_node_facts_and_reverted_digest_scratch_cover
       ?_ hRevertedScratchData
 
   intro pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold
 
   exact
-
-    SegmentAcceptSpec.concrete_layer_current_node_two_step_obligations_of_fold_ok_current_nodes
-
-      pkSeed pkRoot message sig sigParsed forsPk specRoot hFold
-
-      (hGuard0 pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold)
-
-      (hCurrent0 pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold)
-
-      (hGuard1 pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold)
-
-      (hCurrent1 pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold)
-
-      (hPkRootSize pkRoot)
+    ⟨hGuard0 pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold,
+     hCurrent0 pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold,
+     hGuard1 pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold,
+     hCurrent1 pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold⟩
 
 
+
+/-- Residual C13 accept-side current-node fact at the final word-comparison
+boundary.  This replaces the lower-level raw XMSS step and WOTS-PK residual
+surface for the exported C13 bridge. -/
+axiom c13_ok_current_node_wordcmp_residual :
+  ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+    C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+    forcedZeroOk c13
+      (C13Concrete.c13PrimitivesConcrete.hMsg c13
+        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+    C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+      { pkSeed := pkSeed, pkRoot := pkRoot }
+      (C13Concrete.c13PrimitivesConcrete.hMsg c13
+        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+      sigParsed.fors = some forsPk →
+    foldHypertree C13Concrete.c13PrimitivesConcrete c13
+      { pkSeed := pkSeed, pkRoot := pkRoot }
+      (C13Concrete.c13PrimitivesConcrete.hMsg c13
+        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+      forsPk sigParsed.layers = .ok specRoot →
+    C13FoldOkCurrentNodeWordcmpData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+
+/-- Residual C13 reverted-branch raw XMSS climb fact after the first layer's
+Merkle segment.  This is needed only for the reverted-at-layer-1 branch; the
+layer-0 reverted branch is handled by the reducer from parse/FORS data alone. -/
+axiom c13_reverted_afterMerkle_raw_xmss_residual :
+  ∀ pkSeed pkRoot message sig sigParsed forsPk,
+    C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+    forcedZeroOk c13
+      (C13Concrete.c13PrimitivesConcrete.hMsg c13
+        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+    C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+      { pkSeed := pkSeed, pkRoot := pkRoot }
+      (C13Concrete.c13PrimitivesConcrete.hMsg c13
+        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+      sigParsed.fors = some forsPk →
+    foldHypertree C13Concrete.c13PrimitivesConcrete c13
+      { pkSeed := pkSeed, pkRoot := pkRoot }
+      (C13Concrete.c13PrimitivesConcrete.hMsg c13
+        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+      forsPk sigParsed.layers = .reverted →
+    ∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers,
+      lookupValue
+          (SegmentLayer3.afterMerkle
+            (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+          "merkleNode" =
+        C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 0
+            ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+          11 0
+          ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+          (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath
+
+/-- C13 exported byte-spec bridge, reduced to the accept-side current-node
+word-comparison residual and the reverted after-Merkle residual rather than
+assumed directly at the byte-verifier boundary. -/
+theorem c13_refines_byte_spec :
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13 :=
+  SphincsMinusVerifiers.c13_refines_byte_spec_exported_of_concrete
+    (c13_refines_byte_spec_of_current_node_wordcmp_and_reverted_digest_scratch_cover
+      c13_ok_current_node_wordcmp_residual
+      (fun pkSeed pkRoot message sig sigParsed forsPk hParse _hZero hFors _hFold =>
+        c13FoldRevertedDigestScratchData_of_layer1_afterMerkle_raw_xmssClimb
+          pkSeed pkRoot message sig sigParsed forsPk hParse hFors
+          (c13FirstStepLayer_memory_zero_eq_of_parse
+            pkSeed pkRoot message sig sigParsed hParse)
+          (c13_reverted_afterMerkle_raw_xmss_residual
+            pkSeed pkRoot message sig sigParsed forsPk
+            hParse _hZero hFors _hFold)))
+
+/-- C13: the compiled model refines the abstract algorithmic spec. -/
+theorem c13_refines_spec
+    (pkSeed pkRoot message sig : Bytes) :
+    execC13 pkSeed pkRoot message sig =
+      verifySpec c13Primitives c13
+        { pkSeed := pkSeed, pkRoot := pkRoot } message sig :=
+  byteVerifier_refines_spec c13_refines_byte_spec pkSeed pkRoot message sig
+
+/-- C13 packaged at the `ImplementsVerifier` boundary. -/
+theorem c13_implements_spec :
+    ImplementsVerifier c13Primitives c13
+      (fun pk message sig => execC13 pk.pkSeed pk.pkRoot message sig) :=
+  byteVerifier_implements_spec c13_refines_byte_spec
 
 theorem c12_refines_byte_spec_of_good_length_cover
     (hGood :
@@ -10208,6 +10599,35 @@ theorem c12_refines_byte_spec_of_layer4_beforeWotsPk_memory_cover
     ByteLevel.ImplementsByteVerifier c12Primitives c12 execC12 := by
   simpa [C12BridgePrep.runC12BodyObserved] using
     C12BridgePrep.c12_refines_byte_spec_of_layer4_beforeWotsPk_memory_cover hMem
+
+/-- Residual C12 obligation: the 45 generated chain-end cells at the layer-4
+WOTS-PK pre-copy cutpoint.  The seed cell, WOTS-PK address slot, and final copy
+loop are proved in `C12BridgePrep`. -/
+axiom c12_layer4_beforeWotsPkCopy_cells_residual :
+    C12BridgePrep.C12Layer4WotsPkBeforeWotsPkCopyCellsPremise
+
+/-- C12 byte-level refinement, reduced to the layer-4 WOTS-PK memory image. -/
+theorem c12_refines_byte_spec :
+    ByteLevel.ImplementsByteVerifier c12Primitives c12 execC12 :=
+  c12_refines_byte_spec_of_layer4_beforeWotsPk_memory_cover
+    (C12BridgePrep.c12Layer4BeforeWotsPk_memory_of_beforeCopy_memory
+      (C12BridgePrep.c12Layer4BeforeWotsPkCopy_memory_of_addr_cells
+        (C12BridgePrep.c12Layer4BeforeWotsPkCopy_addr_cells_of_cells
+          c12_layer4_beforeWotsPkCopy_cells_residual)))
+
+/-- C12 compiled verifier refines the parsed specification. -/
+theorem c12_refines_spec
+    (pkSeed pkRoot message sig : Bytes) :
+    execC12 pkSeed pkRoot message sig =
+      verifySpec c12Primitives c12
+        { pkSeed := pkSeed, pkRoot := pkRoot } message sig :=
+  byteVerifier_refines_spec c12_refines_byte_spec pkSeed pkRoot message sig
+
+/-- C12 compiled verifier implements the public byte-level verifier. -/
+theorem c12_implements_spec :
+    ImplementsVerifier c12Primitives c12
+      (fun pk message sig => execC12 pk.pkSeed pk.pkRoot message sig) :=
+  byteVerifier_implements_spec c12_refines_byte_spec
 
 /-- C12: on the length-ok branch, byte-level verification reaches the parsed
 verifier under the concrete C12 primitive package.  This is the C12 analogue of
@@ -10429,3 +10849,5 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 
 end SphincsMinusVerifiers
 #print axioms SphincsMinusVerifiers.c13_refines_byte_spec_of_accept_guard_current_node_and_reverted_digest_scratch_cover
+#print axioms SphincsMinusVerifiers.c13_refines_byte_spec
+#print axioms SphincsMinusVerifiers.c13_refines_spec

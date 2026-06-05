@@ -453,6 +453,11 @@ def adrsForsNode (i h parentIdx : Nat) : Word :=
   (3 <<< 96) ||| (i <<< 64) ||| ((h + 1) <<< 32) ||| parentIdx
 def adrsForsRoots : Word := 4 <<< 96
 
+/-- C13 FORS-roots compression address, named with the digest so bridge lemmas
+can track the FIPS-hardened address dependency at the spec boundary.  In the
+current C13 executable model this is the constant `FORS_ROOTS` word. -/
+def adrsForsRootsC13 (_digest : HMsg) : Word := adrsForsRoots
+
 /-- The concrete FORS leaf address word is a bounded EVM word for the six normal
 FORS roots when the decoded tree index is 19-bit. -/
 theorem adrsForsLeaf_lt_of_normal_idx_lt
@@ -506,7 +511,7 @@ def forsPkFromSigC13 (v : Variant) (pk : PublicKey) (digest : HMsg)
   let sk6 := wordOfHash16 ((fors.sk[6]?).getD ⟨#[]⟩)
   let root6 := maskN (keccakWords [seed, adrsForsLeaf 6 0, sk6])
   let allRoots := roots ++ [root6]
-  let forsPk := maskN (keccakWords (seed :: adrsForsRoots :: allRoots))
+  let forsPk := maskN (keccakWords (seed :: adrsForsRootsC13 digest :: allRoots))
   some (hash16OfWord forsPk)
 
 /-- The six normal FORS tree roots reconstructed by C13 before adding the
@@ -534,7 +539,7 @@ def forsAllRootsC13 (pk : PublicKey) (digest : HMsg) (fors : ForsSig) : List Wor
 /-- The masked C13 FORS public-key compression word. -/
 def forsPkWordC13 (pk : PublicKey) (digest : HMsg) (fors : ForsSig) : Word :=
   let seed := wordOfHash16 pk.pkSeed
-  maskN (keccakWords (seed :: adrsForsRoots :: forsAllRootsC13 pk digest fors))
+  maskN (keccakWords (seed :: adrsForsRootsC13 digest :: forsAllRootsC13 pk digest fors))
 
 /-- The named FORS root list has the expected C13 length. -/
 theorem forsAllRootsC13_length (pk : PublicKey) (digest : HMsg) (fors : ForsSig) :

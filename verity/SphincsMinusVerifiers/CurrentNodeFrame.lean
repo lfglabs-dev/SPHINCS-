@@ -38,7 +38,7 @@ open SphincsMinusVerifiers.SegmentCompose
 open SphincsMinusVerifiers.MkC13State
 open SphincsMinusVerifiers.ClimbKit (N_MASK)
 open SphincsMinusVerifierSpec
-open SphincsMinusVerifierSpec.C13Concrete (adrsForsRoots keccakWords maskN nMask wordOfHash16)
+open SphincsMinusVerifierSpec.C13Concrete (adrsForsRootsC13 keccakWords maskN nMask wordOfHash16)
 
 private theorem calldataloadWord_lt_of_ge4 (sel : Nat) (cd : List Nat) (off : Nat)
     (hoff : 4 ≤ off) :
@@ -1635,18 +1635,18 @@ compression word is exactly the spec kernel's masked compression word.  This is
 the final keccak/masking half of the S4 obligation; the caller still has to prove
 that the seven scratch roots are the roots produced by the FORS climbs. -/
 theorem forsPkCompressWord_eq_of_memory
-    (st : RuntimeState) (seed : Nat) (roots : List Nat)
+    (st : RuntimeState) (seed : Nat) (digest : SphincsMinusVerifierSpec.HMsg) (roots : List Nat)
     (hlen : roots.length = 7)
     (hm0 :
       ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePrePkStep st).world.memory 0).val
         = seed)
     (hm1 :
       ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePrePkStep st).world.memory 0x20).val
-        = adrsForsRoots)
+        = adrsForsRootsC13 digest)
     (hmR : ∀ j, (h : j < 7) →
       ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePrePkStep st).world.memory
           (0x40 + 32 * j)).val = roots[j]'(by omega)) :
-    forsPkCompressWord st = maskN (keccakWords (seed :: adrsForsRoots :: roots)) := by
+    forsPkCompressWord st = maskN (keccakWords (seed :: adrsForsRootsC13 digest :: roots)) := by
   unfold forsPkCompressWord
   rw [show wordNormalize 0x00 = 0 by rfl]
   rw [show wordNormalize 0x120 = 0x120 by rfl]
@@ -1655,17 +1655,17 @@ theorem forsPkCompressWord_eq_of_memory
     rw [wordNormalize_eq_mod]
     exact Nat.mod_eq_of_lt (by decide)
   rw [hnmask]
-  have hlen9 : (seed :: adrsForsRoots :: roots).length = 9 := by
+  have hlen9 : (seed :: adrsForsRootsC13 digest :: roots).length = 9 := by
     simp [hlen]
-  have hsz : 32 * (seed :: adrsForsRoots :: roots).length = 0x120 := by
+  have hsz : 32 * (seed :: adrsForsRootsC13 digest :: roots).length = 0x120 := by
     rw [hlen9]
   rw [← hsz]
   rw [KeccakBridge.keccakMemorySlice_eq_keccakWords]
   · unfold maskN Verity.Core.Uint256.and Verity.Core.Uint256.ofNat
     simp only
-    have hklt : keccakWords (seed :: adrsForsRoots :: roots) < Verity.Core.Uint256.modulus := by
+    have hklt : keccakWords (seed :: adrsForsRootsC13 digest :: roots) < Verity.Core.Uint256.modulus := by
       simpa [Compiler.Constants.evmModulus] using
-        KeccakBridge.keccakWords_lt (seed :: adrsForsRoots :: roots)
+        KeccakBridge.keccakWords_lt (seed :: adrsForsRootsC13 digest :: roots)
     have hnlt : nMask < Verity.Core.Uint256.modulus := by
       decide
     rw [Nat.mod_eq_of_lt hklt, Nat.mod_eq_of_lt hnlt]
@@ -1686,19 +1686,19 @@ root words from the state before the copy loop.  `SegmentS4Finalize` proves the
 copy loop moves those words into the compression preimage slots without changing
 their values. -/
 theorem forsPkCompressWord_eq_of_preCopy_roots
-    (st : RuntimeState) (seed : Nat) (roots : List Nat)
+    (st : RuntimeState) (seed : Nat) (digest : SphincsMinusVerifierSpec.HMsg) (roots : List Nat)
     (hlen : roots.length = 7)
     (hm0 :
       ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePrePkStep st).world.memory 0).val
         = seed)
     (hm1 :
       ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePrePkStep st).world.memory 0x20).val
-        = adrsForsRoots)
+        = adrsForsRootsC13 digest)
     (hmR : ∀ j, (h : j < 7) →
       ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep st).world.memory
           (0x80 + 32 * j)).val = roots[j]'(by omega)) :
-    forsPkCompressWord st = maskN (keccakWords (seed :: adrsForsRoots :: roots)) :=
-  forsPkCompressWord_eq_of_memory st seed roots hlen hm0 hm1
+    forsPkCompressWord st = maskN (keccakWords (seed :: adrsForsRootsC13 digest :: roots)) :=
+  forsPkCompressWord_eq_of_memory st seed digest roots hlen hm0 hm1
     (fun j hj => by
       rw [SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePrePkStep_copy_slot st j hj]
       exact hmR j hj)
@@ -1710,14 +1710,14 @@ before the copy loop, and the copy loop itself is discharged by
 `SegmentS4Finalize`.  The remaining S4 data facts are thus the seed value and the
 actual root contents of the pre-copy cells. -/
 theorem forsPkCompressWord_eq_of_preCopy_frame
-    (st : RuntimeState) (seed : Nat) (roots : List Nat)
+    (st : RuntimeState) (seed : Nat) (digest : SphincsMinusVerifierSpec.HMsg) (roots : List Nat)
     (hlen : roots.length = 7)
     (hmSeed : (st.world.memory 0).val = seed)
     (hmR : ∀ j, (h : j < 7) →
       ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep st).world.memory
           (0x80 + 32 * j)).val = roots[j]'(by omega)) :
-    forsPkCompressWord st = maskN (keccakWords (seed :: adrsForsRoots :: roots)) :=
-  forsPkCompressWord_eq_of_preCopy_roots st seed roots hlen
+    forsPkCompressWord st = maskN (keccakWords (seed :: adrsForsRootsC13 digest :: roots)) :=
+  forsPkCompressWord_eq_of_preCopy_roots st seed digest roots hlen
     (by
       rw [SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePrePkStep_preserves_low_slot st 0
         (by decide)]
@@ -1726,7 +1726,8 @@ theorem forsPkCompressWord_eq_of_preCopy_frame
     (by
       rw [SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePrePkStep_preserves_low_slot st 0x20
         (by decide)]
-      exact SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep_adrsRoots_slot st)
+      simpa [SphincsMinusVerifierSpec.C13Concrete.adrsForsRootsC13] using
+        SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep_adrsRoots_slot st)
     hmR
 
 /-- Variant of `forsPkCompressWord_eq_of_preCopy_frame` matching the concrete S4
@@ -1735,7 +1736,7 @@ layout just before the copy loop: the first six FORS roots live in
 (`0x80 + 32*6`).  The FORS_ROOTS address word is proved by the finalize segment,
 so callers only supply seed and root-cell facts. -/
 theorem forsPkCompressWord_eq_of_preCopy_frame_six_plus_last
-    (st : RuntimeState) (seed : Nat) (roots : List Nat)
+    (st : RuntimeState) (seed : Nat) (digest : SphincsMinusVerifierSpec.HMsg) (roots : List Nat)
     (hlen : roots.length = 7)
     (hmSeed : (st.world.memory 0).val = seed)
     (hmRlo : ∀ j, (h : j < 6) →
@@ -1744,8 +1745,8 @@ theorem forsPkCompressWord_eq_of_preCopy_frame_six_plus_last
     (hmRlast :
       ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep st).world.memory
           0x140).val = roots[6]'(by omega)) :
-    forsPkCompressWord st = maskN (keccakWords (seed :: adrsForsRoots :: roots)) :=
-  forsPkCompressWord_eq_of_preCopy_frame st seed roots hlen hmSeed
+    forsPkCompressWord st = maskN (keccakWords (seed :: adrsForsRootsC13 digest :: roots)) :=
+  forsPkCompressWord_eq_of_preCopy_frame st seed digest roots hlen hmSeed
     (fun j hj => by
       by_cases hj6 : j < 6
       · exact hmRlo j hj6
@@ -1756,7 +1757,7 @@ theorem forsPkCompressWord_eq_of_preCopy_frame_six_plus_last
 S2/S3 seed-cell endpoint plus the outer-FORS loop memory-frame hypothesis, while
 the root-cell facts remain the substantive FORS climb correspondence obligations. -/
 theorem forsPkCompressWord_eq_of_afterFors_mkC13State_six_plus_last
-    (pkSeed pkRoot message sig : ByteArray) (roots : List Nat)
+    (pkSeed pkRoot message sig : ByteArray) (digest : SphincsMinusVerifierSpec.HMsg) (roots : List Nat)
     (hlen : roots.length = 7)
     (hLeaf : ∀ s,
       ((SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep s).world.memory 0).val
@@ -1770,9 +1771,9 @@ theorem forsPkCompressWord_eq_of_afterFors_mkC13State_six_plus_last
           (afterFors (mkC13State pkSeed pkRoot message sig))).world.memory
           0x140).val = roots[6]'(by omega)) :
     forsPkCompressWord (afterFors (mkC13State pkSeed pkRoot message sig))
-      = maskN (keccakWords (wordOfHash16 pkSeed :: adrsForsRoots :: roots)) :=
+      = maskN (keccakWords (wordOfHash16 pkSeed :: adrsForsRootsC13 digest :: roots)) :=
   forsPkCompressWord_eq_of_preCopy_frame_six_plus_last
-    (afterFors (mkC13State pkSeed pkRoot message sig)) (wordOfHash16 pkSeed) roots hlen
+    (afterFors (mkC13State pkSeed pkRoot message sig)) (wordOfHash16 pkSeed) digest roots hlen
     (afterFors_seed_slot_mkC13State_of_forsLeafStep_preserves pkSeed pkRoot message sig hLeaf)
     hmRlo hmRlast
 
@@ -1781,7 +1782,7 @@ boundary as `forsPkCompressWord_eq_of_afterFors_mkC13State_six_plus_last`, but
 the seed preservation premise matches the real statement-14 loop range (`i < 6`)
 instead of requiring a globally quantified leaf-step fact. -/
 theorem forsPkCompressWord_eq_of_afterFors_mkC13State_six_plus_last_range
-    (pkSeed pkRoot message sig : ByteArray) (roots : List Nat)
+    (pkSeed pkRoot message sig : ByteArray) (digest : SphincsMinusVerifierSpec.HMsg) (roots : List Nat)
     (hlen : roots.length = 7)
     (hLeaf : ∀ (s : RuntimeState) (idx : Nat), idx < 6 →
       ((SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
@@ -1796,9 +1797,9 @@ theorem forsPkCompressWord_eq_of_afterFors_mkC13State_six_plus_last_range
           (afterFors (mkC13State pkSeed pkRoot message sig))).world.memory
           0x140).val = roots[6]'(by omega)) :
     forsPkCompressWord (afterFors (mkC13State pkSeed pkRoot message sig))
-      = maskN (keccakWords (wordOfHash16 pkSeed :: adrsForsRoots :: roots)) :=
+      = maskN (keccakWords (wordOfHash16 pkSeed :: adrsForsRootsC13 digest :: roots)) :=
   forsPkCompressWord_eq_of_preCopy_frame_six_plus_last
-    (afterFors (mkC13State pkSeed pkRoot message sig)) (wordOfHash16 pkSeed) roots hlen
+    (afterFors (mkC13State pkSeed pkRoot message sig)) (wordOfHash16 pkSeed) digest roots hlen
     (afterFors_seed_slot_mkC13State_of_forsLeafStep_range_preserves
       pkSeed pkRoot message sig hLeaf)
     hmRlo hmRlast
@@ -1807,7 +1808,7 @@ theorem forsPkCompressWord_eq_of_afterFors_mkC13State_six_plus_last_range
 S4/FORS-compression boundary: callers supply the single seed-cell fact at
 `afterFors`, plus the six normal root cells and the forced-root cell. -/
 theorem forsPkCompressWord_eq_of_afterFors_seed_mkC13State_six_plus_last
-    (pkSeed pkRoot message sig : ByteArray) (roots : List Nat)
+    (pkSeed pkRoot message sig : ByteArray) (digest : SphincsMinusVerifierSpec.HMsg) (roots : List Nat)
     (hlen : roots.length = 7)
     (hmSeed :
       ((afterFors (mkC13State pkSeed pkRoot message sig)).world.memory 0).val
@@ -1821,15 +1822,15 @@ theorem forsPkCompressWord_eq_of_afterFors_seed_mkC13State_six_plus_last
           (afterFors (mkC13State pkSeed pkRoot message sig))).world.memory
           0x140).val = roots[6]'(by omega)) :
     forsPkCompressWord (afterFors (mkC13State pkSeed pkRoot message sig))
-      = maskN (keccakWords (wordOfHash16 pkSeed :: adrsForsRoots :: roots)) :=
+      = maskN (keccakWords (wordOfHash16 pkSeed :: adrsForsRootsC13 digest :: roots)) :=
   forsPkCompressWord_eq_of_preCopy_frame_six_plus_last
-    (afterFors (mkC13State pkSeed pkRoot message sig)) (wordOfHash16 pkSeed) roots hlen
+    (afterFors (mkC13State pkSeed pkRoot message sig)) (wordOfHash16 pkSeed) digest roots hlen
     hmSeed hmRlo hmRlast
 
 /-- Concrete frozen-entry FORS-compression adapter with the seed-cell fact
 discharged internally from the actual six C13 outer-loop prefixes. -/
 theorem forsPkCompressWord_eq_of_afterFors_concrete_mkC13State_six_plus_last
-    (pkSeed pkRoot message sig : ByteArray) (roots : List Nat)
+    (pkSeed pkRoot message sig : ByteArray) (digest : SphincsMinusVerifierSpec.HMsg) (roots : List Nat)
     (hlen : roots.length = 7)
     (hmRlo : ∀ j, (h : j < 6) →
       ((SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizePreCopyStep
@@ -1840,9 +1841,9 @@ theorem forsPkCompressWord_eq_of_afterFors_concrete_mkC13State_six_plus_last
           (afterFors (mkC13State pkSeed pkRoot message sig))).world.memory
           0x140).val = roots[6]'(by omega)) :
     forsPkCompressWord (afterFors (mkC13State pkSeed pkRoot message sig))
-      = maskN (keccakWords (wordOfHash16 pkSeed :: adrsForsRoots :: roots)) :=
+      = maskN (keccakWords (wordOfHash16 pkSeed :: adrsForsRootsC13 digest :: roots)) :=
   forsPkCompressWord_eq_of_afterFors_seed_mkC13State_six_plus_last
-    pkSeed pkRoot message sig roots hlen
+    pkSeed pkRoot message sig digest roots hlen
     (afterFors_seed_slot_mkC13State pkSeed pkRoot message sig)
     hmRlo hmRlast
 

@@ -2867,6 +2867,50 @@ def c12LayerBodyBeforeWotsPkCopy : List Stmt :=
     mstore 0x20 (v "pkAdrs")
   ]
 
+def c12LayerPkAdrsExpr : Expr :=
+  orE (orE (shlE (u 224) (v "layer")) (shlE (u 160) (v "curTree")))
+    (orE (shlE (u 128) (u 1)) (shlE (u 96) (v "curLeaf")))
+
+def c12LayerBodyBeforePkAdrs : List Stmt :=
+  [
+    .letVar "wotsBase" (orE (orE (shlE (u 224) (v "layer")) (shlE (u 160) (v "curTree"))) (shlE (u 96) (v "curLeaf"))),
+    .letVar "wotsPtr" (addE (v "sigBase") (v "sigOff")),
+    .letVar "csum" (u 0),
+    .forEach "i" (u 42) c12WotsMessageBody,
+    .letVar "csumShifted" (shlE (u 7) (v "csum")),
+    .forEach "j" (u 3) c12WotsChecksumBody
+  ]
+
+def c12LayerStateBeforePkAdrs (st : RuntimeState) : RuntimeState :=
+  match execStmtList [] st c12LayerBodyBeforePkAdrs with
+  | .continue s' => s'
+  | _ => st
+
+theorem execC12LayerBodyBeforePkAdrs (st : RuntimeState) :
+    execStmtList [] st c12LayerBodyBeforePkAdrs =
+      .continue (c12LayerStateBeforePkAdrs st) := by
+  unfold c12LayerStateBeforePkAdrs c12LayerBodyBeforePkAdrs
+  rw [execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue st "wotsBase" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue _ "wotsPtr" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue _ "csum" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_forEach_of_step "i" (u 42) c12WotsMessageBody _ (wordNormalize 42)
+      c12WotsMessageStep rfl execC12WotsMessageBody)]
+  rw [execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue _ "csumShifted" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_forEach_of_step "j" (u 3) c12WotsChecksumBody _ (wordNormalize 3)
+      c12WotsChecksumStep rfl execC12WotsChecksumBody)]
+  rfl
+
+theorem c12LayerBodyBeforeWotsPkCopy_eq_beforePkAdrs_append :
+    c12LayerBodyBeforeWotsPkCopy =
+      c12LayerBodyBeforePkAdrs ++
+        [.letVar "pkAdrs" c12LayerPkAdrsExpr, mstore 0x20 (v "pkAdrs")] := rfl
+
 theorem c12LayerBodyBeforeWotsPk_eq_beforeCopy_append :
     c12LayerBodyBeforeWotsPk =
       c12LayerBodyBeforeWotsPkCopy ++
@@ -2901,6 +2945,49 @@ theorem execC12LayerBodyBeforeWotsPkCopy (st : RuntimeState) :
     (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rfl
 
+theorem c12LayerStateBeforeWotsPkCopy_pkAdrs_slot_of_eval
+    (st : RuntimeState) (pkAdrs : Nat)
+    (hPkAdrs : evalExpr [] (c12LayerStateBeforePkAdrs st) c12LayerPkAdrsExpr =
+      some pkAdrs) :
+    ((c12LayerStateBeforeWotsPkCopy st).world.memory 0x20).val =
+      wordNormalize pkAdrs := by
+  unfold c12LayerStateBeforeWotsPkCopy
+  rw [c12LayerBodyBeforeWotsPkCopy_eq_beforePkAdrs_append]
+  rw [execStmtList_append_continue _ _ _ _ (execC12LayerBodyBeforePkAdrs st)]
+  rw [execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue
+      (c12LayerStateBeforePkAdrs st) "pkAdrs" c12LayerPkAdrsExpr pkAdrs hPkAdrs)]
+  let stPk : RuntimeState :=
+    { c12LayerStateBeforePkAdrs st with
+      bindings := bindValue (c12LayerStateBeforePkAdrs st).bindings "pkAdrs" pkAdrs }
+  have hOff : evalExpr [] stPk
+      (u 0x20) = some 0x20 := by
+    show some (wordNormalize 0x20) = some 0x20
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  have hVal : evalExpr [] stPk
+      (v "pkAdrs") = some pkAdrs := by
+    show some (lookupValue
+      (bindValue (c12LayerStateBeforePkAdrs st).bindings "pkAdrs" pkAdrs)
+      "pkAdrs") = some pkAdrs
+    rw [MemoryKit.lookupValue_bindValue_self]
+  have hSuffix : execStmtList [] stPk [mstore 0x20 (v "pkAdrs")] =
+      .continue { stPk with
+        world := { stPk.world with
+          memory := MemoryKit.memUpdate stPk.world.memory 0x20 pkAdrs } } := by
+    change execStmtList [] stPk (Stmt.mstore (u 0x20) (v "pkAdrs") :: []) =
+      .continue { stPk with
+        world := { stPk.world with
+          memory := MemoryKit.memUpdate stPk.world.memory 0x20 pkAdrs } }
+    rw [execStmtList_cons_continue _ _ _ _
+      (MemoryKit.execStmt_mstore_continue stPk (u 0x20) (v "pkAdrs")
+        0x20 pkAdrs hOff hVal)]
+    rfl
+  dsimp [stPk] at hSuffix
+  rw [hSuffix]
+  exact MemoryKit.mstore_then_mload_same
+    (c12LayerStateBeforePkAdrs st).world.memory 0x20 pkAdrs
+
 theorem c12LayerBodyBeforeAuthOff_eq_beforeWotsPk_append :
     c12LayerBodyBeforeAuthOff =
       c12LayerBodyBeforeWotsPk ++
@@ -2923,6 +3010,13 @@ def c12LayerStateBeforeWotsPk (st : RuntimeState) : RuntimeState :=
   match execStmtList [] st c12LayerBodyBeforeWotsPk with
   | .continue s' => s'
   | _ => st
+
+def c12LayerStateAfterWotsPkCopyLoop (st : RuntimeState) : RuntimeState :=
+  SphincsMinusVerifiers.ClimbLoop.foldLoop "i" c12WotsPkCopyStep
+    { (c12LayerStateBeforeWotsPkCopy st) with
+      bindings :=
+        bindValue (c12LayerStateBeforeWotsPkCopy st).bindings "i" (wordNormalize 0) }
+    0 45
 
 theorem execC12LayerBodyBeforeWotsPk (st : RuntimeState) :
     execStmtList [] st c12LayerBodyBeforeWotsPk =
@@ -2950,6 +3044,20 @@ theorem execC12LayerBodyBeforeWotsPk (st : RuntimeState) :
     (execStmt_forEach_of_step "i" (u 45) c12WotsPkCopyBody _ (wordNormalize 45)
       c12WotsPkCopyStep rfl execC12WotsPkCopyBody)]
   rfl
+
+theorem c12LayerStateBeforeWotsPk_eq_copyLoop (st : RuntimeState) :
+    c12LayerStateBeforeWotsPk st = c12LayerStateAfterWotsPkCopyLoop st := by
+  have hcopy : execStmtList [] (c12LayerStateBeforeWotsPkCopy st)
+      [.forEach "i" (u 45) c12WotsPkCopyBody] =
+      .continue (c12LayerStateAfterWotsPkCopyLoop st) := by
+    rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_forEach_of_step "i" (u 45) c12WotsPkCopyBody _ (wordNormalize 45)
+        c12WotsPkCopyStep rfl execC12WotsPkCopyBody)]
+    rfl
+  unfold c12LayerStateBeforeWotsPk
+  rw [c12LayerBodyBeforeWotsPk_eq_beforeCopy_append]
+  rw [execStmtList_append_continue _ _ _ _ (execC12LayerBodyBeforeWotsPkCopy st)]
+  rw [hcopy]
 
 theorem execC12LayerBodyBeforeAuthOff (st : RuntimeState) :
     execStmtList [] st c12LayerBodyBeforeAuthOff =
@@ -3067,6 +3175,32 @@ theorem c12LayerBodyBeforeWotsPk_preserves_memory_zero_body :
         cases hcount
         exact hi)
       hexec
+
+/-- Every statement before the WOTS-PK copy loop preserves the public-seed
+scratch cell. -/
+theorem c12LayerBodyBeforeWotsPkCopy_preserves_memory_zero_body :
+    ∀ (s s'' : RuntimeState) (stmt : Stmt),
+      stmt ∈ c12LayerBodyBeforeWotsPkCopy →
+      execStmt [] s stmt = .continue s'' →
+      (s''.world.memory 0x00).val = (s.world.memory 0x00).val := by
+  intro s s'' stmt hmem hexec
+  exact c12LayerBodyBeforeWotsPk_preserves_memory_zero_body s s'' stmt
+    (by
+      simp only [c12LayerBodyBeforeWotsPk, c12LayerBodyBeforeWotsPkCopy,
+        List.mem_cons, List.not_mem_nil, or_false] at *
+      tauto)
+    hexec
+
+/-- The cutpoint immediately before the WOTS-PK copy loop preserves the
+public-seed scratch cell. -/
+theorem c12LayerStateBeforeWotsPkCopy_preserves_memory_zero
+    (st : RuntimeState) :
+    ((c12LayerStateBeforeWotsPkCopy st).world.memory 0x00).val =
+      (st.world.memory 0x00).val := by
+  exact SphincsMinusVerifiers.MemoryFrame.execStmtList_preserves_memory_val
+    0x00 c12LayerBodyBeforeWotsPkCopy st (c12LayerStateBeforeWotsPkCopy st)
+    c12LayerBodyBeforeWotsPkCopy_preserves_memory_zero_body
+    (execC12LayerBodyBeforeWotsPkCopy st)
 
 /-- The smaller cutpoint immediately before binding `"wotsPk"` preserves the
 public-seed scratch cell. -/
@@ -3205,6 +3339,133 @@ private theorem c12LayerStateBeforeAuthOff_preserves_lookup_of_fresh
       · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
           _ _ "wotsPk" key _ hWotsPk hexec)
     (execC12LayerBodyBeforeAuthOff st)
+
+/-- The WOTS message/checksum prefix before the WOTS-PK address binding does
+not rebind any key fresh for that prefix. -/
+theorem c12LayerStateBeforePkAdrs_preserves_lookup_of_fresh
+    (key : String)
+    (hWotsBase : "wotsBase" ≠ key)
+    (hWotsPtr : "wotsPtr" ≠ key)
+    (hCsum : "csum" ≠ key)
+    (hI : "i" ≠ key)
+    (hDigit : "digit" ≠ key)
+    (hVal : "val" ≠ key)
+    (hChainBase : "chainBase" ≠ key)
+    (hSteps : "steps" ≠ key)
+    (hS : "s" ≠ key)
+    (hCsumShifted : "csumShifted" ≠ key)
+    (hJ : "j" ≠ key)
+    (st : RuntimeState) :
+    lookupValue (c12LayerStateBeforePkAdrs st).bindings key =
+      lookupValue st.bindings key := by
+  exact SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    key c12LayerBodyBeforePkAdrs st (c12LayerStateBeforePkAdrs st)
+    (by
+      intro s s'' stmt hmem hexec
+      simp only [c12LayerBodyBeforePkAdrs, List.mem_cons, List.not_mem_nil,
+        or_false] at hmem
+      rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          _ _ "wotsBase" key _ hWotsBase hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          _ _ "wotsPtr" key _ hWotsPtr hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          _ _ "csum" key _ hCsum hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_forEach_preserves_lookup
+          "i" key _ _ _ _ hI
+          (by
+            intro s s'' stmt hmem hexec
+            simp only [c12WotsMessageBody, List.mem_cons, List.not_mem_nil,
+              or_false] at hmem
+            rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+                _ _ "digit" key _ hDigit hexec
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+                _ _ "csum" key _ hCsum hexec
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+                _ _ "val" key _ hVal hexec
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+                _ _ "chainBase" key _ hChainBase hexec
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+                _ _ "steps" key _ hSteps hexec
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_forEach_preserves_lookup
+                "s" key _ _ _ _ hS
+                (by
+                  intro s s'' stmt hmem hexec
+                  simp only [c12WotsChainBody, List.mem_cons, List.not_mem_nil,
+                    or_false] at hmem
+                  rcases hmem with rfl | rfl | rfl
+                  · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+                      _ _ key _ _ hexec
+                  · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+                      _ _ key _ _ hexec
+                  · exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+                      _ _ "val" key _ hVal hexec)
+                hexec
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+                _ _ key _ _ hexec)
+          hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          _ _ "csumShifted" key _ hCsumShifted hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_forEach_preserves_lookup
+          "j" key _ _ _ _ hJ
+          (by
+            intro s s'' stmt hmem hexec
+            simp only [c12WotsChecksumBody, List.mem_cons, List.not_mem_nil,
+              or_false] at hmem
+            rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+                _ _ "digit" key _ hDigit hexec
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+                _ _ "i" key _ hI hexec
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+                _ _ "val" key _ hVal hexec
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+                _ _ "chainBase" key _ hChainBase hexec
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+                _ _ "steps" key _ hSteps hexec
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_forEach_preserves_lookup
+                "s" key _ _ _ _ hS
+                (by
+                  intro s s'' stmt hmem hexec
+                  simp only [c12WotsChainBody, List.mem_cons, List.not_mem_nil,
+                    or_false] at hmem
+                  rcases hmem with rfl | rfl | rfl
+                  · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+                      _ _ key _ _ hexec
+                  · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+                      _ _ key _ _ hexec
+                  · exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+                      _ _ "val" key _ hVal hexec)
+                hexec
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+                _ _ key _ _ hexec)
+          hexec)
+    (execC12LayerBodyBeforePkAdrs st)
+
+theorem c12LayerStateBeforePkAdrs_layer_eq
+    (st : RuntimeState) :
+    lookupValue (c12LayerStateBeforePkAdrs st).bindings "layer" =
+      lookupValue st.bindings "layer" := by
+  exact c12LayerStateBeforePkAdrs_preserves_lookup_of_fresh
+    "layer" (by decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) st
+
+theorem c12LayerStateBeforePkAdrs_curTree_eq
+    (st : RuntimeState) :
+    lookupValue (c12LayerStateBeforePkAdrs st).bindings "curTree" =
+      lookupValue st.bindings "curTree" := by
+  exact c12LayerStateBeforePkAdrs_preserves_lookup_of_fresh
+    "curTree" (by decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) st
+
+theorem c12LayerStateBeforePkAdrs_curLeaf_eq
+    (st : RuntimeState) :
+    lookupValue (c12LayerStateBeforePkAdrs st).bindings "curLeaf" =
+      lookupValue st.bindings "curLeaf" := by
+  exact c12LayerStateBeforePkAdrs_preserves_lookup_of_fresh
+    "curLeaf" (by decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) st
 
 /-- The WOTS setup prefix before `"authOff"` does not rebind `"sigOff"`. -/
 theorem c12LayerStateBeforeAuthOff_sigOff_eq

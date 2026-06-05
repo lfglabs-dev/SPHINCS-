@@ -182,6 +182,56 @@
       "files": [
         "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12BridgePrep.lean"
       ]
+    },
+    {
+      "id": "474076f6-079a-49c3-8332-2966beff7981",
+      "title": "C12 close WOTS-PK memory premise",
+      "status": "active",
+      "worktree": "/workspaces/mission-221df1a1/wt-c12-memory-closure",
+      "scope": "Close or reduce C12Layer4WotsPkBeforeWotsPkMemoryPremise from before-copy pkAdrs/cell facts.",
+      "files": [
+        "/workspaces/mission-221df1a1/wt-c12-memory-closure/verity/SphincsMinusVerifiers/C12BridgePrep.lean",
+        "/workspaces/mission-221df1a1/wt-c12-memory-closure/verity/SphincsMinusVerifiers/C12SegmentWotsSetup.lean"
+      ],
+      "verification": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean"
+    },
+    {
+      "id": "840967db-c1c8-4b62-9711-b09e4b4a59c4",
+      "title": "C13 replace bridge axiom path closure",
+      "status": "cancelled-after-main-proof-check-passed",
+      "worktree": "/workspaces/mission-221df1a1/wt-c13-bridge-closure",
+      "scope": "Close the strongest C13 reducer or prove the next missing premise toward replacing c13_refines_byte_spec.",
+      "files": [
+        "/workspaces/mission-221df1a1/wt-c13-bridge-closure/verity/SphincsMinusVerifiers/Proofs.lean"
+      ],
+      "verification": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean"
+    },
+    {
+      "id": "b8b39436-7a93-4247-9d7d-1064cd0277ca",
+      "title": "C13 migrate FORS-root address to digest-dependent form",
+      "status": "active",
+      "worktree": "/workspaces/mission-221df1a1/wt-c13-adrs-migration",
+      "scope": "Migrate legacy C13 adrsForsRoots assumptions/usages toward adrsForsRootsC13 digest or current hardened forsBase shape.",
+      "files": [
+        "/workspaces/mission-221df1a1/wt-c13-adrs-migration/verity/SphincsMinusVerifierSpec/C13Concrete.lean",
+        "/workspaces/mission-221df1a1/wt-c13-adrs-migration/verity/SphincsMinusVerifiers/CurrentNodeFrame.lean",
+        "/workspaces/mission-221df1a1/wt-c13-adrs-migration/verity/SphincsMinusVerifiers/SegmentAcceptSpec.lean",
+        "/workspaces/mission-221df1a1/wt-c13-adrs-migration/verity/SphincsMinusVerifiers/SegmentS4Finalize.lean"
+      ],
+      "verification": "LEAN_JOBS=1 scripts/lean-capped.sh lake env lean SphincsMinusVerifiers/SegmentAcceptSpec.lean"
+    },
+    {
+      "id": "80c5688c-82ba-4da2-9b62-f9b7514e2ad7",
+      "title": "C13 alternate bridge closure without universal pkRoot size",
+      "status": "cancelled-to-throttle-cold-worktree-build-memory",
+      "worktree": "/workspaces/mission-221df1a1/wt-c13-bridge-alt",
+      "scope": "Close or reduce c13_refines_byte_spec through realistic current-node/reverted-scratch premises, avoiding impossible universal pkRoot.size.",
+      "files": [
+        "/workspaces/mission-221df1a1/wt-c13-bridge-alt/verity/SphincsMinusVerifiers/Proofs.lean",
+        "/workspaces/mission-221df1a1/wt-c13-bridge-alt/verity/SphincsMinusVerifiers/C13BridgePrep.lean",
+        "/workspaces/mission-221df1a1/wt-c13-bridge-alt/verity/SphincsMinusVerifiers/SegmentAcceptSpec.lean"
+      ],
+      "verification": "LEAN_JOBS=1 scripts/lean-capped.sh lake env lean SphincsMinusVerifiers/Proofs.lean"
     }
   ],
   "verification": {
