@@ -596,33 +596,38 @@ theorem forsFinalizeStep_preserves_sigBase (st : RuntimeState) :
     (SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeStep st) ?_
     (SphincsMinusVerifiers.SegmentS4Finalize.execForsFinalize st)
   intro s s'' stmt hmem hexec
-  simp [SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeBody] at hmem
-  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
-  · subst stmt
+  refine SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeBody_mem_cases
+    (P := fun stmt => execStmt [] s stmt = .continue s'' →
+      lookupValue s''.bindings "sigBase" = lookupValue s.bindings "sigBase")
+    hmem ?_ ?_ ?_ ?_ ?_ ?_ ?_ hexec
+  · intro hexec
     exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
       s s'' "lastSecret" "sigBase" _ (by decide) hexec
-  · subst stmt
+  · intro hexec
     exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
       s s'' "sigBase" _ _ hexec
-  · subst stmt
+  · intro hexec
     exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
       s s'' "sigBase" _ _ hexec
-  · subst stmt
+  · intro hexec
     exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
       s s'' "sigBase" _ _ hexec
-  · subst stmt
+  · intro hexec
     exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
       s s'' "sigBase" _ _ hexec
-  · subst stmt
+  · intro hexec
     refine SphincsMinusVerifiers.BindingFrame.execStmt_forEach_preserves_lookup
       "i" "sigBase" _ SphincsMinusVerifiers.SegmentS4Finalize.forsCopyBody
       s s'' (by decide) ?_ hexec
     intro s0 s1 copyStmt hcopy hcopyExec
-    simp [SphincsMinusVerifiers.SegmentS4Finalize.forsCopyBody] at hcopy
-    subst copyStmt
+    refine SphincsMinusVerifiers.SegmentS4Finalize.forsCopyBody_mem_cases
+      (P := fun copyStmt => execStmt [] s0 copyStmt = .continue s1 →
+        lookupValue s1.bindings "sigBase" = lookupValue s0.bindings "sigBase")
+      hcopy ?_ hcopyExec
+    intro hcopyExec
     exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
       s0 s1 "sigBase" _ _ hcopyExec
-  · subst stmt
+  · intro hexec
     exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
       s s'' "forsPk" "sigBase" _ (by decide) hexec
 
@@ -634,33 +639,38 @@ theorem forsFinalizeStep_preserves_htIdx (st : RuntimeState) :
     (SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeStep st) ?_
     (SphincsMinusVerifiers.SegmentS4Finalize.execForsFinalize st)
   intro s s'' stmt hmem hexec
-  simp [SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeBody] at hmem
-  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
-  · subst stmt
+  refine SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeBody_mem_cases
+    (P := fun stmt => execStmt [] s stmt = .continue s'' →
+      lookupValue s''.bindings "htIdx" = lookupValue s.bindings "htIdx")
+    hmem ?_ ?_ ?_ ?_ ?_ ?_ ?_ hexec
+  · intro hexec
     exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
       s s'' "lastSecret" "htIdx" _ (by decide) hexec
-  · subst stmt
+  · intro hexec
     exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
       s s'' "htIdx" _ _ hexec
-  · subst stmt
+  · intro hexec
     exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
       s s'' "htIdx" _ _ hexec
-  · subst stmt
+  · intro hexec
     exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
       s s'' "htIdx" _ _ hexec
-  · subst stmt
+  · intro hexec
     exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
       s s'' "htIdx" _ _ hexec
-  · subst stmt
+  · intro hexec
     refine SphincsMinusVerifiers.BindingFrame.execStmt_forEach_preserves_lookup
       "i" "htIdx" _ SphincsMinusVerifiers.SegmentS4Finalize.forsCopyBody
       s s'' (by decide) ?_ hexec
     intro s0 s1 copyStmt hcopy hcopyExec
-    simp [SphincsMinusVerifiers.SegmentS4Finalize.forsCopyBody] at hcopy
-    subst copyStmt
+    refine SphincsMinusVerifiers.SegmentS4Finalize.forsCopyBody_mem_cases
+      (P := fun copyStmt => execStmt [] s0 copyStmt = .continue s1 →
+        lookupValue s1.bindings "htIdx" = lookupValue s0.bindings "htIdx")
+      hcopy ?_ hcopyExec
+    intro hcopyExec
     exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
       s0 s1 "htIdx" _ _ hcopyExec
-  · subst stmt
+  · intro hexec
     exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
       s s'' "forsPk" "htIdx" _ (by decide) hexec
 
@@ -672,32 +682,37 @@ theorem forsFinalizeStep_preserves_selector_calldata (st : RuntimeState) :
     (SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeStep st) ?_
     (SphincsMinusVerifiers.SegmentS4Finalize.execForsFinalize st)
   intro s s'' stmt hmem hexec
-  simp [SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeBody] at hmem
-  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
-  · subst stmt
+  refine SphincsMinusVerifiers.SegmentS4Finalize.forsFinalizeBody_mem_cases
+    (P := fun stmt => execStmt [] s stmt = .continue s'' →
+      StateFrame.PreservesSelectorCalldata s s'')
+    hmem ?_ ?_ ?_ ?_ ?_ ?_ ?_ hexec
+  · intro hexec
     exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
       s s'' "lastSecret" _ hexec
-  · subst stmt
+  · intro hexec
     exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
       s s'' _ _ hexec
-  · subst stmt
+  · intro hexec
     exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
       s s'' _ _ hexec
-  · subst stmt
+  · intro hexec
     exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
       s s'' _ _ hexec
-  · subst stmt
+  · intro hexec
     exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
       s s'' _ _ hexec
-  · subst stmt
+  · intro hexec
     refine SphincsMinusVerifiers.StateFrame.execStmt_forEach_preserves_selector_calldata
       "i" _ SphincsMinusVerifiers.SegmentS4Finalize.forsCopyBody s s'' ?_ hexec
     intro s0 s1 copyStmt hcopy hcopyExec
-    simp [SphincsMinusVerifiers.SegmentS4Finalize.forsCopyBody] at hcopy
-    subst copyStmt
+    refine SphincsMinusVerifiers.SegmentS4Finalize.forsCopyBody_mem_cases
+      (P := fun copyStmt => execStmt [] s0 copyStmt = .continue s1 →
+        StateFrame.PreservesSelectorCalldata s0 s1)
+      hcopy ?_ hcopyExec
+    intro hcopyExec
     exact SphincsMinusVerifiers.StateFrame.execStmt_mstore_preserves_selector_calldata
       s0 s1 _ _ hcopyExec
-  · subst stmt
+  · intro hexec
     exact SphincsMinusVerifiers.StateFrame.execStmt_letVar_preserves_selector_calldata
       s s'' "forsPk" _ hexec
 

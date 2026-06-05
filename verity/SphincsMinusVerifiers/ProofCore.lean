@@ -50,9 +50,9 @@ def execC13Concrete :
     observeStmtResultBool
       (execStmtList [] (MkC13State.mkC13State pkSeed pkRoot message sig) c13VerifyBody)
 
-/-- Opaque exported C13 runner.  This stays abstract until the concrete
-`execC13Concrete` bridge theorem lands in the same change that exposes it. -/
-opaque execC13 : Bytes → Bytes → Bytes → Bytes → Option Bool
+/-- Exported C13 runner, definitionally the concrete source-semantics runner. -/
+def execC13 : Bytes → Bytes → Bytes → Bytes → Option Bool :=
+  execC13Concrete
 
 theorem observeStmtResultBool_return_boolWord
     (b : Bool) (st : RuntimeState) :

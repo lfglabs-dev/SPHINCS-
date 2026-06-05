@@ -95,6 +95,17 @@ theorem parseSignatureC12_some_of_size {v : Variant} {sig : Bytes}
   unfold parseSignatureC12
   simp [hsz]
 
+/-- A successful concrete C12 parse exposes the full-word `R` field read at
+signature offset zero. -/
+theorem parseSignatureC12_R {v : Variant} {sig : Bytes} {parsed : Signature}
+    (h : parseSignatureC12 v sig = some parsed) :
+    parsed.R = read32 sig 0 := by
+  unfold parseSignatureC12 at h
+  by_cases hsz : sig.size = v.sigBytes
+  · simp [hsz] at h
+    rw [← h]
+  · simp [hsz] at h
+
 /-- Parse failure for the concrete C12 parser is equivalent to failing its byte
 length guard. -/
 theorem parseSignatureC12_eq_none_iff {v : Variant} {sig : Bytes} :
@@ -334,6 +345,7 @@ def c12PrimitivesConcrete : Primitives :=
 /-! ## Axiom audit. -/
 
 #print axioms parseSignatureC12_some_of_size
+#print axioms parseSignatureC12_R
 #print axioms parseSignatureC12_eq_none_iff
 #print axioms parseSignatureC12_isSome_iff
 #print axioms publicKeyOk_c12

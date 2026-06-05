@@ -194,6 +194,92 @@ theorem stepWots_keccak_value (st : RuntimeState) (v1 : Nat)
   wots_maskedKeccak_value (stepWots st) (wotsScratchWords st v1) rfl
     (stepWots_hmem st v1 h1)
 
+/-- **`stepWots_val_eq_maskedKeccak`** — the chain-step *binding* value: after
+one WOTS chain body, `lookup "val"` of the post-step state equals exactly
+`maskN (keccakWords (wotsScratchWords st v1))`, where `v1` is the resolved
+chain-address word and the 3-word preimage is `[seed, wordNormalize v1,
+wordNormalize (prior val)]`.  This is the projection of `stepWots_keccak_value`
+through the final `assignVar "val"` binding, exposing the chain output as a
+binding fact rather than as an `evalExpr` — exactly the form consumed by the
+outer `forEach` fold-invariant.  C13 single-step analogue of the C12
+`c12WotsChainStep_val_eq` shape. -/
+theorem stepWots_val_eq_maskedKeccak (st : RuntimeState) (v1 : Nat)
+    (h1 : evalExpr [] st (.bitOr (.localVar "chainBase")
+            (.add (.localVar "digit") (.localVar "step"))) = some v1) :
+    lookupValue (stepWots st).bindings "val" =
+      maskN (keccakWords (wotsScratchWords st v1)) := by
+  -- Replay the three-step chain body, tracking the final state's bindings.
+  have hoff1 : evalExpr [] st (.literal 0x20) = some 0x20 := rfl
+  have hstep1 := MemoryKit.execStmt_mstore_continue st (.literal 0x20)
+      (.bitOr (.localVar "chainBase") (.add (.localVar "digit") (.localVar "step")))
+      0x20 v1 hoff1 h1
+  set st1 : RuntimeState :=
+    { st with world := { st.world with
+        memory := MemoryKit.memUpdate st.world.memory 0x20 v1 } }
+    with hst1
+  have hoff2 : evalExpr [] st1 (.literal 0x40) = some 0x40 := rfl
+  have hval2 : evalExpr [] st1 (.localVar "val")
+      = some (lookupValue st.bindings "val") := rfl
+  have hstep2 := MemoryKit.execStmt_mstore_continue st1 (.literal 0x40)
+      (.localVar "val") 0x40 (lookupValue st.bindings "val") hoff2 hval2
+  set st2 : RuntimeState :=
+    { st1 with world := { st1.world with
+        memory := MemoryKit.memUpdate st1.world.memory 0x40
+          (lookupValue st.bindings "val") } }
+    with hst2
+  -- At st2 the 3-word window holds the spec preimage; reuse stepWots_hmem's match.
+  have hmem : ∀ i, (h : i < (wotsScratchWords st v1).length) →
+      (st2.world.memory (0 + 32 * i)).val = (wotsScratchWords st v1)[i] := by
+    intro i hi
+    simp only [wotsScratchWords, List.length_cons, List.length_nil] at hi
+    match i, hi with
+    | 0, _ =>
+      show (MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 v1) 0x40
+              (lookupValue st.bindings "val") (0 + 32 * 0)).val = _
+      rw [MemoryKit.memUpdate_diff _ _ _ _ (by decide),
+          MemoryKit.memUpdate_diff _ _ _ _ (by decide)]
+      rfl
+    | 1, _ =>
+      show (MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 v1) 0x40
+              (lookupValue st.bindings "val") (0 + 32 * 1)).val = _
+      rw [MemoryKit.memUpdate_diff _ _ _ _ (by decide)]
+      show (MemoryKit.memUpdate st.world.memory 0x20 v1 0x20).val = _
+      rw [MemoryKit.memUpdate_val_same]
+      rfl
+    | 2, _ =>
+      show (MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 v1) 0x40
+              (lookupValue st.bindings "val") (0 + 32 * 2)).val = _
+      show (MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 v1) 0x40
+              (lookupValue st.bindings "val") 0x40).val = _
+      rw [MemoryKit.memUpdate_val_same]
+      rfl
+    | (n + 3), hbad => exact absurd hbad (by omega)
+  -- Now resolve the final assignVar's keccak/mask value to the spec word.
+  have hval3 : evalExpr [] st2
+      (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x60)) (.literal N_MASK))
+      = some (maskN (keccakWords (wotsScratchWords st v1))) :=
+    wots_maskedKeccak_value st2 (wotsScratchWords st v1) rfl hmem
+  have hstep3 := assignVar_continue st2 "val"
+      (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x60)) (.literal N_MASK))
+      _ hval3
+  -- Thread the three statements through `stepWots`, then read off `"val"`.
+  show lookupValue
+        (match execStmtList [] st
+            ([ Stmt.mstore (.literal 0x20)
+                (.bitOr (.localVar "chainBase") (.add (.localVar "digit") (.localVar "step")))
+             , Stmt.mstore (.literal 0x40) (.localVar "val")
+             , .assignVar "val"
+                (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x60)) (.literal N_MASK)) ]) with
+          | .continue s' => s' | _ => st).bindings "val" = _
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hstep1]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hstep2]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hstep3]
+  -- The match selects the post-assignVar state; its bindings = bindValue st2.bindings "val" V.
+  show lookupValue
+        (bindValue st2.bindings "val"
+          (maskN (keccakWords (wotsScratchWords st v1)))) "val" = _
+  exact MemoryKit.lookupValue_bindValue_self _ _ _
+
 /-! ## 4. Spec-side normalization: `chainHash` is a `specFold`.
 
 The WOTS analogue of `ClimbMemFrameMerkle.xmssClimb_eq_specFold`: the spec WOTS
@@ -221,12 +307,74 @@ theorem chainHash_eq_specFold (seed chainBase digit : Nat) :
       simp only [chainHash, ClimbLoop.specFold_succ, wotsSpecStep]
       exact chainHash_eq_specFold seed chainBase digit fuel (step + 1) _
 
+/-- **`stepWots_val_eq_wotsSpecStep`** — the per-step spec-shape lemma.  Under
+bindings holding `seed` (at scratch 0x00), `chainBase`, `digit`, `step`, and
+`prevVal` (the prior `"val"` binding), with the obvious bounds on each value
+and on the ADRS-assembly sum `digit + step` plus the OR-assembled
+`chainBase ||| (digit + step)`, one `stepWots` updates the `"val"` binding to
+exactly `wotsSpecStep seed chainBase digit step prevVal`.
+
+This is the fold-step shape of `stepWots_val_eq_maskedKeccak`: the bindings
+mirror the spec arguments verbatim, so the outer `forEach "step"` invariant
+can pin `"val"` to `wotsSpecStep …` after each iteration and conclude (via
+`chainHash_eq_specFold`) that the full chain folds to `chainHash`.  C13
+analogue of the C12 `c12WotsChainStep_val_eq` shape. -/
+theorem stepWots_val_eq_wotsSpecStep
+    (s : RuntimeState) (seed chainBase digit step prevVal : Nat)
+    (hSeed : (s.world.memory 0x00).val = seed)
+    (hCB : lookupValue s.bindings "chainBase" = chainBase)
+    (hDigit : lookupValue s.bindings "digit" = digit)
+    (hStep : lookupValue s.bindings "step" = step)
+    (hVal : lookupValue s.bindings "val" = prevVal)
+    (hCBlt : chainBase < 2 ^ 256)
+    (hDigitLt : digit < 2 ^ 256)
+    (hStepLt : step < 2 ^ 256)
+    (hSum : digit + step < 2 ^ 256)
+    (hAdrs : chainBase ||| (digit + step) < 2 ^ 256)
+    (hPrevLt : prevVal < 2 ^ 256) :
+    lookupValue (stepWots s).bindings "val" =
+      wotsSpecStep seed chainBase digit step prevVal := by
+  have hCBeval : evalExpr [] s (.localVar "chainBase") = some chainBase := by
+    show some (lookupValue s.bindings "chainBase") = some chainBase
+    rw [hCB]
+  have hDigitEval : evalExpr [] s (.localVar "digit") = some digit := by
+    show some (lookupValue s.bindings "digit") = some digit
+    rw [hDigit]
+  have hStepEval : evalExpr [] s (.localVar "step") = some step := by
+    show some (lookupValue s.bindings "step") = some step
+    rw [hStep]
+  have hSumEval : evalExpr [] s (.add (.localVar "digit") (.localVar "step"))
+      = some (digit + step) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded s _ _
+      digit step hDigitEval hStepEval hDigitLt hStepLt hSum
+  have h1 : evalExpr [] s
+        (.bitOr (.localVar "chainBase") (.add (.localVar "digit") (.localVar "step")))
+      = some (chainBase ||| (digit + step)) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded s _ _
+      chainBase (digit + step) hCBeval hSumEval hCBlt hSum
+  have hWnAdrs : wordNormalize (chainBase ||| (digit + step))
+      = chainBase ||| (digit + step) := by
+    rw [wordNormalize_eq_mod]
+    show (chainBase ||| (digit + step)) % Compiler.Constants.evmModulus = _
+    rw [show (Compiler.Constants.evmModulus : Nat) = 2 ^ 256 from rfl]
+    exact Nat.mod_eq_of_lt hAdrs
+  have hWnPrev : wordNormalize prevVal = prevVal := by
+    rw [wordNormalize_eq_mod]
+    show prevVal % Compiler.Constants.evmModulus = _
+    rw [show (Compiler.Constants.evmModulus : Nat) = 2 ^ 256 from rfl]
+    exact Nat.mod_eq_of_lt hPrevLt
+  rw [stepWots_val_eq_maskedKeccak s _ h1]
+  unfold wotsScratchWords wotsSpecStep
+  rw [hSeed, hVal, hWnAdrs, hWnPrev]
+
 /-! ## 5. Axiom audit. -/
 
 #print axioms stepWots_memory
 #print axioms stepWots_hmem
 #print axioms wots_maskedKeccak_value
 #print axioms stepWots_keccak_value
+#print axioms stepWots_val_eq_maskedKeccak
 #print axioms chainHash_eq_specFold
+#print axioms stepWots_val_eq_wotsSpecStep
 
 end SphincsMinusVerifiers.ClimbMemFrame

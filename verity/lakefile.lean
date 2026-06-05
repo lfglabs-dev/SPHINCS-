@@ -56,4 +56,8 @@ lean_lib SphincsMinusVerifiers where
              `SphincsMinusVerifiers.SegmentAcceptSpec,
              `SphincsMinusVerifiers.SegmentS4ForsDataObligations,
              `SphincsMinusVerifiers.SegmentRejectSpec,
-             `SphincsMinusVerifiers.C13BridgePrep]
+             `SphincsMinusVerifiers.C13BridgePrep, `SphincsMinusVerifiers.C12BridgePrep,
+             `SphincsMinusVerifiers.C12SegmentSeed, `SphincsMinusVerifiers.C12SegmentFors,
+             `SphincsMinusVerifiers.C12SegmentForsCompress,
+             `SphincsMinusVerifiers.C12SegmentWotsSetup,
+             `SphincsMinusVerifiers.C12SegmentFinal]

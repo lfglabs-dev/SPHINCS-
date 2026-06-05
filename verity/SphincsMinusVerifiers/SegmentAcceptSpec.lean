@@ -42,6 +42,31 @@ open SphincsMinusVerifiers.CurrentNodeFrame
 open SphincsMinusVerifierSpec
 open SphincsMinusVerifierSpec.C13Concrete
 
+private theorem wordOfHash16_and_nmask (b : ByteArray) :
+    wordOfHash16 b =
+      (Verity.Core.Uint256.and (wordOfHash16 b) (wordNormalize N_MASK)).val := by
+  let h : Nat := baToNatBE b % 2 ^ 128
+  have hh : h < 2 ^ 128 := Nat.mod_lt _ (by positivity)
+  have hWordLt : h * 2 ^ 128 < 2 ^ 256 := by
+    calc
+      h * 2 ^ 128 < 2 ^ 128 * 2 ^ 128 :=
+        Nat.mul_lt_mul_of_pos_right hh (by positivity)
+      _ = 2 ^ 256 := by norm_num
+  have hMask :
+      Nat.land (h * 2 ^ 128) N_MASK = h * 2 ^ 128 := by
+    simpa [Nat.add_zero] using SegmentS2R.land_nmask h 0 hh (by decide : 0 < 2 ^ 128)
+  unfold wordOfHash16
+  unfold Verity.Core.Uint256.and Verity.Core.Uint256.ofNat
+  rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+    Nat.mod_eq_of_lt (by decide : N_MASK < 2 ^ 256)]
+  simp only [Verity.Core.Uint256.modulus]
+  rw [show h * 2 ^ 128 % Verity.Core.UINT256_MODULUS = h * 2 ^ 128 by
+      exact Nat.mod_eq_of_lt (by simpa [Verity.Core.UINT256_MODULUS] using hWordLt)]
+  rw [show N_MASK % Verity.Core.UINT256_MODULUS = N_MASK by
+      exact Nat.mod_eq_of_lt (by decide : N_MASK < Verity.Core.UINT256_MODULUS)]
+  rw [hMask]
+  exact (Nat.mod_eq_of_lt (by simpa [Verity.Core.UINT256_MODULUS] using hWordLt)).symm
+
 /-! ## Residual `hCmp` factoring. -/
 
 /-- When the parsed verifier reaches the final `.ok root` branch, its observable
@@ -94,7 +119,21 @@ theorem accept_path_returns_verifyParsed_bool
       verifyParsed C13Concrete.c13PrimitivesConcrete c13 pk message sigParsed = some specBool ∧
       execStmtList [] (mkC13State pkSeed pkRoot message sig) c13VerifyBody
         = .return (wordNormalize (boolWord specBool)) finalState := by
-  obtain ⟨fs, hfs⟩ := execC13Body_returns (mkC13State pkSeed pkRoot message sig) hlen hg3 hgL
+  have hpkSeed :
+      lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkSeed" =
+        (Verity.Core.Uint256.and
+          (lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkSeed")
+          (wordNormalize N_MASK)).val := by
+    exact wordOfHash16_and_nmask pkSeed
+  have hpkRoot :
+      lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkRoot" =
+        (Verity.Core.Uint256.and
+          (lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkRoot")
+          (wordNormalize N_MASK)).val := by
+    exact wordOfHash16_and_nmask pkRoot
+  obtain ⟨fs, hfs⟩ :=
+    execC13Body_returns (mkC13State pkSeed pkRoot message sig)
+      hlen hpkSeed hpkRoot hg3 hgL
   have hAcc : acceptWord (mkC13State pkSeed pkRoot message sig) = boolWord specBool := by
     unfold acceptWord; rw [hCmp]
   refine ⟨fs, hSpec, ?_⟩

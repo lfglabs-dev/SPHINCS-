@@ -267,6 +267,26 @@ theorem parseSignatureC13_layer_authPath_getElem?
   subst hlsig
   exact getElem?_map_range _ hh
 
+/-- **XMSS WOTS chain.**  The `k`-th WOTS chain seed of climb layer `layer`
+(`layer < 2`, `k < 43`) is the 16-byte hash at signature byte-offset
+`1952 + 868*layer + 16*k`. -/
+theorem parseSignatureC13_layer_wots_chain_getElem?
+    {v : Variant} {sig : Bytes} {s : Signature}
+    (hparse : parseSignatureC13 v sig = some s)
+    {layer : Nat} (hlayer : layer < 2)
+    {lsig : XmssLayerSig} (hlsig : s.layers[layer]? = some lsig)
+    {k : Nat} (hk : k < 43) :
+    lsig.wots.chains[k]? =
+      some (read16 sig (1952 + 868 * layer + 16 * k)) := by
+  have hsz : sig.size = v.sigBytes := parseSignatureC13_size hparse
+  unfold parseSignatureC13 at hparse
+  simp only [hsz, ne_eq, not_true_eq_false, if_false, Option.some.injEq] at hparse
+  subst hparse
+  rw [getElem?_map_range _ hlayer] at hlsig
+  injection hlsig with hlsig
+  subst hlsig
+  exact getElem?_map_range _ hk
+
 /-- **XMSS WOTS+C count.**  The parsed WOTS count for climb layer `layer`
 (`layer < 2`) is the big-endian uint32 stored in the high four bytes at
 signature byte-offset `1952 + 868*layer + 688`. -/

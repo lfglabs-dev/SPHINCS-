@@ -61,6 +61,20 @@ compression slot `0x40 + 32*i`.  A single total `mstore`. -/
 def forsCopyBody : List Stmt :=
   [ mstoreE (addE (u 0x40) (shlE (u 5) (v "i"))) (mloadE (addE (u 0x80) (shlE (u 5) (v "i")))) ]
 
+/-- Case eliminator for membership in `forsCopyBody`.
+
+Downstream frame files use this instead of unfolding `forsCopyBody`, so the
+generated equation theorem for this definition is owned by this module. -/
+theorem forsCopyBody_mem_cases {P : Stmt → Prop} {stmt : Stmt}
+    (hmem : stmt ∈ forsCopyBody)
+    (hstore :
+      P (mstoreE (addE (u 0x40) (shlE (u 5) (v "i")))
+        (mloadE (addE (u 0x80) (shlE (u 5) (v "i")))))) :
+    P stmt := by
+  simp only [forsCopyBody, List.mem_cons, List.not_mem_nil, or_false] at hmem
+  subst hmem
+  exact hstore
+
 /-- The pure transformer for one copy-loop iteration. -/
 def forsCopyStep (st : RuntimeState) : RuntimeState :=
   match execStmtList [] st forsCopyBody with
@@ -383,6 +397,35 @@ def forsFinalizeBody : List Stmt :=
   , mstore 0x20 (shlE (u 96) (u 4))
   , .forEach "i" (u 7) forsCopyBody
   , .letVar "forsPk" (andE (keccak 0x00 0x120) (u N_MASK)) ]
+
+/-- Case eliminator for membership in `forsFinalizeBody`.
+
+Keeping the list decomposition in this module prevents multiple downstream
+modules from generating duplicate imported equation theorems for
+`forsFinalizeBody`. -/
+theorem forsFinalizeBody_mem_cases {P : Stmt → Prop} {stmt : Stmt}
+    (hmem : stmt ∈ forsFinalizeBody)
+    (hlastSecret :
+      P (.letVar "lastSecret"
+        (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (u 6)))))
+          (u N_MASK))))
+    (hadrsLeaf :
+      P (mstore 0x20 (orE (shlE (u 96) (u 3)) (shlE (u 64) (u 6)))))
+    (hlastSecretStore : P (mstore 0x40 (v "lastSecret")))
+    (hforcedRoot : P (mstore 0x140 (andE (keccak 0x00 0x60) (u N_MASK))))
+    (hadrsRoots : P (mstore 0x20 (shlE (u 96) (u 4))))
+    (hcopy : P (.forEach "i" (u 7) forsCopyBody))
+    (hforsPk : P (.letVar "forsPk" (andE (keccak 0x00 0x120) (u N_MASK)))) :
+    P stmt := by
+  simp only [forsFinalizeBody, List.mem_cons, List.not_mem_nil, or_false] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact hlastSecret
+  · exact hadrsLeaf
+  · exact hlastSecretStore
+  · exact hforcedRoot
+  · exact hadrsRoots
+  · exact hcopy
+  · exact hforsPk
 
 /-- The finalize prefix before statement 21 (`forsPk := masked keccak`).  This
 materialises the exact state whose memory is compressed into the FORS public key. -/

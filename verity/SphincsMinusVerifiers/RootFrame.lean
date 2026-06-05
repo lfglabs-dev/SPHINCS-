@@ -188,22 +188,34 @@ theorem afterSeed_preserves_root (st : RuntimeState) :
 
 theorem forsCopyBody_pres : PreservesRoot SegmentS4Finalize.forsCopyBody := by
   intro s s'' stmt hmem hexec
-  simp only [SegmentS4Finalize.forsCopyBody, List.mem_cons, List.not_mem_nil, or_false] at hmem
-  subst hmem
+  refine SegmentS4Finalize.forsCopyBody_mem_cases
+    (P := fun stmt => execStmt [] s stmt = .continue s'' →
+      lookupValue s''.bindings "root" = lookupValue s.bindings "root")
+    hmem ?_ hexec
+  intro hexec
   exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
 
 theorem forsFinalizeBody_pres : PreservesRoot SegmentS4Finalize.forsFinalizeBody := by
   intro s s'' stmt hmem hexec
-  simp only [SegmentS4Finalize.forsFinalizeBody, List.mem_cons, List.not_mem_nil, or_false] at hmem
-  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact execStmt_letVar_preserves_lookup _ _ "lastSecret" "root" _ (by decide) hexec
-  · exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
-  · exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
-  · exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
-  · exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
-  · exact execStmt_forEach_preserves_lookup "i" "root" _ _ _ _ (by decide)
+  refine SegmentS4Finalize.forsFinalizeBody_mem_cases
+    (P := fun stmt => execStmt [] s stmt = .continue s'' →
+      lookupValue s''.bindings "root" = lookupValue s.bindings "root")
+    hmem ?_ ?_ ?_ ?_ ?_ ?_ ?_ hexec
+  · intro hexec
+    exact execStmt_letVar_preserves_lookup _ _ "lastSecret" "root" _ (by decide) hexec
+  · intro hexec
+    exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
+  · intro hexec
+    exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
+  · intro hexec
+    exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
+  · intro hexec
+    exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
+  · intro hexec
+    exact execStmt_forEach_preserves_lookup "i" "root" _ _ _ _ (by decide)
       forsCopyBody_pres hexec
-  · exact execStmt_letVar_preserves_lookup _ _ "forsPk" "root" _ (by decide) hexec
+  · intro hexec
+    exact execStmt_letVar_preserves_lookup _ _ "forsPk" "root" _ (by decide) hexec
 
 theorem forsFinalizeStep_preserves_root (st : RuntimeState) :
     lookupValue (SegmentS4Finalize.forsFinalizeStep st).bindings "root"

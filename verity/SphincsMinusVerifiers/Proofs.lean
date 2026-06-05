@@ -68,6 +68,7 @@
 
 import SphincsMinusVerifiers.ProofCore
 import SphincsMinusVerifiers.C13BridgePrep
+import SphincsMinusVerifiers.C12BridgePrep
 import SphincsMinusVerifiers.KeccakBridge
 import SphincsMinusVerifiers.SegmentLayer3MerkleFrame
 import SphincsMinusVerifiers.SiblingCalldata
@@ -417,6 +418,15 @@ theorem c13_refines_byte_spec_of_fold_result_cover
             forsPk sigParsed.layers ≠ .rejected :=
         C13Concrete.foldHypertree_c13_ne_rejected_of_parse hParse pk digest forsPk
       exact False.elim (hNotRejected hFold)
+
+/-- Export-boundary adapter for C13.  The public `execC13` runner is
+definitionally `execC13Concrete`, so any completed concrete bridge proof can be
+exposed at the former axiom's exact type. -/
+theorem c13_refines_byte_spec_exported_of_concrete
+    (hConcrete :
+      ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete) :
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13 := by
+  simpa [execC13] using hConcrete
 
 /-- The first C13 layer-loop guard state, in the exact shape consumed by the
 revert bridge. -/
@@ -896,6 +906,29 @@ theorem c13FirstLayerBeforeMerkle_layerFrozenSite
     exact lt_trans (Nat.mod_lt _ (by decide : 0 < 2048))
       (by decide : 2048 < 2 ^ 256)
 
+/-- Layer-0 `stepLayer` preserves seed cell `0x00` from `c13FirstLayerGuardState`,
+derived directly from the parsed-signature `LayerFrozenSite` and the WOTS/copy
+loop memory-zero frames.  This discharges the first conjunct of the cover's
+`hRevertedLayerFacts` from `hParse` alone, eliminating the need for the caller
+to thread it through. -/
+theorem c13FirstStepLayer_memory_zero_eq_of_parse
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    ((SegmentLayer3.stepLayer
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+      ((c13FirstLayerGuardState pkSeed pkRoot message sig).world.memory 0x00).val := by
+  have hSite :=
+    c13FirstLayerBeforeMerkle_layerFrozenSite pkSeed pkRoot message sig sigParsed hParse
+  have hStep :=
+    SegmentLayer3MerkleFrame.stepLayer_preserves_memory_zero_of_layerFrozenSite_range
+      (c13FirstLayerGuardState pkSeed pkRoot message sig) 0 pkSeed pkRoot message sig
+      SegmentLayer3.wotsOuterForEach_preserves_memory_zero
+      SegmentLayer3.copyForEach_preserves_memory_zero
+      (by decide : 0 < 2) hSite
+  rw [hStep]
+  exact SegmentLayer3.afterDigit_preserves_memory_zero _
+
 /-- Layer-1 `beforeMerkle` is a concrete frozen C13 Merkle site. -/
 theorem c13SecondLayerBeforeMerkle_layerFrozenSite
     (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
@@ -1252,6 +1285,108 @@ theorem c13SecondLayerGuardState_currentNode_of_first_step_reverted_layer1
   rw [hStep0Eq] at hCurrent0
   simpa [pk, digest] using hCurrent0
 
+/-- Layer-0 exact post-step `"merkleNode"` value for the C13 reverted-at-layer-1
+branch, reduced to the current Merkle-frame obligations: the normalized model
+cell is the C13 `xmssClimb` word and the raw cell is already normalized. -/
+theorem c13FirstStep_merkleNode_eq_root0_of_reverted_layer1
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature) (forsPk : Bytes)
+    (d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers)
+    (hModel :
+      wordNormalize
+          (lookupValue
+            (SegmentLayer3.stepLayer
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "merkleNode")
+        =
+          C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 0
+              ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+            11 0
+            ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+            (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath)
+    (hCellNorm :
+      wordNormalize
+          (lookupValue
+            (SegmentLayer3.stepLayer
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "merkleNode")
+        =
+          lookupValue
+            (SegmentLayer3.stepLayer
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "merkleNode") :
+    lookupValue
+        (SegmentLayer3.stepLayer
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+        "merkleNode" = C13Concrete.wordOfHash16 d.root0 := by
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  exact
+    SegmentAcceptSpec.stepLayer_merkleNode_eq_wordOfHash16_root_of_normalized_xmssClimb_wots_success
+      pk (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+      forsPk d.wotsPk0 d.root0 d.lsig0.wots d.lsig0.authPath
+      (c13FirstLayerGuardState pkSeed pkRoot message sig)
+      (by
+        simpa [pk, digest, C13Concrete.c13PrimitivesConcrete,
+          C13Concrete.wotsPkFromSigC13AtLayer_zero] using d.hWots0)
+      (by
+        simpa [pk, digest, C13Concrete.c13PrimitivesConcrete,
+          C13Concrete.xmssRootFromSigC13AtLayer_zero] using d.hXmss0)
+      (by simpa [pk, digest] using hModel)
+      hCellNorm
+
+/-- Layer-0 exact post-step `"merkleNode"` value for the C13 reverted-at-layer-1
+branch, reduced to the single raw Merkle-frame fact.  This is the sharper
+version of `c13FirstStep_merkleNode_eq_root0_of_reverted_layer1`: once the
+executable Merkle climb is identified with the concrete C13 `xmssClimb` word,
+the WOTS-success roundtrip discharges the root conversion directly, with no
+separate normalized-cell premises. -/
+theorem c13FirstStep_merkleNode_eq_root0_of_reverted_layer1_of_raw_xmssClimb
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature) (forsPk : Bytes)
+    (d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers)
+    (hRaw :
+      lookupValue
+          (SegmentLayer3.stepLayer
+            (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+          "merkleNode"
+        =
+          C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 0
+              ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+            11 0
+            ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+            (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath) :
+    lookupValue
+        (SegmentLayer3.stepLayer
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+        "merkleNode" = C13Concrete.wordOfHash16 d.root0 := by
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  exact
+    SegmentAcceptSpec.stepLayer_merkleNode_eq_wordOfHash16_root_of_xmssClimb_wots_success
+      pk (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+      forsPk d.wotsPk0 d.root0 d.lsig0.wots d.lsig0.authPath
+      (c13FirstLayerGuardState pkSeed pkRoot message sig)
+      (by
+        simpa [pk, digest, C13Concrete.c13PrimitivesConcrete,
+          C13Concrete.wotsPkFromSigC13AtLayer_zero] using d.hWots0)
+      (by
+        simpa [pk, digest, C13Concrete.c13PrimitivesConcrete,
+          C13Concrete.xmssRootFromSigC13AtLayer_zero] using d.hXmss0)
+      (by simpa [pk, digest] using hRaw)
+
 /-- Layer-1 pre-digest current-node scratch cell, once the incoming executable
 `"currentNode"` binding has been identified as a C13 hash word. -/
 theorem c13SecondLayerBeforeDigest_currentNode_slot
@@ -1435,6 +1570,238 @@ theorem c13SecondLayerBeforeDigest_count_slot_hyperIndex
       pkSeed pkRoot message sig sigParsed lsig hParse hLayer1)
     (c13SecondLayer_wotsCount_norm sig sigParsed lsig hParse hLayer1)
 
+/-- Successful C13 parsing identifies each WOTS chain entry with the matching
+16-byte signature slice from the two-layer C13 XMSS layout. -/
+theorem c13_layer_wotsChain_read16_of_parse
+    (sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (layer k : Nat) (hlayer : layer < 2) (hk : k < 43)
+    (lsig : XmssLayerSig)
+    (hLayer : sigParsed.layers[layer]? = some lsig) :
+    (lsig.wots.chains[k]?).getD ⟨#[]⟩ =
+      C13Concrete.read16 sig (1952 + 868 * layer + 16 * k) := by
+  have hGet :
+      lsig.wots.chains[k]? =
+        some (C13Concrete.read16 sig (1952 + 868 * layer + 16 * k)) :=
+    C13Concrete.parseSignatureC13_layer_wots_chain_getElem?
+      (v := c13) (sig := sig) (s := sigParsed) hParse hlayer hLayer hk
+  rw [hGet]
+  rfl
+
+/-- C13 WOTS calldata correspondence.  Under the frozen ABI calldata frame and
+pointer/index evaluations, the masked `calldataload` at `wotsPtr + (i << 4)`
+evaluates to `wordOfHash16` of the parsed C13 WOTS chain entry for the selected
+layer and chain index. -/
+theorem c13_masked_wots_read_eq_wordOfHash16
+    (st : RuntimeState)
+    (wotsPtrE iE : Compiler.CompilationModel.Expr)
+    (pkSeed pkRoot message sig : Bytes)
+    (layer k ap hval : Nat)
+    (hlayer : layer < 2) (hk : k < 43)
+    (lsig : XmssLayerSig)
+    (hsel : st.selector = 0)
+    (hcd : st.world.calldata
+            = MkC13State.headWords pkSeed pkRoot message sig.size
+                ++ MkC13State.bytesToWords sig)
+    (hap : evalExpr [] st wotsPtrE = some ap)
+    (hi : evalExpr [] st iE = some hval)
+    (haplt : ap < 2 ^ 256) (hhlt : hval < 2 ^ 256)
+    (hshift : hval <<< 4 < 2 ^ 256) (hsum : ap + hval <<< 4 < 2 ^ 256)
+    (hoff : ap + hval <<< 4 =
+      MkC13State.sigDataOffset + (1952 + 868 * layer + 16 * k))
+    (hauth :
+      (lsig.wots.chains[k]?).getD ⟨#[]⟩ =
+        C13Concrete.read16 sig (1952 + 868 * layer + 16 * k)) :
+    evalExpr [] st
+        (.bitAnd (.calldataload (.add wotsPtrE (.shl (.literal 4) iE)))
+          (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+      = some (C13Concrete.wordOfHash16
+          ((lsig.wots.chains[k]?).getD ⟨#[]⟩)) := by
+  have hoffset := SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_siblingOffset
+    st wotsPtrE iE ap hval hap hi haplt hhlt hshift hsum
+  have hcdl : evalExpr [] st
+      (.calldataload (.add wotsPtrE (.shl (.literal 4) iE)))
+        = some (Compiler.Proofs.YulGeneration.calldataloadWord 0
+            (MkC13State.headWords pkSeed pkRoot message sig.size
+              ++ MkC13State.bytesToWords sig)
+            (MkC13State.sigDataOffset + (1952 + 868 * layer + 16 * k))) := by
+    show (evalExpr [] st (.add wotsPtrE (.shl (.literal 4) iE))).bind
+          (fun ro => some (Compiler.Proofs.YulGeneration.calldataloadWord
+            st.selector st.world.calldata ro)) = _
+    rw [hoffset]
+    show some _ = _
+    rw [hsel, hcd, hoff]
+  have hoff4 :
+      4 ≤ MkC13State.sigDataOffset + (1952 + 868 * layer + 16 * k) := by
+    show 4 ≤ 164 + (1952 + 868 * layer + 16 * k)
+    omega
+  have hbound :=
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.calldataloadWord_lt_of_ge4 0
+      (MkC13State.headWords pkSeed pkRoot message sig.size
+        ++ MkC13State.bytesToWords sig)
+      (MkC13State.sigDataOffset + (1952 + 868 * layer + 16 * k)) hoff4
+  have hmasked := SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_maskedCalldata st
+    (.add wotsPtrE (.shl (.literal 4) iE)) _ hcdl hbound
+  have hgen := SphincsMinusVerifiers.SiblingCalldata.masked_sig_read_eq_wordOfHash16_gen
+    pkSeed pkRoot message sig (1952 + 868 * layer + 16 * k)
+  show evalExpr [] st
+      (.bitAnd (.calldataload (.add wotsPtrE (.shl (.literal 4) iE)))
+        (.literal C13Concrete.nMask)) = _
+  rw [hmasked, hauth]
+  exact congrArg some hgen
+
+/-- Layer-0 WOTS outer/copy-loop cell handoff specialized to C13 calldata.
+The caller supplies the executable loop invariants; the raw WOTS chain words are
+identified from the parsed C13 layer and frozen ABI calldata image here. -/
+theorem c13Layer0_copyFold43_wotsChainsEnd_cells_of_wotsOuterFold43
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (st : RuntimeState) (treeIdx leafIdx node wotsPtr : Nat)
+    (lsig : XmssLayerSig)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hLayer0 : sigParsed.layers[0]? = some lsig)
+    (hDigestLt :
+      C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
+        0 treeIdx leafIdx lsig.wots.count node < 2 ^ 256)
+    (hAdrsLt : C13Concrete.adrsWotsHashBase 0 treeIdx leafIdx < 2 ^ 256)
+    (hSeed : ∀ j, j < 43 →
+      ((ClimbLoop.foldLoop "i" SegmentLayer3.wotsOuterStep st 0 j).world.memory 0x00).val =
+        C13Concrete.wordOfHash16 pkSeed)
+    (hD : ∀ j, j < 43 →
+      lookupValue (ClimbLoop.foldLoop "i" SegmentLayer3.wotsOuterStep st 0 j).bindings "d" =
+        C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
+          0 treeIdx leafIdx lsig.wots.count node)
+    (hAdrs : ∀ j, j < 43 →
+      lookupValue (ClimbLoop.foldLoop "i" SegmentLayer3.wotsOuterStep st 0 j).bindings
+          "wotsAdrs" =
+        C13Concrete.adrsWotsHashBase 0 treeIdx leafIdx)
+    (hWPtr : ∀ j, j < 43 →
+      lookupValue (ClimbLoop.foldLoop "i" SegmentLayer3.wotsOuterStep st 0 j).bindings
+          "wotsPtr" = wotsPtr)
+    (hCdLoad : ∀ j, j < 43 → ∀ (s : RuntimeState),
+        lookupValue s.bindings "wotsPtr" = wotsPtr →
+        lookupValue s.bindings "i" = j →
+        s.world = (ClimbLoop.foldLoop "i" SegmentLayer3.wotsOuterStep st 0 j).world →
+        evalExpr [] s
+            (.calldataload
+              (.add (.localVar "wotsPtr")
+                (.shl (.literal 4) (.localVar "i")))) =
+          some (Compiler.Proofs.YulGeneration.calldataloadWord 0
+            (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+            (sigDataOffset + (1952 + 16 * j)))) :
+    ∀ j, (hj : j < 43) →
+      ((ClimbLoop.foldLoop "i" SegmentLayer3.copyStep
+          (ClimbLoop.foldLoop "i" SegmentLayer3.wotsOuterStep st 0 43) 0 43).world.memory
+          (0x40 + 32 * j)).val =
+        (InitialNodeKeccak.wotsChainsEnd
+          (C13Concrete.wordOfHash16 pkSeed) 0 treeIdx leafIdx node
+          lsig.wots)[j]'(by
+            rw [InitialNodeKeccak.wotsChainsEnd_length]
+            omega) := by
+  let rawAt : Nat → Nat := fun j =>
+    Compiler.Proofs.YulGeneration.calldataloadWord 0
+      (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+      (sigDataOffset + (1952 + 16 * j))
+  have hRaw : ∀ j, j < 43 → rawAt j < 2 ^ 256 := by
+    intro j hj
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.calldataloadWord_lt_of_ge4 0
+      (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+      (sigDataOffset + (1952 + 16 * j))
+      (by
+        show 4 ≤ 164 + (1952 + 16 * j)
+        omega)
+  have hRawChain : ∀ j, j < 43 →
+      C13Concrete.maskN (rawAt j) =
+        C13Concrete.wordOfHash16 ((lsig.wots.chains[j]?).getD ⟨#[]⟩) := by
+    intro j hj
+    have hRead :=
+      c13_layer_wotsChain_read16_of_parse sig sigParsed hParse
+        0 j (by decide : 0 < 2) hj lsig hLayer0
+    have hGen :=
+      SphincsMinusVerifiers.SiblingCalldata.masked_sig_read_eq_wordOfHash16_gen
+        pkSeed pkRoot message sig (1952 + 16 * j)
+    simpa [rawAt, C13Concrete.maskN, hRead] using hGen
+  exact SphincsMinusVerifiers.SegmentLayer3.copyFold43_wotsChainsEnd_cells_of_wotsOuterFold43
+    st (C13Concrete.wordOfHash16 pkSeed) 0 treeIdx leafIdx node wotsPtr
+    rawAt lsig.wots hDigestLt hAdrsLt hRaw hSeed hD hAdrs hWPtr hCdLoad
+    hRawChain
+
+/-- Layer-1 WOTS outer/copy-loop cell handoff specialized to C13 calldata.
+This is the layer-1 analogue of
+`c13Layer0_copyFold43_wotsChainsEnd_cells_of_wotsOuterFold43`; the only
+calldata difference is the layer-1 WOTS-chain base offset
+`1952 + 868 + 16*j`. -/
+theorem c13Layer1_copyFold43_wotsChainsEnd_cells_of_wotsOuterFold43
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (st : RuntimeState) (treeIdx leafIdx node wotsPtr : Nat)
+    (lsig : XmssLayerSig)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hLayer1 : sigParsed.layers[1]? = some lsig)
+    (hDigestLt :
+      C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
+        1 treeIdx leafIdx lsig.wots.count node < 2 ^ 256)
+    (hAdrsLt : C13Concrete.adrsWotsHashBase 1 treeIdx leafIdx < 2 ^ 256)
+    (hSeed : ∀ j, j < 43 →
+      ((ClimbLoop.foldLoop "i" SegmentLayer3.wotsOuterStep st 0 j).world.memory 0x00).val =
+        C13Concrete.wordOfHash16 pkSeed)
+    (hD : ∀ j, j < 43 →
+      lookupValue (ClimbLoop.foldLoop "i" SegmentLayer3.wotsOuterStep st 0 j).bindings "d" =
+        C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
+          1 treeIdx leafIdx lsig.wots.count node)
+    (hAdrs : ∀ j, j < 43 →
+      lookupValue (ClimbLoop.foldLoop "i" SegmentLayer3.wotsOuterStep st 0 j).bindings
+          "wotsAdrs" =
+        C13Concrete.adrsWotsHashBase 1 treeIdx leafIdx)
+    (hWPtr : ∀ j, j < 43 →
+      lookupValue (ClimbLoop.foldLoop "i" SegmentLayer3.wotsOuterStep st 0 j).bindings
+          "wotsPtr" = wotsPtr)
+    (hCdLoad : ∀ j, j < 43 → ∀ (s : RuntimeState),
+        lookupValue s.bindings "wotsPtr" = wotsPtr →
+        lookupValue s.bindings "i" = j →
+        s.world = (ClimbLoop.foldLoop "i" SegmentLayer3.wotsOuterStep st 0 j).world →
+        evalExpr [] s
+            (.calldataload
+              (.add (.localVar "wotsPtr")
+                (.shl (.literal 4) (.localVar "i")))) =
+          some (Compiler.Proofs.YulGeneration.calldataloadWord 0
+            (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+            (sigDataOffset + (1952 + 868 + 16 * j)))) :
+    ∀ j, (hj : j < 43) →
+      ((ClimbLoop.foldLoop "i" SegmentLayer3.copyStep
+          (ClimbLoop.foldLoop "i" SegmentLayer3.wotsOuterStep st 0 43) 0 43).world.memory
+          (0x40 + 32 * j)).val =
+        (InitialNodeKeccak.wotsChainsEnd
+          (C13Concrete.wordOfHash16 pkSeed) 1 treeIdx leafIdx node
+          lsig.wots)[j]'(by
+            rw [InitialNodeKeccak.wotsChainsEnd_length]
+            omega) := by
+  let rawAt : Nat → Nat := fun j =>
+    Compiler.Proofs.YulGeneration.calldataloadWord 0
+      (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+      (sigDataOffset + (1952 + 868 + 16 * j))
+  have hRaw : ∀ j, j < 43 → rawAt j < 2 ^ 256 := by
+    intro j hj
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.calldataloadWord_lt_of_ge4 0
+      (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+      (sigDataOffset + (1952 + 868 + 16 * j))
+      (by
+        show 4 ≤ 164 + (1952 + 868 + 16 * j)
+        omega)
+  have hRawChain : ∀ j, j < 43 →
+      C13Concrete.maskN (rawAt j) =
+        C13Concrete.wordOfHash16 ((lsig.wots.chains[j]?).getD ⟨#[]⟩) := by
+    intro j hj
+    have hRead :=
+      c13_layer_wotsChain_read16_of_parse sig sigParsed hParse
+        1 j (by decide : 1 < 2) hj lsig hLayer1
+    have hGen :=
+      SphincsMinusVerifiers.SiblingCalldata.masked_sig_read_eq_wordOfHash16_gen
+        pkSeed pkRoot message sig (1952 + 868 + 16 * j)
+    simpa [rawAt, C13Concrete.maskN, hRead] using hGen
+  exact SphincsMinusVerifiers.SegmentLayer3.copyFold43_wotsChainsEnd_cells_of_wotsOuterFold43
+    st (C13Concrete.wordOfHash16 pkSeed) 1 treeIdx leafIdx node wotsPtr
+    rawAt lsig.wots hDigestLt hAdrsLt hRaw hSeed hD hAdrs hWPtr hCdLoad
+    hRawChain
+
 /-- Remaining concrete data needed for the C13 `.ok` fold branch at the current
 node boundary. -/
 def C13FoldOkCurrentNodeWordcmpData
@@ -1587,6 +1954,5236 @@ theorem c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
   ⟨hGuard0, hCurrent0, hGuard1, hCurrent1,
     SegmentAcceptSpec.wordCmp_of_wordOfHash16_rootMatchesPk_c13 specRoot pkRoot
       (SegmentAcceptSpec.specRoot_roundtrip_of_c13_fors_fold hFors hFold)⟩
+
+theorem c13_wotsDigest_lt
+    (seed : C13Concrete.Word) (layer idxTree idxLeaf count node : Nat) :
+    C13Concrete.wotsDigest seed layer idxTree idxLeaf count node < 2 ^ 256 := by
+  simpa [C13Concrete.wotsDigest, Compiler.Constants.evmModulus] using
+    SphincsMinusVerifiers.KeccakBridge.keccakWords_lt
+      [seed, C13Concrete.adrsWotsHashBase layer idxTree idxLeaf, node, count]
+
+/-- The final C13 layer tail assigns `"currentNode"` and `"sigOff"` but does not
+rebind `"merkleNode"`, so the post-step Merkle cell is exactly the post-climb
+cell at `afterMerkle`. -/
+theorem c13_stepLayer_merkleNode_eq_afterMerkle_merkleNode
+    (ls : RuntimeState) :
+    lookupValue (SegmentLayer3.stepLayer ls).bindings "merkleNode" =
+      lookupValue (SegmentLayer3.afterMerkle ls).bindings "merkleNode" := by
+  have hTail := SegmentLayer3.finalLayerTail_preserves_merkleNode
+    (SegmentLayer3.afterMerkle ls)
+  rw [SegmentLayer3.finalLayerTail_continues_from_afterMerkle ls] at hTail
+  exact hTail
+
+/-- Exact raw `"merkleNode"` adapter from the Merkle-loop cutpoint to the full
+C13 layer step.  The final layer tail does not rebind `"merkleNode"`, so any
+exact `afterMerkle` climb equality is already the post-`stepLayer` equality. -/
+theorem c13_stepLayer_merkleNode_eq_xmssClimb_of_afterMerkle
+    (ls : RuntimeState) (seed treeAdrs mIdx node : Nat) (auth : List Bytes)
+    (hAfter :
+      lookupValue (SegmentLayer3.afterMerkle ls).bindings "merkleNode" =
+        C13Concrete.xmssClimb seed treeAdrs 11 0 mIdx node auth) :
+    lookupValue (SegmentLayer3.stepLayer ls).bindings "merkleNode" =
+      C13Concrete.xmssClimb seed treeAdrs 11 0 mIdx node auth := by
+  rw [c13_stepLayer_merkleNode_eq_afterMerkle_merkleNode]
+  exact hAfter
+
+/-- Reverted-at-layer-1 `currentNode` closure from the smaller raw
+`afterMerkle` climb equality.  The final layer tail does not rebind
+`"merkleNode"`, and `stepLayer_currentNode_eq_merkleNode` identifies the
+post-step `"currentNode"` with that Merkle result; the C13 spec-side
+WOTS/XMSS success data then converts the raw climb word to `wordOfHash16 root0`.
+-/
+theorem c13SecondLayerGuardState_currentNode_of_reverted_layer1_afterMerkle_raw_xmssClimb
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature) (forsPk : Bytes)
+    (hAfter :
+      ∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers,
+        lookupValue
+            (SegmentLayer3.afterMerkle
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "merkleNode" =
+          C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 0
+              ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+            11 0
+            ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+            (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath) :
+    ∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers,
+      lookupValue
+          (c13SecondLayerGuardState pkSeed pkRoot message sig).bindings
+          "currentNode" = C13Concrete.wordOfHash16 d.root0 := by
+  intro d
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  have hRawStep :
+      lookupValue
+          (SegmentLayer3.stepLayer
+            (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+          "merkleNode" =
+        C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+          11 0 (digest.hyperIndex % 2048)
+          (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath := by
+    exact c13_stepLayer_merkleNode_eq_xmssClimb_of_afterMerkle
+      (c13FirstLayerGuardState pkSeed pkRoot message sig)
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+      (digest.hyperIndex % 2048)
+      (C13Concrete.wordOfHash16 d.wotsPk0)
+      d.lsig0.authPath
+      (by simpa [pk, digest] using hAfter d)
+  have hMerkleRoot :
+      lookupValue
+          (SegmentLayer3.stepLayer
+            (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+          "merkleNode" = C13Concrete.wordOfHash16 d.root0 := by
+    exact c13FirstStep_merkleNode_eq_root0_of_reverted_layer1_of_raw_xmssClimb
+      pkSeed pkRoot message sig sigParsed forsPk d
+      (by simpa [pk, digest] using hRawStep)
+  unfold c13SecondLayerGuardState ClimbLoopGuarded.loopState
+  rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "currentNode" _ (by decide)]
+  rw [SegmentLayer3.stepLayer_currentNode_eq_merkleNode]
+  exact hMerkleRoot
+
+/-- Layer-indexed C13 XMSS reconstruction exposes the exact `xmssClimb` word
+whose high 16 bytes are returned as the byte root. -/
+theorem c13_xmssRootFromSigAtLayer_some_eq_hash16OfWord_xmssClimb
+    (pk : PublicKey) (layer treeIdx leafIdx : Nat)
+    (wotsPk root : ByteArray) (auth : List ByteArray)
+    (hXmss : C13Concrete.xmssRootFromSigC13AtLayer layer c13 pk treeIdx leafIdx
+        wotsPk auth = some root) :
+    root =
+      C13Concrete.hash16OfWord
+        (C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pk.pkSeed)
+          (C13Concrete.adrsXmssTree layer treeIdx) 11 0 leafIdx
+          (C13Concrete.wordOfHash16 wotsPk) auth) := by
+  unfold C13Concrete.xmssRootFromSigC13AtLayer at hXmss
+  injection hXmss with hEq
+  exact hEq.symm
+
+/-- Successful layer-indexed C13 WOTS reconstruction gives a 16-byte starting
+XMSS node, so the concrete XMSS climb word roundtrips through
+`hash16OfWord`/`wordOfHash16`. -/
+theorem c13_xmssClimbAtLayer_roundtrip_of_wots_success
+    (pk : PublicKey) (layer treeIdx leafIdx : Nat)
+    (node wotsPk : ByteArray) (wots : WotsSig) (auth : List ByteArray)
+    (hWots : C13Concrete.wotsPkFromSigC13AtLayer layer c13 pk treeIdx leafIdx
+        node wots = some wotsPk) :
+    C13Concrete.wordOfHash16
+        (C13Concrete.hash16OfWord
+          (C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pk.pkSeed)
+            (C13Concrete.adrsXmssTree layer treeIdx) 11 0 leafIdx
+            (C13Concrete.wordOfHash16 wotsPk) auth))
+      =
+        C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pk.pkSeed)
+          (C13Concrete.adrsXmssTree layer treeIdx) 11 0 leafIdx
+          (C13Concrete.wordOfHash16 wotsPk) auth := by
+  refine SegmentAcceptSpec.xmssClimb_roundtrip_of_node_roundtrip
+    (C13Concrete.wordOfHash16 pk.pkSeed) (C13Concrete.adrsXmssTree layer treeIdx)
+    11 0 leafIdx (C13Concrete.wordOfHash16 wotsPk) auth ?_
+  rw [SegmentAcceptSpec.hash16OfWord_wordOfHash16_of_size wotsPk
+    (C13Concrete.wotsPkFromSigC13AtLayer_size hWots)]
+
+/-- Exact post-step `"merkleNode"` adapter for a concrete C13 hypertree layer.
+Callers provide the raw executable climb word at that layer; WOTS/XMSS success
+turns it into the returned byte root's `wordOfHash16`. -/
+theorem c13_stepLayer_merkleNode_eq_wordOfHash16_root_of_xmssClimbAtLayer_wots_success
+    (pk : PublicKey) (layer treeIdx leafIdx : Nat)
+    (node wotsPk root : ByteArray) (wots : WotsSig) (auth : List ByteArray)
+    (ls : RuntimeState)
+    (hWots : C13Concrete.wotsPkFromSigC13AtLayer layer c13 pk treeIdx leafIdx
+        node wots = some wotsPk)
+    (hXmss : C13Concrete.xmssRootFromSigC13AtLayer layer c13 pk treeIdx leafIdx
+        wotsPk auth = some root)
+    (hModel :
+      lookupValue (SegmentLayer3.stepLayer ls).bindings "merkleNode"
+        =
+          C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pk.pkSeed)
+            (C13Concrete.adrsXmssTree layer treeIdx) 11 0 leafIdx
+            (C13Concrete.wordOfHash16 wotsPk) auth) :
+    lookupValue (SegmentLayer3.stepLayer ls).bindings "merkleNode"
+      = C13Concrete.wordOfHash16 root := by
+  have hRoot :=
+    c13_xmssRootFromSigAtLayer_some_eq_hash16OfWord_xmssClimb
+      pk layer treeIdx leafIdx wotsPk root auth hXmss
+  rw [hModel, hRoot]
+  exact (c13_xmssClimbAtLayer_roundtrip_of_wots_success
+    pk layer treeIdx leafIdx node wotsPk wots auth hWots).symm
+
+/-- Smaller executable facts that imply the four C13 `.ok` branch
+guard/current-node facts: each guard is reduced to the post-prefix checksum
+cell, and each final `"currentNode"` equality is reduced to the intermediate
+post-step `"merkleNode"` cell. -/
+def C13FoldOkDigitMerkleData
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  lookupValue
+      (SegmentLayer3.afterDigit
+        (CurrentNodeFrame.c13LayerLoopState0
+          (mkC13State pkSeed pkRoot message sig))).bindings
+      "digitSum" = 208 ∧
+  lookupValue
+      (SegmentLayer3.stepLayer
+        (CurrentNodeFrame.c13LayerLoopState0
+          (mkC13State pkSeed pkRoot message sig))).bindings
+      "merkleNode"
+    =
+      C13Concrete.wordOfHash16
+        (SegmentAcceptSpec.c13HypertreeSpecStepAtLayer
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.layers 0 forsPk) ∧
+  lookupValue
+      (SegmentLayer3.afterDigit
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))).bindings
+      "digitSum" = 208 ∧
+  lookupValue
+      (SegmentLayer3.stepLayer
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))).bindings
+      "merkleNode"
+    = C13Concrete.wordOfHash16 specRoot
+
+/-- Residual model-side facts for the C13 `.ok` branch after the checksum
+guards have been reduced to the parsed successful fold.  The two `"merkleNode"`
+facts are the exact XMSS/model correspondence targets; the scratch-cell fact is
+the seed-preservation bridge needed to materialize the layer-1 WOTS digest. -/
+def C13FoldOkModelMerkleData
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  ((SegmentLayer3.stepLayer
+      (CurrentNodeFrame.c13LayerLoopState0
+        (mkC13State pkSeed pkRoot message sig))).world.memory 0x00).val =
+    ((CurrentNodeFrame.c13LayerLoopState0
+      (mkC13State pkSeed pkRoot message sig)).world.memory 0x00).val ∧
+  lookupValue
+      (SegmentLayer3.stepLayer
+        (CurrentNodeFrame.c13LayerLoopState0
+          (mkC13State pkSeed pkRoot message sig))).bindings
+      "merkleNode"
+    =
+      C13Concrete.wordOfHash16
+        (SegmentAcceptSpec.c13HypertreeSpecStepAtLayer
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.layers 0 forsPk) ∧
+  lookupValue
+      (SegmentLayer3.stepLayer
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))).bindings
+      "merkleNode"
+    = C13Concrete.wordOfHash16 specRoot
+
+/-- The layer-0 C13 `.ok` branch preserves seed scratch cell `0x00`.  This is
+the memory-frame part of `C13FoldOkModelMerkleData`; it follows from the
+concrete frozen Merkle site plus the WOTS/copy loop frames. -/
+theorem c13FirstLayerStep_preserves_memory_zero_of_parse
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    ((SegmentLayer3.stepLayer
+      (CurrentNodeFrame.c13LayerLoopState0
+        (mkC13State pkSeed pkRoot message sig))).world.memory 0x00).val =
+      ((CurrentNodeFrame.c13LayerLoopState0
+        (mkC13State pkSeed pkRoot message sig)).world.memory 0x00).val := by
+  have hStep :
+      ((SegmentLayer3.stepLayer
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+        ((SegmentLayer3.afterDigit
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val := by
+    exact
+      SegmentLayer3MerkleFrame.stepLayer_preserves_memory_zero_of_layerFrozenSite_range
+        (c13FirstLayerGuardState pkSeed pkRoot message sig) 0
+        pkSeed pkRoot message sig
+        SegmentLayer3.wotsOuterForEach_preserves_memory_zero
+        SegmentLayer3.copyForEach_preserves_memory_zero
+        (by decide : 0 < 2)
+        (c13FirstLayerBeforeMerkle_layerFrozenSite
+          pkSeed pkRoot message sig sigParsed hParse)
+  have hMem :
+      ((SegmentLayer3.stepLayer
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+        ((c13FirstLayerGuardState pkSeed pkRoot message sig).world.memory 0x00).val := by
+    rw [hStep]
+    exact SegmentLayer3.afterDigit_preserves_memory_zero
+      (c13FirstLayerGuardState pkSeed pkRoot message sig)
+  simpa [c13FirstLayerGuardState_eq_c13LayerLoopState0] using hMem
+
+/-- Raw XMSS/model premises that imply the C13 `.ok` branch
+`C13FoldOkModelMerkleData`.  The seed preservation conjunct is proved here from
+the concrete layer frame; the two remaining conjuncts are reduced to exact raw
+post-step `"merkleNode"` climb facts for layer 0 and layer 1. -/
+theorem c13FoldOkModelMerkleData_of_raw_xmssClimb
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hRaw0 :
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers specRoot,
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (CurrentNodeFrame.c13LayerLoopState0
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "merkleNode"
+          =
+            C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+              (C13Concrete.adrsXmssTree 0
+                ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+              11 0
+              ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+              (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath)
+    (hRaw1 :
+      lookupValue
+          (SegmentLayer3.stepLayer
+            (CurrentNodeFrame.c13LayerLoopState1
+              (mkC13State pkSeed pkRoot message sig))).bindings
+          "merkleNode"
+        = C13Concrete.wordOfHash16 specRoot) :
+    C13FoldOkModelMerkleData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  let d :=
+    C13Concrete.foldHypertree_c13_ok_two_layer_data
+      pk digest forsPk specRoot sigParsed.layers
+      (by simpa [pk, digest] using hFold)
+  have hStep0Eq :
+      SegmentAcceptSpec.c13HypertreeSpecStepAtLayer pk digest sigParsed.layers
+        0 forsPk = d.root0 := by
+    exact SegmentAcceptSpec.c13HypertreeSpecStepAtLayer_eq_root_of_success
+      pk digest sigParsed.layers 0 forsPk d.wotsPk0 d.root0 d.lsig0
+      d.hLayer0
+      (by simpa [pk, digest, SegmentAcceptSpec.c13LayerNextTree,
+          SegmentAcceptSpec.c13LayerLeafIdx, SegmentAcceptSpec.c13LayerTreeIdx, c13]
+        using d.hGrinding0)
+      (by simpa [C13Concrete.c13PrimitivesConcrete, pk, digest,
+          SegmentAcceptSpec.c13LayerNextTree, SegmentAcceptSpec.c13LayerLeafIdx,
+          SegmentAcceptSpec.c13LayerTreeIdx, c13]
+        using d.hWots0)
+      (by simpa [C13Concrete.c13PrimitivesConcrete, pk, digest,
+          SegmentAcceptSpec.c13LayerNextTree, SegmentAcceptSpec.c13LayerLeafIdx,
+          SegmentAcceptSpec.c13LayerTreeIdx, c13]
+        using d.hXmss0)
+  have hMerkle0 :
+      lookupValue
+          (SegmentLayer3.stepLayer
+            (CurrentNodeFrame.c13LayerLoopState0
+              (mkC13State pkSeed pkRoot message sig))).bindings
+          "merkleNode"
+        =
+          C13Concrete.wordOfHash16
+            (SegmentAcceptSpec.c13HypertreeSpecStepAtLayer pk digest sigParsed.layers
+              0 forsPk) := by
+    rw [hStep0Eq]
+    exact
+      SegmentAcceptSpec.stepLayer_merkleNode_eq_wordOfHash16_root_of_xmssClimb_wots_success
+        pk (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+        forsPk d.wotsPk0 d.root0 d.lsig0.wots d.lsig0.authPath
+        (CurrentNodeFrame.c13LayerLoopState0
+          (mkC13State pkSeed pkRoot message sig))
+        (by
+          simpa [pk, digest, C13Concrete.c13PrimitivesConcrete,
+            C13Concrete.wotsPkFromSigC13AtLayer_zero] using d.hWots0)
+        (by
+          simpa [pk, digest, C13Concrete.c13PrimitivesConcrete,
+            C13Concrete.xmssRootFromSigC13AtLayer_zero] using d.hXmss0)
+        (by simpa [pk, digest] using hRaw0 d)
+  have hMerkle1 :
+      lookupValue
+          (SegmentLayer3.stepLayer
+            (CurrentNodeFrame.c13LayerLoopState1
+              (mkC13State pkSeed pkRoot message sig))).bindings
+          "merkleNode"
+        = C13Concrete.wordOfHash16 specRoot := hRaw1
+  refine ⟨?_, ?_, ?_⟩
+  · exact c13FirstLayerStep_preserves_memory_zero_of_parse
+      pkSeed pkRoot message sig sigParsed hParse
+  · simpa [pk, digest] using hMerkle0
+  · exact hMerkle1
+
+/-- Raw XMSS/model premises for both C13 `.ok` layers imply
+`C13FoldOkModelMerkleData`.  Compared with
+`c13FoldOkModelMerkleData_of_raw_xmssClimb`, the layer-1 post-step root cell is
+reduced to the same exact raw climb-word shape as layer 0. -/
+theorem c13FoldOkModelMerkleData_of_raw_xmssClimbs
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hRaw0 :
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers specRoot,
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (CurrentNodeFrame.c13LayerLoopState0
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "merkleNode"
+          =
+            C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+              (C13Concrete.adrsXmssTree 0
+                ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+              11 0
+              ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+              (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath)
+    (hRaw1 :
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers specRoot,
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (CurrentNodeFrame.c13LayerLoopState1
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "merkleNode"
+          =
+            C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+              (C13Concrete.adrsXmssTree 1
+                (((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048) / 2048))
+              11 0
+              (((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048) % 2048)
+              (C13Concrete.wordOfHash16 d.wotsPk1) d.lsig1.authPath) :
+    C13FoldOkModelMerkleData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  let d :=
+    C13Concrete.foldHypertree_c13_ok_two_layer_data
+      pk digest forsPk specRoot sigParsed.layers
+      (by simpa [pk, digest] using hFold)
+  refine
+    c13FoldOkModelMerkleData_of_raw_xmssClimb
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hFold hRaw0 ?_
+  exact
+    c13_stepLayer_merkleNode_eq_wordOfHash16_root_of_xmssClimbAtLayer_wots_success
+      pk 1 ((digest.hyperIndex / 2048) / 2048)
+      ((digest.hyperIndex / 2048) % 2048)
+      d.root0 d.wotsPk1 specRoot d.lsig1.wots d.lsig1.authPath
+      (CurrentNodeFrame.c13LayerLoopState1
+        (mkC13State pkSeed pkRoot message sig))
+      (by
+        simpa [pk, digest, C13Concrete.c13PrimitivesConcrete,
+          SegmentAcceptSpec.c13LayerNextTree, SegmentAcceptSpec.c13LayerLeafIdx,
+          SegmentAcceptSpec.c13LayerTreeIdx, c13] using d.hWots1)
+      (by
+        simpa [pk, digest, C13Concrete.c13PrimitivesConcrete,
+          SegmentAcceptSpec.c13LayerNextTree, SegmentAcceptSpec.c13LayerLeafIdx,
+          SegmentAcceptSpec.c13LayerTreeIdx, c13] using d.hXmss1)
+      (by simpa [pk, digest] using hRaw1 d)
+
+/-- Successful C13 `.ok` fold data discharges the model-side Merkle package
+from exact raw climb cells at the `afterMerkle` cutpoint for both executable
+layers.  This is the current smallest executable residual before proving the
+raw climb relation itself: the final layer tail is already eliminated by
+`c13_stepLayer_merkleNode_eq_xmssClimb_of_afterMerkle`. -/
+theorem c13FoldOkModelMerkleData_of_afterMerkle_raw_xmssClimbs
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hAfter0 :
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers specRoot,
+        lookupValue
+            (SegmentLayer3.afterMerkle
+              (CurrentNodeFrame.c13LayerLoopState0
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "merkleNode"
+          =
+            C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+              (C13Concrete.adrsXmssTree 0
+                ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+              11 0
+              ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+              (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath)
+    (hAfter1 :
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers specRoot,
+        lookupValue
+            (SegmentLayer3.afterMerkle
+              (CurrentNodeFrame.c13LayerLoopState1
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "merkleNode"
+          =
+            C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+              (C13Concrete.adrsXmssTree 1
+                (((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048) / 2048))
+              11 0
+              (((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048) % 2048)
+              (C13Concrete.wordOfHash16 d.wotsPk1) d.lsig1.authPath) :
+    C13FoldOkModelMerkleData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  refine
+    c13FoldOkModelMerkleData_of_raw_xmssClimbs
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hFold ?_ ?_
+  · intro d
+    exact
+      c13_stepLayer_merkleNode_eq_xmssClimb_of_afterMerkle
+        (CurrentNodeFrame.c13LayerLoopState0
+          (mkC13State pkSeed pkRoot message sig))
+        (C13Concrete.wordOfHash16 pkSeed)
+        (C13Concrete.adrsXmssTree 0
+          ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+        ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+        (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath
+        (hAfter0 d)
+  · intro d
+    exact
+      c13_stepLayer_merkleNode_eq_xmssClimb_of_afterMerkle
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))
+        (C13Concrete.wordOfHash16 pkSeed)
+        (C13Concrete.adrsXmssTree 1
+          (((C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048) / 2048))
+        (((C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048) % 2048)
+        (C13Concrete.wordOfHash16 d.wotsPk1) d.lsig1.authPath
+        (hAfter1 d)
+
+/-- Successful C13 fold data discharges both executable checksum cells in
+`C13FoldOkDigitMerkleData`.  The remaining premises are only the model/XMSS
+post-step `"merkleNode"` equalities and the first-step seed scratch preservation
+needed to build the second layer's pre-digest scratch frame. -/
+theorem c13FoldOkDigitMerkleData_of_model_merkle_data
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (_hZero : forcedZeroOk c13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        sigParsed.fors = some forsPk)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hModel : C13FoldOkModelMerkleData
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkDigitMerkleData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  let d :=
+    C13Concrete.foldHypertree_c13_ok_two_layer_data
+      pk digest forsPk specRoot sigParsed.layers
+      (by simpa [pk, digest] using hFold)
+  rcases hModel with ⟨hStepMem0, hMerkle0, hMerkle1⟩
+  have hStep0Eq :
+      SegmentAcceptSpec.c13HypertreeSpecStepAtLayer pk digest sigParsed.layers
+        0 forsPk = d.root0 := by
+    exact SegmentAcceptSpec.c13HypertreeSpecStepAtLayer_eq_root_of_success
+      pk digest sigParsed.layers 0 forsPk d.wotsPk0 d.root0 d.lsig0
+      d.hLayer0
+      (by simpa [pk, digest, SegmentAcceptSpec.c13LayerNextTree,
+          SegmentAcceptSpec.c13LayerLeafIdx, SegmentAcceptSpec.c13LayerTreeIdx, c13]
+        using d.hGrinding0)
+      (by simpa [C13Concrete.c13PrimitivesConcrete, pk, digest,
+          SegmentAcceptSpec.c13LayerNextTree, SegmentAcceptSpec.c13LayerLeafIdx,
+          SegmentAcceptSpec.c13LayerTreeIdx, c13]
+        using d.hWots0)
+      (by simpa [C13Concrete.c13PrimitivesConcrete, pk, digest,
+          SegmentAcceptSpec.c13LayerNextTree, SegmentAcceptSpec.c13LayerLeafIdx,
+          SegmentAcceptSpec.c13LayerTreeIdx, c13]
+        using d.hXmss0)
+  have hCurrent0Root :
+      lookupValue (c13SecondLayerGuardState pkSeed pkRoot message sig).bindings
+        "currentNode" = C13Concrete.wordOfHash16 d.root0 := by
+    have hMerkle0Root :
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "merkleNode" =
+          C13Concrete.wordOfHash16 d.root0 := by
+      simpa [pk, digest, hStep0Eq]
+        using hMerkle0
+    unfold c13SecondLayerGuardState ClimbLoopGuarded.loopState
+    rw [MemoryKit.lookupValue_bindValue_ne _ "layer" "currentNode" _ (by decide)]
+    rw [SegmentLayer3.stepLayer_currentNode_eq_merkleNode]
+    simpa [pk, digest] using hMerkle0Root
+  have hSeed1 :
+      ((SegmentLayer3.beforeDigest
+          (c13SecondLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+        C13Concrete.wordOfHash16 pkSeed :=
+    c13SecondLayerBeforeDigest_seed_slot_of_first_step_seed_slot
+      pkSeed pkRoot message sig
+      (c13FirstStepLayer_seed_slot_of_memory_zero
+        pkSeed pkRoot message sig
+        (by simpa [c13FirstLayerGuardState_eq_c13LayerLoopState0] using hStepMem0))
+  have hD0 :
+      lookupValue
+          (SegmentLayer3.beforeDigitLoop
+            (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+          "d"
+        =
+          C13Concrete.wotsDigest
+            (C13Concrete.wordOfHash16 pkSeed) 0
+            (digest.hyperIndex / 2048)
+            (digest.hyperIndex % 2048)
+            d.lsig0.wots.count
+            (C13Concrete.wordOfHash16 forsPk) := by
+    exact SegmentLayer3.beforeDigitLoop_d_eq_wotsDigest_of_scratch
+      (c13FirstLayerGuardState pkSeed pkRoot message sig)
+      (C13Concrete.wordOfHash16 pkSeed) 0
+      (digest.hyperIndex / 2048)
+      (digest.hyperIndex % 2048)
+      d.lsig0.wots.count
+      (C13Concrete.wordOfHash16 forsPk)
+      (c13FirstLayerBeforeDigest_seed_slot pkSeed pkRoot message sig)
+      (c13FirstLayerBeforeDigest_wotsAdrs_slot_hyperIndex
+        pkSeed pkRoot message sig sigParsed hParse)
+      (c13FirstLayerBeforeDigest_currentNode_slot
+        pkSeed pkRoot message sig forsPk
+        (c13AfterFinalize_forsPk_of_parse_fors
+          pkSeed pkRoot message sig sigParsed forsPk hParse hFors))
+      (c13FirstLayerBeforeDigest_count_slot_hyperIndex
+        pkSeed pkRoot message sig sigParsed d.lsig0 hParse d.hLayer0)
+  have hD1 :
+      lookupValue
+          (SegmentLayer3.beforeDigitLoop
+            (c13SecondLayerGuardState pkSeed pkRoot message sig)).bindings
+          "d"
+        =
+          C13Concrete.wotsDigest
+            (C13Concrete.wordOfHash16 pkSeed) 1
+            ((digest.hyperIndex / 2048) / 2048)
+            ((digest.hyperIndex / 2048) % 2048)
+            d.lsig1.wots.count
+            (C13Concrete.wordOfHash16 d.root0) := by
+    exact SegmentLayer3.beforeDigitLoop_d_eq_wotsDigest_of_scratch
+      (c13SecondLayerGuardState pkSeed pkRoot message sig)
+      (C13Concrete.wordOfHash16 pkSeed) 1
+      ((digest.hyperIndex / 2048) / 2048)
+      ((digest.hyperIndex / 2048) % 2048)
+      d.lsig1.wots.count
+      (C13Concrete.wordOfHash16 d.root0)
+      hSeed1
+      (c13SecondLayerBeforeDigest_wotsAdrs_slot_hyperIndex
+        pkSeed pkRoot message sig sigParsed hParse)
+      (c13SecondLayerBeforeDigest_currentNode_slot
+        pkSeed pkRoot message sig d.root0 hCurrent0Root)
+      (c13SecondLayerBeforeDigest_count_slot_hyperIndex
+        pkSeed pkRoot message sig sigParsed d.lsig1 hParse d.hLayer1)
+  have hDigit0Wots :
+      lookupValue
+          (SegmentLayer3.afterDigit
+            (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+          "digitSum"
+        =
+          C13Concrete.wotsDigitSum
+            (C13Concrete.wotsDigest
+              (C13Concrete.wordOfHash16 pkSeed) 0
+              (digest.hyperIndex / 2048)
+              (digest.hyperIndex % 2048)
+              d.lsig0.wots.count
+              (C13Concrete.wordOfHash16 forsPk)) := by
+    exact SegmentLayer3.afterDigit_digitSum_eq_wotsDigitSum_of_beforeDigitLoop
+      (c13FirstLayerGuardState pkSeed pkRoot message sig)
+      (C13Concrete.wotsDigest
+        (C13Concrete.wordOfHash16 pkSeed) 0
+        (digest.hyperIndex / 2048)
+        (digest.hyperIndex % 2048)
+        d.lsig0.wots.count
+        (C13Concrete.wordOfHash16 forsPk))
+      hD0
+      (c13_wotsDigest_lt
+        (C13Concrete.wordOfHash16 pkSeed) 0
+        (digest.hyperIndex / 2048)
+        (digest.hyperIndex % 2048)
+        d.lsig0.wots.count
+        (C13Concrete.wordOfHash16 forsPk))
+  have hDigit1Wots :
+      lookupValue
+          (SegmentLayer3.afterDigit
+            (c13SecondLayerGuardState pkSeed pkRoot message sig)).bindings
+          "digitSum"
+        =
+          C13Concrete.wotsDigitSum
+            (C13Concrete.wotsDigest
+              (C13Concrete.wordOfHash16 pkSeed) 1
+              ((digest.hyperIndex / 2048) / 2048)
+              ((digest.hyperIndex / 2048) % 2048)
+              d.lsig1.wots.count
+              (C13Concrete.wordOfHash16 d.root0)) := by
+    exact SegmentLayer3.afterDigit_digitSum_eq_wotsDigitSum_of_beforeDigitLoop
+      (c13SecondLayerGuardState pkSeed pkRoot message sig)
+      (C13Concrete.wotsDigest
+        (C13Concrete.wordOfHash16 pkSeed) 1
+        ((digest.hyperIndex / 2048) / 2048)
+        ((digest.hyperIndex / 2048) % 2048)
+        d.lsig1.wots.count
+        (C13Concrete.wordOfHash16 d.root0))
+      hD1
+      (c13_wotsDigest_lt
+        (C13Concrete.wordOfHash16 pkSeed) 1
+        ((digest.hyperIndex / 2048) / 2048)
+        ((digest.hyperIndex / 2048) % 2048)
+        d.lsig1.wots.count
+        (C13Concrete.wordOfHash16 d.root0))
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · rw [c13FirstLayerGuardState_eq_c13LayerLoopState0] at hDigit0Wots
+    rw [hDigit0Wots]
+    exact C13Concrete.wotsDigitSum_eq_of_wotsGrindingFailsC13AtLayer_false
+      (layer := 0) (pk := pk)
+      (treeIdx := digest.hyperIndex / 2048)
+      (leafIdx := digest.hyperIndex % 2048)
+      (node := forsPk) (wots := d.lsig0.wots)
+      d.hGrinding0
+  · exact hMerkle0
+  · rw [c13SecondLayerGuardState_eq_c13LayerLoopState1] at hDigit1Wots
+    rw [hDigit1Wots]
+    exact C13Concrete.wotsDigitSum_eq_of_wotsGrindingFailsC13AtLayer_false
+      (layer := 1) (pk := pk)
+      (treeIdx := (digest.hyperIndex / 2048) / 2048)
+      (leafIdx := (digest.hyperIndex / 2048) % 2048)
+      (node := d.root0) (wots := d.lsig1.wots)
+      d.hGrinding1
+  · exact hMerkle1
+
+/-- The two C13 `.ok` guards and two post-step `"currentNode"` facts follow
+from the smaller checksum/`"merkleNode"` facts, with the final comparison still
+discharged by the C13-produced `specRoot` roundtrip rather than `pkRoot.size`. -/
+theorem c13FoldOkCurrentNodeWordcmpData_of_digit_merkle_facts
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        sigParsed.fors = some forsPk)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hFacts : C13FoldOkDigitMerkleData
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkCurrentNodeWordcmpData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  rcases hFacts with ⟨hDigit0, hMerkle0, hDigit1, hMerkle1⟩
+  refine
+    c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hFors hFold
+      ?_ ?_ ?_ ?_
+  · exact
+      SegmentLayer3.layerGuard_of_afterDigit_digitSum_eq
+        (CurrentNodeFrame.c13LayerLoopState0
+          (mkC13State pkSeed pkRoot message sig)) hDigit0
+  · rw [SegmentLayer3.stepLayer_currentNode_eq_merkleNode]
+    exact hMerkle0
+  · exact
+      SegmentLayer3.layerGuard_of_afterDigit_digitSum_eq
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig)) hDigit1
+  · rw [SegmentLayer3.stepLayer_currentNode_eq_merkleNode]
+    exact hMerkle1
+
+/-- Successful C13 `.ok` fold data discharges `C13FoldOkDigitMerkleData` once
+the remaining model facts have been reduced to the raw layer-0 XMSS climb cell
+and the raw layer-1 post-step root cell. -/
+theorem c13FoldOkDigitMerkleData_of_raw_xmssClimb
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hZero : forcedZeroOk c13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        sigParsed.fors = some forsPk)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hRaw0 :
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers specRoot,
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (CurrentNodeFrame.c13LayerLoopState0
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "merkleNode"
+          =
+            C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+              (C13Concrete.adrsXmssTree 0
+                ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+              11 0
+              ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+              (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath)
+    (hRaw1 :
+      lookupValue
+          (SegmentLayer3.stepLayer
+            (CurrentNodeFrame.c13LayerLoopState1
+              (mkC13State pkSeed pkRoot message sig))).bindings
+          "merkleNode"
+        = C13Concrete.wordOfHash16 specRoot) :
+    C13FoldOkDigitMerkleData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkDigitMerkleData_of_model_merkle_data
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse hZero hFors hFold
+    (c13FoldOkModelMerkleData_of_raw_xmssClimb
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hFold hRaw0 hRaw1)
+
+/-- Successful C13 `.ok` fold data discharges `C13FoldOkDigitMerkleData` from
+raw XMSS/model climb cells for both layers, with no caller premise stating the
+layer-1 post-step cell is already `wordOfHash16 specRoot`. -/
+theorem c13FoldOkDigitMerkleData_of_raw_xmssClimbs
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hZero : forcedZeroOk c13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        sigParsed.fors = some forsPk)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hRaw0 :
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers specRoot,
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (CurrentNodeFrame.c13LayerLoopState0
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "merkleNode"
+          =
+            C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+              (C13Concrete.adrsXmssTree 0
+                ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+              11 0
+              ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+              (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath)
+    (hRaw1 :
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers specRoot,
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (CurrentNodeFrame.c13LayerLoopState1
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "merkleNode"
+          =
+            C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+              (C13Concrete.adrsXmssTree 1
+                (((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048) / 2048))
+              11 0
+              (((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048) % 2048)
+              (C13Concrete.wordOfHash16 d.wotsPk1) d.lsig1.authPath) :
+    C13FoldOkDigitMerkleData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkDigitMerkleData_of_model_merkle_data
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse hZero hFors hFold
+    (c13FoldOkModelMerkleData_of_raw_xmssClimbs
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hFold hRaw0 hRaw1)
+
+/-- Successful C13 `.ok` fold data discharges `C13FoldOkDigitMerkleData` from
+exact raw climb cells at the `afterMerkle` cutpoint for both executable layers.
+This wires the reduced `afterMerkle` residuals into the checksum/current-node
+ok-branch reducer. -/
+theorem c13FoldOkDigitMerkleData_of_afterMerkle_raw_xmssClimbs
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hZero : forcedZeroOk c13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        sigParsed.fors = some forsPk)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hAfter0 :
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers specRoot,
+        lookupValue
+            (SegmentLayer3.afterMerkle
+              (CurrentNodeFrame.c13LayerLoopState0
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "merkleNode"
+          =
+            C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+              (C13Concrete.adrsXmssTree 0
+                ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+              11 0
+              ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+              (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath)
+    (hAfter1 :
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers specRoot,
+        lookupValue
+            (SegmentLayer3.afterMerkle
+              (CurrentNodeFrame.c13LayerLoopState1
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "merkleNode"
+          =
+            C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+              (C13Concrete.adrsXmssTree 1
+                (((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048) / 2048))
+              11 0
+              (((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048) % 2048)
+              (C13Concrete.wordOfHash16 d.wotsPk1) d.lsig1.authPath) :
+    C13FoldOkDigitMerkleData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkDigitMerkleData_of_model_merkle_data
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse hZero hFors hFold
+    (c13FoldOkModelMerkleData_of_afterMerkle_raw_xmssClimbs
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hFold hAfter0 hAfter1)
+
+/-- Named residual for the successful C13 `.ok` branch after the layer tail has
+been eliminated: the only remaining Merkle facts are the exact raw
+`afterMerkle` climb cells for the two executable layers.  This packages the
+formerly duplicated goals at the smallest current boundary: proving it requires
+the raw Merkle climb-state correspondence for each layer, while all checksum,
+root-roundtrip, and final-tail plumbing is discharged by the surrounding
+bridges. -/
+def C13FoldOkAfterMerkleRawXmssClimbData
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  (∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+      lookupValue
+          (SegmentLayer3.afterMerkle
+            (CurrentNodeFrame.c13LayerLoopState0
+              (mkC13State pkSeed pkRoot message sig))).bindings
+          "merkleNode"
+        =
+          C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+            11 0 (digest.hyperIndex % 2048)
+            (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath) ∧
+  (∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+      lookupValue
+          (SegmentLayer3.afterMerkle
+            (CurrentNodeFrame.c13LayerLoopState1
+              (mkC13State pkSeed pkRoot message sig))).bindings
+          "merkleNode"
+        =
+          C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+            11 0 ((digest.hyperIndex / 2048) % 2048)
+            (C13Concrete.wordOfHash16 d.wotsPk1) d.lsig1.authPath)
+
+/-- Normalized version of the current C13 `.ok` Merkle residual.  This is the
+shape produced by the frame-threaded climb theorem (`wordNormalize` of the
+`afterMerkle` cell equals the spec `xmssClimb`), plus the exact cell-normalization
+facts needed to recover the raw binding equality consumed by the older bridge. -/
+def C13FoldOkAfterMerkleNormalizedXmssClimbData
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  (∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+      wordNormalize
+          (lookupValue
+            (SegmentLayer3.afterMerkle
+              (CurrentNodeFrame.c13LayerLoopState0
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "merkleNode")
+        =
+          C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+            11 0 (digest.hyperIndex % 2048)
+            (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath) ∧
+  wordNormalize
+      (lookupValue
+        (SegmentLayer3.afterMerkle
+          (CurrentNodeFrame.c13LayerLoopState0
+            (mkC13State pkSeed pkRoot message sig))).bindings
+        "merkleNode")
+    =
+      lookupValue
+        (SegmentLayer3.afterMerkle
+          (CurrentNodeFrame.c13LayerLoopState0
+            (mkC13State pkSeed pkRoot message sig))).bindings
+        "merkleNode" ∧
+  (∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+      wordNormalize
+          (lookupValue
+            (SegmentLayer3.afterMerkle
+              (CurrentNodeFrame.c13LayerLoopState1
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "merkleNode")
+        =
+          C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+            11 0 ((digest.hyperIndex / 2048) % 2048)
+            (C13Concrete.wordOfHash16 d.wotsPk1) d.lsig1.authPath) ∧
+  wordNormalize
+      (lookupValue
+        (SegmentLayer3.afterMerkle
+          (CurrentNodeFrame.c13LayerLoopState1
+            (mkC13State pkSeed pkRoot message sig))).bindings
+        "merkleNode")
+    =
+      lookupValue
+      (SegmentLayer3.afterMerkle
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))).bindings
+      "merkleNode"
+
+/-- The true model/spec part of
+`C13FoldOkAfterMerkleNormalizedXmssClimbData`: for each successful concrete C13
+fold witness, the normalized executable `afterMerkle` cell is the corresponding
+spec `xmssClimb` word.  This is the part supplied by the frame-threaded climb
+theorem (`SegmentAcceptSpec.afterMerkle_model_node_of_xmss_frame_c13`) once the
+Merkle frame, auth-path calldata range, and initial climb frame are in hand. -/
+def C13FoldOkAfterMerkleNormalizedXmssClimbModelData
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  (∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+      wordNormalize
+          (lookupValue
+            (SegmentLayer3.afterMerkle
+              (CurrentNodeFrame.c13LayerLoopState0
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "merkleNode")
+        =
+          C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+            11 0 (digest.hyperIndex % 2048)
+            (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath) ∧
+  (∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+      wordNormalize
+          (lookupValue
+            (SegmentLayer3.afterMerkle
+              (CurrentNodeFrame.c13LayerLoopState1
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "merkleNode")
+        =
+          C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+            11 0 ((digest.hyperIndex / 2048) % 2048)
+            (C13Concrete.wordOfHash16 d.wotsPk1) d.lsig1.authPath)
+
+/-- Generic statement that an `afterMerkle` state's raw `"merkleNode"` binding is
+already a normalized EVM word.  This is intentionally independent of C13 fold
+data: it is the reusable cell-normalization side condition needed to turn a
+normalized model equality into an exact raw binding equality. -/
+def AfterMerkleMerkleNodeCellNormalized (ls : RuntimeState) : Prop :=
+  wordNormalize (lookupValue (SegmentLayer3.afterMerkle ls).bindings "merkleNode")
+    =
+      lookupValue (SegmentLayer3.afterMerkle ls).bindings "merkleNode"
+
+/-- Cell-normalization residual for the two concrete executable C13 `.ok`
+layers.  This is separated from the true XMSS/model equality so future callers
+can prove it once from source-semantics facts about the Merkle loop's raw output
+cell, rather than duplicating it for every successful fold witness. -/
+def C13FoldOkAfterMerkleCellNormalizedData
+    (pkSeed pkRoot message sig : Bytes) : Prop :=
+  AfterMerkleMerkleNodeCellNormalized
+    (CurrentNodeFrame.c13LayerLoopState0
+      (mkC13State pkSeed pkRoot message sig)) ∧
+  AfterMerkleMerkleNodeCellNormalized
+    (CurrentNodeFrame.c13LayerLoopState1
+      (mkC13State pkSeed pkRoot message sig))
+
+/-- Source-semantics ingredients that prove one `afterMerkle` `"merkleNode"`
+cell is already normalized: the normalized model projection and the exact raw
+projection expose the same concrete climb word. -/
+def AfterMerkleMerkleNodeCellNormalizedSourceData (ls : RuntimeState) : Prop :=
+  ∃ (seed treeAdrs mIdx node : Nat) (auth : List Bytes),
+    wordNormalize (lookupValue (SegmentLayer3.afterMerkle ls).bindings "merkleNode")
+      = C13Concrete.xmssClimb seed treeAdrs 11 0 mIdx node auth ∧
+    lookupValue (SegmentLayer3.afterMerkle ls).bindings "merkleNode"
+      = C13Concrete.xmssClimb seed treeAdrs 11 0 mIdx node auth
+
+/-- C13 layer-0/layer-1 source-semantics normalization premises. -/
+def C13FoldOkAfterMerkleCellNormalizedSourceData
+    (pkSeed pkRoot message sig : Bytes) : Prop :=
+  AfterMerkleMerkleNodeCellNormalizedSourceData
+    (CurrentNodeFrame.c13LayerLoopState0
+      (mkC13State pkSeed pkRoot message sig)) ∧
+  AfterMerkleMerkleNodeCellNormalizedSourceData
+    (CurrentNodeFrame.c13LayerLoopState1
+      (mkC13State pkSeed pkRoot message sig))
+
+/-- If the raw `afterMerkle` cell is known to be an exact climb word and the
+frame-threaded theorem gives the normalized cell as the same climb word, then
+that particular raw cell is normalized.  This is a small generic adapter for
+source-semantics facts that expose both raw and normalized views of the Merkle
+climb. -/
+theorem afterMerkle_merkleNode_cell_normalized_of_raw_and_normalized_xmssClimb
+    (ls : RuntimeState) (seed treeAdrs mIdx node : Nat) (auth : List Bytes)
+    (hModel :
+      wordNormalize (lookupValue (SegmentLayer3.afterMerkle ls).bindings "merkleNode")
+        = C13Concrete.xmssClimb seed treeAdrs 11 0 mIdx node auth)
+    (hRaw :
+      lookupValue (SegmentLayer3.afterMerkle ls).bindings "merkleNode"
+        = C13Concrete.xmssClimb seed treeAdrs 11 0 mIdx node auth) :
+    AfterMerkleMerkleNodeCellNormalized ls := by
+  unfold AfterMerkleMerkleNodeCellNormalized
+  exact hModel.trans hRaw.symm
+
+/-- Source-semantics model/raw projections discharge the reusable normalized-cell
+condition. -/
+theorem afterMerkle_merkleNode_cell_normalized_of_source_data
+    (ls : RuntimeState)
+    (hSource : AfterMerkleMerkleNodeCellNormalizedSourceData ls) :
+    AfterMerkleMerkleNodeCellNormalized ls := by
+  rcases hSource with ⟨seed, treeAdrs, mIdx, node, auth, hModel, hRaw⟩
+  exact afterMerkle_merkleNode_cell_normalized_of_raw_and_normalized_xmssClimb
+    ls seed treeAdrs mIdx node auth hModel hRaw
+
+/-- The C13 cell-normalization residual is reduced to the two source-semantics
+model/raw projections at the concrete layer states. -/
+theorem c13FoldOkAfterMerkleCellNormalizedData_of_source_data
+    (pkSeed pkRoot message sig : Bytes)
+    (hSource : C13FoldOkAfterMerkleCellNormalizedSourceData
+        pkSeed pkRoot message sig) :
+    C13FoldOkAfterMerkleCellNormalizedData
+      pkSeed pkRoot message sig := by
+  rcases hSource with ⟨hSource0, hSource1⟩
+  exact ⟨
+    afterMerkle_merkleNode_cell_normalized_of_source_data
+      (CurrentNodeFrame.c13LayerLoopState0
+        (mkC13State pkSeed pkRoot message sig)) hSource0,
+    afterMerkle_merkleNode_cell_normalized_of_source_data
+      (CurrentNodeFrame.c13LayerLoopState1
+        (mkC13State pkSeed pkRoot message sig)) hSource1⟩
+
+/-- The `beforeMerkle` prefix initializes the Merkle climb node from the freshly
+computed WOTS public-key word and the later `"mIdx"`/`"merklePtr"` bindings do
+not disturb it. -/
+theorem beforeMerkle_merkleNode_eq_wotsPk (ls : RuntimeState) :
+    lookupValue (SegmentLayer3.beforeMerkle ls).bindings "merkleNode" =
+      lookupValue (SegmentLayer3.beforeMerkle ls).bindings "wotsPk" := by
+  unfold SegmentLayer3.beforeMerkle
+  rw [show SegmentLayer3.suffixBeforeMerkle =
+      SegmentLayer3.suffixBeforeMIdx ++
+        [ .letVar "mIdx" (.localVar "idxLeaf")
+        , .letVar "merklePtr" (.add
+            (.localVar "sigBase") (.localVar "authOff")) ] by rfl]
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (SegmentLayer3.beforeMIdx_eq ls)]
+  rw [SphincsMinusVerifiers.ClimbKit.execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue _ "mIdx" _ _ rfl)]
+  rw [SphincsMinusVerifiers.ClimbKit.execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue _ "merklePtr" _ _ rfl)]
+  simp only [Compiler.Proofs.IRGeneration.SourceSemantics.execStmtList]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "merklePtr" "merkleNode" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "mIdx" "merkleNode" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "merklePtr" "wotsPk" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "mIdx" "wotsPk" _ (by decide)]
+  unfold SegmentLayer3.beforeMIdx SegmentLayer3.suffixBeforeMIdx
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (SegmentLayer3.beforeAuthOff_eq ls)]
+  rw [SphincsMinusVerifiers.ClimbKit.execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue _ "authOff" _ _ rfl)]
+  rw [SphincsMinusVerifiers.ClimbKit.execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue _ "treeAdrs" _ _ rfl)]
+  rw [SphincsMinusVerifiers.ClimbKit.execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue _ "merkleNode" _ _ rfl)]
+  simp only [Compiler.Proofs.IRGeneration.SourceSemantics.execStmtList]
+  rw [MemoryKit.lookupValue_bindValue_self]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "merkleNode" "wotsPk" _ (by decide)]
+
+/-- The suffix between the executable WOTS public-key binding and the Merkle
+cutpoint initializes only auth/tree/Merkle bookkeeping variables, so it leaves
+the already-computed `"wotsPk"` binding unchanged. -/
+theorem beforeMerkle_wotsPk_eq_beforeAuthOff_wotsPk (ls : RuntimeState) :
+    lookupValue (SegmentLayer3.beforeMerkle ls).bindings "wotsPk" =
+      lookupValue (SegmentLayer3.beforeAuthOff ls).bindings "wotsPk" := by
+  unfold SegmentLayer3.beforeMerkle
+  rw [show SegmentLayer3.suffixBeforeMerkle =
+        SegmentLayer3.suffixBeforeAuthOff ++
+          SegmentLayer3.suffixBeforeMerkle.drop SegmentLayer3.suffixBeforeAuthOff.length by rfl]
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (SegmentLayer3.beforeAuthOff_eq ls)]
+  simp only [SegmentLayer3.suffixBeforeAuthOff, SegmentLayer3.suffixBeforeMerkle,
+    List.length_cons, List.length_nil, List.drop]
+  rw [SphincsMinusVerifiers.ClimbKit.execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue _ "authOff" _ _ rfl)]
+  rw [SphincsMinusVerifiers.ClimbKit.execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue _ "treeAdrs" _ _ rfl)]
+  rw [SphincsMinusVerifiers.ClimbKit.execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue _ "merkleNode" _ _ rfl)]
+  rw [SphincsMinusVerifiers.ClimbKit.execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue _ "mIdx" _ _ rfl)]
+  rw [SphincsMinusVerifiers.ClimbKit.execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue _ "merklePtr" _ _ rfl)]
+  simp only [Compiler.Proofs.IRGeneration.SourceSemantics.execStmtList]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "merklePtr" "wotsPk" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "mIdx" "wotsPk" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "merkleNode" "wotsPk" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "treeAdrs" "wotsPk" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "authOff" "wotsPk" _ (by decide)]
+
+/-- Calldata image used by the C13 XMSS auth-path climb at `merklePtr`. -/
+def c13XmssAuthCdAt
+    (pkSeed pkRoot message sig : Bytes) (merklePtr : Nat) : Nat → Nat :=
+  fun j =>
+    Compiler.Proofs.YulGeneration.calldataloadWord 0
+      (SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
+        ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
+      (merklePtr + 16 * j)
+
+/-- The per-step frame-advance fact needed by the frame-threaded C13 XMSS climb. -/
+def C13AfterMerkleXmssFrameStepPremiseAt
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs merklePtr : Nat)
+    (auth : List Bytes) (cdAt : Nat → Nat) : Prop :=
+  ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth cdAt idx →
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+      "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+      pkSeed pkRoot message sig seed treeAdrs merklePtr s a →
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+      "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+      pkSeed pkRoot message sig seed treeAdrs merklePtr
+      (SphincsMinusVerifiers.ClimbKit.stepMerkle
+        "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+        { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+      (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
+        seed treeAdrs auth idx a)
+
+/-- The initial `beforeMerkle` frame fact for one C13 XMSS climb. -/
+def C13AfterMerkleXmssInitialFramePremiseAt
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs merklePtr : Nat)
+    (ls : RuntimeState) (mIdx node : Nat) : Prop :=
+  SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+    "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+    pkSeed pkRoot message sig seed treeAdrs merklePtr
+    { SegmentLayer3.beforeMerkle ls with
+      bindings := bindValue (SegmentLayer3.beforeMerkle ls).bindings "h"
+        (wordNormalize 0) }
+    (mIdx, node)
+
+/-- The remaining frame facts needed to instantiate the named frame-threaded
+`afterMerkle` theorem for one concrete C13 XMSS climb.  The parsed auth-path
+calldata range is supplied separately by `xmss_climb_data_range`; this package is
+therefore exactly the per-step frame advance and the initial frame at `h = 0`. -/
+def C13AfterMerkleXmssFramePremisesAt
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs merklePtr : Nat)
+    (auth : List Bytes) (cdAt : Nat → Nat)
+    (ls : RuntimeState) (mIdx node : Nat) : Prop :=
+  C13AfterMerkleXmssFrameStepPremiseAt
+    pkSeed pkRoot message sig seed treeAdrs merklePtr auth cdAt ∧
+  C13AfterMerkleXmssInitialFramePremiseAt
+    pkSeed pkRoot message sig seed treeAdrs merklePtr ls mIdx node
+
+/-- The raw per-step advance fact needed by the exact-cell C13 XMSS climb. -/
+def C13AfterMerkleXmssRawStepPremiseAt
+    (seed treeAdrs : Nat)
+    (auth : List Bytes) (cdAt : Nat → Nat) : Prop :=
+  ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth cdAt idx →
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRawRel
+      "merkleNode" "mIdx" s a →
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRawRel
+      "merkleNode" "mIdx"
+      (SphincsMinusVerifiers.ClimbKit.stepMerkle
+        "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+        { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+      (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
+        seed treeAdrs auth idx a)
+
+/-- The initial raw `beforeMerkle` relation for one C13 XMSS climb. -/
+def C13AfterMerkleXmssInitialRawPremiseAt
+    (ls : RuntimeState) (mIdx node : Nat) : Prop :=
+  SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRawRel
+    "merkleNode" "mIdx"
+    { SegmentLayer3.beforeMerkle ls with
+      bindings := bindValue (SegmentLayer3.beforeMerkle ls).bindings "h"
+        (wordNormalize 0) }
+    (mIdx, node)
+
+/-- Raw-relation analogue of `C13AfterMerkleXmssFramePremisesAt`.  This is the
+smallest exact-cell premise needed for one C13 XMSS climb: a raw per-step
+advance for `stepMerkle` plus the initial raw relation at `beforeMerkle` with
+`"h" = 0`. -/
+def C13AfterMerkleXmssRawPremisesAt
+    (seed treeAdrs : Nat)
+    (auth : List Bytes) (cdAt : Nat → Nat)
+    (ls : RuntimeState) (mIdx node : Nat) : Prop :=
+  C13AfterMerkleXmssRawStepPremiseAt seed treeAdrs auth cdAt ∧
+  C13AfterMerkleXmssInitialRawPremiseAt ls mIdx node
+
+/-- One-layer normalized `afterMerkle` projection from the named frame premises. -/
+theorem c13AfterMerkleNormalizedXmssClimb_of_frame_premises_at
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs merklePtr : Nat)
+    (auth : List Bytes) (cdAt : Nat → Nat)
+    (ls : RuntimeState) (mIdx node : Nat)
+    (hData :
+      ∀ i, i < 11 →
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth cdAt i)
+    (hFrame : C13AfterMerkleXmssFramePremisesAt
+        pkSeed pkRoot message sig seed treeAdrs merklePtr auth cdAt ls mIdx node) :
+    wordNormalize (lookupValue (SegmentLayer3.afterMerkle ls).bindings "merkleNode")
+      = C13Concrete.xmssClimb seed treeAdrs 11 0 mIdx node auth := by
+  rcases hFrame with ⟨hstep, hR⟩
+  exact
+    SegmentAcceptSpec.afterMerkle_model_node_of_xmss_frame_c13
+      pkSeed pkRoot message sig seed treeAdrs merklePtr auth cdAt ls mIdx node
+      hstep hData hR
+
+/-- One-layer exact raw `afterMerkle` projection from the named raw premises. -/
+theorem c13AfterMerkleRawXmssClimb_of_raw_premises_at
+    (seed treeAdrs : Nat)
+    (auth : List Bytes) (cdAt : Nat → Nat)
+    (ls : RuntimeState) (mIdx node : Nat)
+    (hData :
+      ∀ i, i < 11 →
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth cdAt i)
+    (hRaw : C13AfterMerkleXmssRawPremisesAt
+        seed treeAdrs auth cdAt ls mIdx node) :
+    lookupValue (SegmentLayer3.afterMerkle ls).bindings "merkleNode"
+      = C13Concrete.xmssClimb seed treeAdrs 11 0 mIdx node auth := by
+  rcases hRaw with ⟨hstep, hR⟩
+  exact
+    SegmentAcceptSpec.afterMerkle_model_node_raw_c13
+      seed treeAdrs auth cdAt ls mIdx node hstep hData hR
+
+/-- One-layer source-semantics normalization package from matching normalized
+and raw Merkle-climb projections to the same concrete `xmssClimb` word. -/
+theorem c13AfterMerkleCellNormalizedSourceData_of_frame_and_raw_premises_at
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs merklePtr : Nat)
+    (auth : List Bytes) (cdAt : Nat → Nat)
+    (ls : RuntimeState) (mIdx node : Nat)
+    (hData :
+      ∀ i, i < 11 →
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth cdAt i)
+    (hFrame : C13AfterMerkleXmssFramePremisesAt
+        pkSeed pkRoot message sig seed treeAdrs merklePtr auth cdAt ls mIdx node)
+    (hRaw : C13AfterMerkleXmssRawPremisesAt
+        seed treeAdrs auth cdAt ls mIdx node) :
+    AfterMerkleMerkleNodeCellNormalizedSourceData ls := by
+  refine ⟨seed, treeAdrs, mIdx, node, auth, ?_, ?_⟩
+  · exact c13AfterMerkleNormalizedXmssClimb_of_frame_premises_at
+      pkSeed pkRoot message sig seed treeAdrs merklePtr auth cdAt ls mIdx node
+      hData hFrame
+  · exact c13AfterMerkleRawXmssClimb_of_raw_premises_at
+      seed treeAdrs auth cdAt ls mIdx node hData hRaw
+
+/-- Layer-0 frame residual for one successful C13 `.ok` fold witness. -/
+def C13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer0
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssFramePremisesAt pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+      (sigDataOffset + (1952 + 868 * 0 + 692))
+      d.lsig0.authPath
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 0 + 692)))
+      (CurrentNodeFrame.c13LayerLoopState0
+        (mkC13State pkSeed pkRoot message sig))
+      (digest.hyperIndex % 2048)
+      (C13Concrete.wordOfHash16 d.wotsPk0)
+
+/-- Layer-1 frame residual for one successful C13 `.ok` fold witness. -/
+def C13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer1
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssFramePremisesAt pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+      (sigDataOffset + (1952 + 868 * 1 + 692))
+      d.lsig1.authPath
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 1 + 692)))
+      (CurrentNodeFrame.c13LayerLoopState1
+        (mkC13State pkSeed pkRoot message sig))
+      ((digest.hyperIndex / 2048) % 2048)
+      (C13Concrete.wordOfHash16 d.wotsPk1)
+
+/-- Layer-0 raw-relation residual for one successful C13 `.ok` fold witness. -/
+def C13FoldOkAfterMerkleRawXmssClimbFrameDataLayer0
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssRawPremisesAt
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+      d.lsig0.authPath
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 0 + 692)))
+      (CurrentNodeFrame.c13LayerLoopState0
+        (mkC13State pkSeed pkRoot message sig))
+      (digest.hyperIndex % 2048)
+      (C13Concrete.wordOfHash16 d.wotsPk0)
+
+/-- Layer-1 raw-relation residual for one successful C13 `.ok` fold witness. -/
+def C13FoldOkAfterMerkleRawXmssClimbFrameDataLayer1
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssRawPremisesAt
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+      d.lsig1.authPath
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 1 + 692)))
+      (CurrentNodeFrame.c13LayerLoopState1
+        (mkC13State pkSeed pkRoot message sig))
+      ((digest.hyperIndex / 2048) % 2048)
+      (C13Concrete.wordOfHash16 d.wotsPk1)
+
+/-- Layer-0 normalized step residual: one `stepMerkle` frame advance for the
+C13 `.ok` XMSS climb. -/
+def C13FoldOkAfterMerkleNormalizedXmssClimbFrameStepDataLayer0
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssFrameStepPremiseAt pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+      (sigDataOffset + (1952 + 868 * 0 + 692))
+      d.lsig0.authPath
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 0 + 692)))
+
+/-- Layer-0 normalized initial residual: the exact `beforeMerkle` frame at
+`"h" = 0`. -/
+def C13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer0
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssInitialFramePremiseAt pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+      (sigDataOffset + (1952 + 868 * 0 + 692))
+      (CurrentNodeFrame.c13LayerLoopState0
+        (mkC13State pkSeed pkRoot message sig))
+      (digest.hyperIndex % 2048)
+      (C13Concrete.wordOfHash16 d.wotsPk0)
+
+/-- Layer-1 normalized step residual: one `stepMerkle` frame advance for the
+C13 `.ok` XMSS climb. -/
+def C13FoldOkAfterMerkleNormalizedXmssClimbFrameStepDataLayer1
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssFrameStepPremiseAt pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+      (sigDataOffset + (1952 + 868 * 1 + 692))
+      d.lsig1.authPath
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 1 + 692)))
+
+/-- Layer-1 normalized initial residual: the exact `beforeMerkle` frame at
+`"h" = 0`. -/
+def C13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer1
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssInitialFramePremiseAt pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+      (sigDataOffset + (1952 + 868 * 1 + 692))
+      (CurrentNodeFrame.c13LayerLoopState1
+        (mkC13State pkSeed pkRoot message sig))
+      ((digest.hyperIndex / 2048) % 2048)
+      (C13Concrete.wordOfHash16 d.wotsPk1)
+
+/-- Layer-0 raw step residual: one exact-cell `stepMerkle` advance. -/
+def C13FoldOkAfterMerkleRawXmssClimbFrameStepDataLayer0
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssRawStepPremiseAt
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+      d.lsig0.authPath
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 0 + 692)))
+
+/-- Layer-0 raw initial residual: the exact `beforeMerkle` raw relation at
+`"h" = 0`. -/
+def C13FoldOkAfterMerkleRawXmssClimbInitialFrameDataLayer0
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssInitialRawPremiseAt
+      (CurrentNodeFrame.c13LayerLoopState0
+        (mkC13State pkSeed pkRoot message sig))
+      (digest.hyperIndex % 2048)
+      (C13Concrete.wordOfHash16 d.wotsPk0)
+
+/-- Layer-1 raw step residual: one exact-cell `stepMerkle` advance. -/
+def C13FoldOkAfterMerkleRawXmssClimbFrameStepDataLayer1
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssRawStepPremiseAt
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+      d.lsig1.authPath
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 1 + 692)))
+
+/-- Layer-1 raw initial residual: the exact `beforeMerkle` raw relation at
+`"h" = 0`. -/
+def C13FoldOkAfterMerkleRawXmssClimbInitialFrameDataLayer1
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssInitialRawPremiseAt
+      (CurrentNodeFrame.c13LayerLoopState1
+        (mkC13State pkSeed pkRoot message sig))
+      ((digest.hyperIndex / 2048) % 2048)
+      (C13Concrete.wordOfHash16 d.wotsPk1)
+
+/-- Smallest exact-node prerequisite for the layer-0 raw initial Merkle climb:
+the executable WOTS public-key word already equals the spec WOTS public key for
+each successful `.ok` fold witness.  The structural `beforeMerkle` node binding,
+the low-11-bit `"mIdx"` initialization, and word normalization are proved
+separately. -/
+def C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    lookupValue
+        (SegmentLayer3.beforeMerkle
+          (CurrentNodeFrame.c13LayerLoopState0
+            (mkC13State pkSeed pkRoot message sig))).bindings
+        "wotsPk" =
+      C13Concrete.wordOfHash16 d.wotsPk0
+
+/-- Layer-1 analogue of
+`C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0`. -/
+def C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    lookupValue
+        (SegmentLayer3.beforeMerkle
+          (CurrentNodeFrame.c13LayerLoopState1
+            (mkC13State pkSeed pkRoot message sig))).bindings
+        "wotsPk" =
+      C13Concrete.wordOfHash16 d.wotsPk1
+
+/-- Smaller layer-0 WOTS-start executable fact at the point immediately after
+the WOTS public-key word is bound, before the auth/tree/Merkle initialization
+suffix. -/
+def C13FoldOkBeforeAuthOffWotsPkDataLayer0
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    lookupValue
+        (SegmentLayer3.beforeAuthOff
+          (CurrentNodeFrame.c13LayerLoopState0
+            (mkC13State pkSeed pkRoot message sig))).bindings
+        "wotsPk" =
+      C13Concrete.wordOfHash16 d.wotsPk0
+
+/-- Smaller layer-1 analogue of `C13FoldOkBeforeAuthOffWotsPkDataLayer0`. -/
+def C13FoldOkBeforeAuthOffWotsPkDataLayer1
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    lookupValue
+        (SegmentLayer3.beforeAuthOff
+          (CurrentNodeFrame.c13LayerLoopState1
+            (mkC13State pkSeed pkRoot message sig))).bindings
+        "wotsPk" =
+      C13Concrete.wordOfHash16 d.wotsPk1
+
+/-- Layer-0 executable WOTS-start word before the auth-offset suffix, stated in
+the spec kernel's raw `wotsPkWord` form.  This is the remaining executable
+keccak/memory image behind `C13FoldOkBeforeAuthOffWotsPkDataLayer0`. -/
+def C13FoldOkBeforeAuthOffWotsPkWordDataLayer0
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    lookupValue
+        (SegmentLayer3.beforeAuthOff
+          (CurrentNodeFrame.c13LayerLoopState0
+            (mkC13State pkSeed pkRoot message sig))).bindings
+        "wotsPk" =
+      C13Concrete.wotsPkWord
+        (C13Concrete.wordOfHash16 pkSeed) 0
+        (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+        (C13Concrete.wordOfHash16 forsPk) d.lsig0.wots
+
+/-- Layer-1 analogue of `C13FoldOkBeforeAuthOffWotsPkWordDataLayer0`. -/
+def C13FoldOkBeforeAuthOffWotsPkWordDataLayer1
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    lookupValue
+        (SegmentLayer3.beforeAuthOff
+          (CurrentNodeFrame.c13LayerLoopState1
+            (mkC13State pkSeed pkRoot message sig))).bindings
+        "wotsPk" =
+      C13Concrete.wotsPkWord
+        (C13Concrete.wordOfHash16 pkSeed) 1
+        ((digest.hyperIndex / 2048) / 2048)
+        ((digest.hyperIndex / 2048) % 2048)
+        (C13Concrete.wordOfHash16 d.root0) d.lsig1.wots
+
+/-- Layer-0 final-keccak cutpoint behind
+`C13FoldOkBeforeAuthOffWotsPkWordDataLayer0`.  This separates the executable
+`"wotsPk"` binding from the evaluation of the final 45-word masked Keccak. -/
+def C13FoldOkBeforeAuthOffWotsPkFinalKeccakDataLayer0
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    let st :=
+      SegmentLayer3.beforeAuthOff
+        (CurrentNodeFrame.c13LayerLoopState0
+          (mkC13State pkSeed pkRoot message sig))
+    lookupValue st.bindings "wotsPk" =
+        (evalExpr [] st
+          (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x5A0))
+            (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))).getD 0 ∧
+    evalExpr [] st
+        (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x5A0))
+          (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+      =
+        some (C13Concrete.wotsPkWord
+          (C13Concrete.wordOfHash16 pkSeed) 0
+          (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+          (C13Concrete.wordOfHash16 forsPk) d.lsig0.wots)
+
+/-- Layer-1 analogue of
+`C13FoldOkBeforeAuthOffWotsPkFinalKeccakDataLayer0`. -/
+def C13FoldOkBeforeAuthOffWotsPkFinalKeccakDataLayer1
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    let st :=
+      SegmentLayer3.beforeAuthOff
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))
+    lookupValue st.bindings "wotsPk" =
+        (evalExpr [] st
+          (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x5A0))
+            (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))).getD 0 ∧
+    evalExpr [] st
+        (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x5A0))
+          (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+      =
+        some (C13Concrete.wotsPkWord
+          (C13Concrete.wordOfHash16 pkSeed) 1
+          ((digest.hyperIndex / 2048) / 2048)
+          ((digest.hyperIndex / 2048) % 2048)
+          (C13Concrete.wordOfHash16 d.root0) d.lsig1.wots)
+
+/-! ### Layer-0 prebind-Keccak residual (smaller boundary)
+
+`C13FoldOkBeforeAuthOffWotsPkFinalKeccakDataLayer0` bundles two obligations: a
+binding equation `lookup "wotsPk" = (evalExpr <expr>).getD 0` and a value
+equation for the final masked Keccak.  The binding equation is unconditionally
+discharged by the source-semantics infrastructure
+(`SegmentLayer3.beforeAuthOff_lookup_wotsPk_eq_beforeWotsPk_keccak`), so the
+strictly smaller residual is the value-only Keccak equation, taken at the
+finer `beforeWotsPk` cutpoint (i.e. immediately after the copy-loop and before
+the final `.letVar "wotsPk"`).
+
+This shape is the C13 analogue of the C12 `beforeWotsPk` boundary used by
+`c12LayerStateBeforeAuthOff_wotsPk_eq_beforeWotsPk_keccak`. -/
+def C13FoldOkBeforeAuthOffWotsPkPrebindKeccakDataLayer0
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    evalExpr []
+        (SegmentLayer3.beforeWotsPk
+          (CurrentNodeFrame.c13LayerLoopState0
+            (mkC13State pkSeed pkRoot message sig)))
+        (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x5A0))
+          (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+      =
+        some (C13Concrete.wotsPkWord
+          (C13Concrete.wordOfHash16 pkSeed) 0
+          (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+          (C13Concrete.wordOfHash16 forsPk) d.lsig0.wots)
+
+/-- Layer-0 concrete final-WOTS-PK Keccak preimage cells at the `beforeWotsPk`
+cutpoint.  This is the memory-shaped residual consumed by
+`SegmentLayer3.beforeWotsPk_keccak_eq_wotsPkWord_of_cells`: seed at `0x00`,
+WOTS-PK address at `0x20`, and 43 copied WOTS chain-end words starting at
+`0x40`. -/
+def C13FoldOkBeforeAuthOffWotsPkPreimageCellsDataLayer0
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    let st :=
+      SegmentLayer3.beforeWotsPk
+        (CurrentNodeFrame.c13LayerLoopState0
+          (mkC13State pkSeed pkRoot message sig))
+    (st.world.memory 0x00).val = C13Concrete.wordOfHash16 pkSeed ∧
+    (st.world.memory 0x20).val =
+      C13Concrete.adrsWotsPk 0
+        (digest.hyperIndex / 2048) (digest.hyperIndex % 2048) ∧
+    ∀ j, (h : j < 43) →
+      (st.world.memory (0x40 + 32 * j)).val =
+        (InitialNodeKeccak.wotsChainsEnd
+          (C13Concrete.wordOfHash16 pkSeed) 0
+          (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+          (C13Concrete.wordOfHash16 forsPk) d.lsig0.wots)[j]'(by
+            rw [InitialNodeKeccak.wotsChainsEnd_length]
+            omega)
+
+/-- Layer-0 final WOTS-PK masked-Keccak residual discharged from the concrete
+`beforeWotsPk` preimage-cell facts. -/
+theorem c13FoldOkBeforeAuthOffWotsPkPrebindKeccakDataLayer0_of_preimage_cells
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hCells : C13FoldOkBeforeAuthOffWotsPkPreimageCellsDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkBeforeAuthOffWotsPkPrebindKeccakDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  rcases hCells d with ⟨hm0, hm1, hmC⟩
+  exact InitialNodeKeccak.wots_pk_node_eq_spec
+    (SegmentLayer3.beforeWotsPk
+      (CurrentNodeFrame.c13LayerLoopState0
+        (mkC13State pkSeed pkRoot message sig)))
+    (C13Concrete.wordOfHash16 pkSeed) 0
+    ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+      { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048)
+    ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+      { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+    (C13Concrete.wordOfHash16 forsPk) d.lsig0.wots hm0 hm1 hmC
+
+/-- Layer-0 raw WOTS-PK word obligation reduced to the strictly smaller
+`beforeWotsPk` masked-Keccak value equation.  The previously paired binding
+equation conjunct of `C13FoldOkBeforeAuthOffWotsPkFinalKeccakDataLayer0` is
+discharged unconditionally via
+`SegmentLayer3.beforeAuthOff_lookup_wotsPk_eq_beforeWotsPk_keccak`. -/
+theorem c13FoldOkBeforeAuthOffWotsPkWordDataLayer0_of_prebind_keccak
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hPrebind : C13FoldOkBeforeAuthOffWotsPkPrebindKeccakDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkBeforeAuthOffWotsPkWordDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  rw [SegmentLayer3.beforeAuthOff_lookup_wotsPk_eq_beforeWotsPk_keccak]
+  change (evalExpr []
+        (SegmentLayer3.beforeWotsPk
+          (CurrentNodeFrame.c13LayerLoopState0
+            (mkC13State pkSeed pkRoot message sig)))
+        (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x5A0))
+          (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))).getD 0 = _
+  rw [hPrebind d]
+  rfl
+
+/-! ### Layer-1 prebind-Keccak residual (smaller boundary)
+
+Layer-1 analogue of `C13FoldOkBeforeAuthOffWotsPkPrebindKeccakDataLayer0`.
+The binding-equation conjunct of `C13FoldOkBeforeAuthOffWotsPkFinalKeccakDataLayer1`
+is discharged unconditionally via the same source-semantics infrastructure
+(`SegmentLayer3.beforeAuthOff_lookup_wotsPk_eq_beforeWotsPk_keccak` applied at
+`CurrentNodeFrame.c13LayerLoopState1`); the strictly smaller residual is the
+value-only Keccak equation at the layer-1 `beforeWotsPk` cutpoint with the
+layer-1 WOTS preimage (start node `d.root0` and layer-1 `(treeIdx, leafIdx)`
+splits of the hypertree index). -/
+def C13FoldOkBeforeAuthOffWotsPkPrebindKeccakDataLayer1
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    evalExpr []
+        (SegmentLayer3.beforeWotsPk
+          (CurrentNodeFrame.c13LayerLoopState1
+            (mkC13State pkSeed pkRoot message sig)))
+        (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x5A0))
+          (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+      =
+        some (C13Concrete.wotsPkWord
+          (C13Concrete.wordOfHash16 pkSeed) 1
+          ((digest.hyperIndex / 2048) / 2048)
+          ((digest.hyperIndex / 2048) % 2048)
+          (C13Concrete.wordOfHash16 d.root0) d.lsig1.wots)
+
+/-- Layer-1 concrete final-WOTS-PK Keccak preimage cells at the `beforeWotsPk`
+cutpoint.  Layer-1 uses the threaded layer-0 root as the WOTS start node and the
+layer-1 split of the hypertree index. -/
+def C13FoldOkBeforeAuthOffWotsPkPreimageCellsDataLayer1
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    let st :=
+      SegmentLayer3.beforeWotsPk
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))
+    (st.world.memory 0x00).val = C13Concrete.wordOfHash16 pkSeed ∧
+    (st.world.memory 0x20).val =
+      C13Concrete.adrsWotsPk 1
+        ((digest.hyperIndex / 2048) / 2048)
+        ((digest.hyperIndex / 2048) % 2048) ∧
+    ∀ j, (h : j < 43) →
+      (st.world.memory (0x40 + 32 * j)).val =
+        (InitialNodeKeccak.wotsChainsEnd
+          (C13Concrete.wordOfHash16 pkSeed) 1
+          ((digest.hyperIndex / 2048) / 2048)
+          ((digest.hyperIndex / 2048) % 2048)
+          (C13Concrete.wordOfHash16 d.root0) d.lsig1.wots)[j]'(by
+            rw [InitialNodeKeccak.wotsChainsEnd_length]
+            omega)
+
+/-- Layer-1 final WOTS-PK masked-Keccak residual discharged from the concrete
+`beforeWotsPk` preimage-cell facts. -/
+theorem c13FoldOkBeforeAuthOffWotsPkPrebindKeccakDataLayer1_of_preimage_cells
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hCells : C13FoldOkBeforeAuthOffWotsPkPreimageCellsDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkBeforeAuthOffWotsPkPrebindKeccakDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  rcases hCells d with ⟨hm0, hm1, hmC⟩
+  exact InitialNodeKeccak.wots_pk_node_eq_spec
+    (SegmentLayer3.beforeWotsPk
+      (CurrentNodeFrame.c13LayerLoopState1
+        (mkC13State pkSeed pkRoot message sig)))
+    (C13Concrete.wordOfHash16 pkSeed) 1
+    (((C13Concrete.c13PrimitivesConcrete.hMsg c13
+      { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048) / 2048)
+    (((C13Concrete.c13PrimitivesConcrete.hMsg c13
+      { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048) % 2048)
+    (C13Concrete.wordOfHash16 d.root0) d.lsig1.wots hm0 hm1 hmC
+
+/-- Layer-1 raw WOTS-PK word obligation reduced to the strictly smaller
+`beforeWotsPk` masked-Keccak value equation.  Layer-1 analogue of
+`c13FoldOkBeforeAuthOffWotsPkWordDataLayer0_of_prebind_keccak`. -/
+theorem c13FoldOkBeforeAuthOffWotsPkWordDataLayer1_of_prebind_keccak
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hPrebind : C13FoldOkBeforeAuthOffWotsPkPrebindKeccakDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkBeforeAuthOffWotsPkWordDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  rw [SegmentLayer3.beforeAuthOff_lookup_wotsPk_eq_beforeWotsPk_keccak]
+  change (evalExpr []
+        (SegmentLayer3.beforeWotsPk
+          (CurrentNodeFrame.c13LayerLoopState1
+            (mkC13State pkSeed pkRoot message sig)))
+        (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x5A0))
+          (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))).getD 0 = _
+  rw [hPrebind d]
+  rfl
+
+/-- Layer-0 raw WOTS-PK word residual discharged directly from the concrete
+`beforeWotsPk` preimage cells. -/
+theorem c13FoldOkBeforeAuthOffWotsPkWordDataLayer0_of_preimage_cells
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hCells : C13FoldOkBeforeAuthOffWotsPkPreimageCellsDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkBeforeAuthOffWotsPkWordDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkBeforeAuthOffWotsPkWordDataLayer0_of_prebind_keccak
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    (c13FoldOkBeforeAuthOffWotsPkPrebindKeccakDataLayer0_of_preimage_cells
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hCells)
+
+/-- Layer-1 raw WOTS-PK word residual discharged directly from the concrete
+`beforeWotsPk` preimage cells. -/
+theorem c13FoldOkBeforeAuthOffWotsPkWordDataLayer1_of_preimage_cells
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hCells : C13FoldOkBeforeAuthOffWotsPkPreimageCellsDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkBeforeAuthOffWotsPkWordDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkBeforeAuthOffWotsPkWordDataLayer1_of_prebind_keccak
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    (c13FoldOkBeforeAuthOffWotsPkPrebindKeccakDataLayer1_of_preimage_cells
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hCells)
+
+/-- Layer-0 final-keccak residual after the executable `"wotsPk"` binding has
+been discharged from `suffixBeforeAuthOff`; only the concrete masked Keccak
+value remains. -/
+def C13FoldOkBeforeAuthOffWotsPkFinalKeccakEvalDataLayer0
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    let st :=
+      SegmentLayer3.beforeAuthOff
+        (CurrentNodeFrame.c13LayerLoopState0
+          (mkC13State pkSeed pkRoot message sig))
+    evalExpr [] st
+        (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x5A0))
+          (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+      =
+        some (C13Concrete.wotsPkWord
+          (C13Concrete.wordOfHash16 pkSeed) 0
+          (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+          (C13Concrete.wordOfHash16 forsPk) d.lsig0.wots)
+
+/-- Layer-1 analogue of
+`C13FoldOkBeforeAuthOffWotsPkFinalKeccakEvalDataLayer0`. -/
+def C13FoldOkBeforeAuthOffWotsPkFinalKeccakEvalDataLayer1
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    let st :=
+      SegmentLayer3.beforeAuthOff
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))
+    evalExpr [] st
+        (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x5A0))
+          (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+      =
+        some (C13Concrete.wotsPkWord
+          (C13Concrete.wordOfHash16 pkSeed) 1
+          ((digest.hyperIndex / 2048) / 2048)
+          ((digest.hyperIndex / 2048) % 2048)
+          (C13Concrete.wordOfHash16 d.root0) d.lsig1.wots)
+
+/-- Layer-0 value-only final-keccak residual projected out of the existing
+full final-keccak cutpoint. -/
+theorem c13FoldOkBeforeAuthOffWotsPkFinalKeccakEvalDataLayer0_of_final_keccak
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hFinal : C13FoldOkBeforeAuthOffWotsPkFinalKeccakDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkBeforeAuthOffWotsPkFinalKeccakEvalDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  exact (hFinal d).2
+
+/-- Layer-1 value-only final-keccak residual projected out of the existing
+full final-keccak cutpoint. -/
+theorem c13FoldOkBeforeAuthOffWotsPkFinalKeccakEvalDataLayer1_of_final_keccak
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hFinal : C13FoldOkBeforeAuthOffWotsPkFinalKeccakDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkBeforeAuthOffWotsPkFinalKeccakEvalDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  exact (hFinal d).2
+
+/-- Layer-0 raw WOTS word residual reduced to the final masked-Keccak cutpoint. -/
+theorem c13FoldOkBeforeAuthOffWotsPkWordDataLayer0_of_final_keccak
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hFinal : C13FoldOkBeforeAuthOffWotsPkFinalKeccakDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkBeforeAuthOffWotsPkWordDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  rcases hFinal d with ⟨hBind, hEval⟩
+  rw [hBind, hEval]
+  rfl
+
+/-- Layer-1 raw WOTS word residual reduced to the final masked-Keccak cutpoint. -/
+theorem c13FoldOkBeforeAuthOffWotsPkWordDataLayer1_of_final_keccak
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hFinal : C13FoldOkBeforeAuthOffWotsPkFinalKeccakDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkBeforeAuthOffWotsPkWordDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  rcases hFinal d with ⟨hBind, hEval⟩
+  rw [hBind, hEval]
+  rfl
+
+/-- A successful C13 WOTS reconstruction identifies the raw `wotsPkWord` with
+the returned byte key's `wordOfHash16`. -/
+theorem c13_wotsPkWord_eq_wordOfHash16_of_wots_success
+    (pk : PublicKey) (layer treeIdx leafIdx : Nat)
+    (node wotsPk : Bytes) (wots : WotsSig)
+    (hWots : C13Concrete.wotsPkFromSigC13AtLayer layer c13 pk
+        treeIdx leafIdx node wots = some wotsPk) :
+    C13Concrete.wotsPkWord (C13Concrete.wordOfHash16 pk.pkSeed)
+        layer treeIdx leafIdx (C13Concrete.wordOfHash16 node) wots =
+      C13Concrete.wordOfHash16 wotsPk := by
+  have hRet :
+      C13Concrete.hash16OfWord
+          (C13Concrete.wotsPkWord (C13Concrete.wordOfHash16 pk.pkSeed)
+            layer treeIdx leafIdx (C13Concrete.wordOfHash16 node) wots) =
+        wotsPk := by
+    simpa [C13Concrete.wotsPkFromSigC13AtLayer] using Option.some.inj hWots
+  rw [← hRet]
+  unfold C13Concrete.wotsPkWord
+  exact (SegmentAcceptSpec.wordOfHash16_hash16OfWord_maskN_of_lt
+    (C13Concrete.keccakWords
+      (C13Concrete.wordOfHash16 pk.pkSeed ::
+        C13Concrete.adrsWotsPk layer treeIdx leafIdx ::
+        (List.range 43).map (fun i =>
+          let d :=
+            C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pk.pkSeed)
+              layer treeIdx leafIdx wots.count (C13Concrete.wordOfHash16 node)
+          let wotsAdrs := C13Concrete.adrsWotsHashBase layer treeIdx leafIdx
+          let digit := (d >>> (3 * i)) % 8
+          let steps := 7 - digit
+          let val := C13Concrete.wordOfHash16 ((wots.chains[i]?).getD ⟨#[]⟩)
+          let chainBase := wotsAdrs ||| (i <<< 32)
+          C13Concrete.chainHash (C13Concrete.wordOfHash16 pk.pkSeed)
+            chainBase digit steps 0 val)))
+    (by
+      simpa [Compiler.Constants.evmModulus] using
+        SphincsMinusVerifiers.KeccakBridge.keccakWords_lt
+          (C13Concrete.wordOfHash16 pk.pkSeed ::
+            C13Concrete.adrsWotsPk layer treeIdx leafIdx ::
+            (List.range 43).map (fun i =>
+              let d :=
+                C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pk.pkSeed)
+                  layer treeIdx leafIdx wots.count (C13Concrete.wordOfHash16 node)
+              let wotsAdrs := C13Concrete.adrsWotsHashBase layer treeIdx leafIdx
+              let digit := (d >>> (3 * i)) % 8
+              let steps := 7 - digit
+              let val := C13Concrete.wordOfHash16 ((wots.chains[i]?).getD ⟨#[]⟩)
+              let chainBase := wotsAdrs ||| (i <<< 32)
+              C13Concrete.chainHash (C13Concrete.wordOfHash16 pk.pkSeed)
+                chainBase digit steps 0 val)))).symm
+
+/-- Layer-0 WOTS before-auth residual reduced to the raw executable
+`wotsPkWord` binding.  The C13 success witness supplies only the byte/word
+conversion from `wotsPkWord` to `wordOfHash16 d.wotsPk0`. -/
+theorem c13FoldOkBeforeAuthOffWotsPkDataLayer0_of_wotsPkWord
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hWotsPkWord : C13FoldOkBeforeAuthOffWotsPkWordDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkBeforeAuthOffWotsPkDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  calc
+    lookupValue
+        (SegmentLayer3.beforeAuthOff
+          (CurrentNodeFrame.c13LayerLoopState0
+            (mkC13State pkSeed pkRoot message sig))).bindings
+        "wotsPk"
+        = C13Concrete.wotsPkWord
+            (C13Concrete.wordOfHash16 pkSeed) 0
+            (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+            (C13Concrete.wordOfHash16 forsPk) d.lsig0.wots := by
+              simpa [pk, digest] using hWotsPkWord d
+    _ = C13Concrete.wordOfHash16 d.wotsPk0 := by
+      exact c13_wotsPkWord_eq_wordOfHash16_of_wots_success
+        pk 0 (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+        forsPk d.wotsPk0 d.lsig0.wots
+        (by
+          simpa [C13Concrete.c13PrimitivesConcrete, pk, digest,
+            SegmentAcceptSpec.c13LayerNextTree, SegmentAcceptSpec.c13LayerLeafIdx,
+            SegmentAcceptSpec.c13LayerTreeIdx, c13,
+            C13Concrete.wotsPkFromSigC13AtLayer_zero] using d.hWots0)
+
+/-- Layer-1 WOTS before-auth residual reduced to the raw executable
+`wotsPkWord` binding. -/
+theorem c13FoldOkBeforeAuthOffWotsPkDataLayer1_of_wotsPkWord
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hWotsPkWord : C13FoldOkBeforeAuthOffWotsPkWordDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkBeforeAuthOffWotsPkDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  calc
+    lookupValue
+        (SegmentLayer3.beforeAuthOff
+          (CurrentNodeFrame.c13LayerLoopState1
+            (mkC13State pkSeed pkRoot message sig))).bindings
+        "wotsPk"
+        = C13Concrete.wotsPkWord
+            (C13Concrete.wordOfHash16 pkSeed) 1
+            ((digest.hyperIndex / 2048) / 2048)
+            ((digest.hyperIndex / 2048) % 2048)
+            (C13Concrete.wordOfHash16 d.root0) d.lsig1.wots := by
+              simpa [pk, digest] using hWotsPkWord d
+    _ = C13Concrete.wordOfHash16 d.wotsPk1 := by
+      exact c13_wotsPkWord_eq_wordOfHash16_of_wots_success
+        pk 1 ((digest.hyperIndex / 2048) / 2048)
+        ((digest.hyperIndex / 2048) % 2048)
+        d.root0 d.wotsPk1 d.lsig1.wots
+        (by
+          simpa [C13Concrete.c13PrimitivesConcrete, pk, digest,
+            SegmentAcceptSpec.c13LayerNextTree, SegmentAcceptSpec.c13LayerLeafIdx,
+            SegmentAcceptSpec.c13LayerTreeIdx, c13] using d.hWots1)
+
+/-- Layer-0 before-auth WOTS-PK residual discharged directly from concrete
+`beforeWotsPk` preimage cells. -/
+theorem c13FoldOkBeforeAuthOffWotsPkDataLayer0_of_preimage_cells
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hCells : C13FoldOkBeforeAuthOffWotsPkPreimageCellsDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkBeforeAuthOffWotsPkDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkBeforeAuthOffWotsPkDataLayer0_of_wotsPkWord
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    (c13FoldOkBeforeAuthOffWotsPkWordDataLayer0_of_preimage_cells
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hCells)
+
+/-- Layer-1 before-auth WOTS-PK residual discharged directly from concrete
+`beforeWotsPk` preimage cells. -/
+theorem c13FoldOkBeforeAuthOffWotsPkDataLayer1_of_preimage_cells
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hCells : C13FoldOkBeforeAuthOffWotsPkPreimageCellsDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkBeforeAuthOffWotsPkDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkBeforeAuthOffWotsPkDataLayer1_of_wotsPkWord
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    (c13FoldOkBeforeAuthOffWotsPkWordDataLayer1_of_preimage_cells
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hCells)
+
+/-- Layer-0 WOTS start-node fact reduced to the strictly earlier executable
+cutpoint where `"wotsPk"` has just been bound. -/
+theorem c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0_of_beforeAuthOff
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hWotsPk : C13FoldOkBeforeAuthOffWotsPkDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  rw [beforeMerkle_wotsPk_eq_beforeAuthOff_wotsPk]
+  exact hWotsPk d
+
+/-- Layer-1 WOTS start-node fact reduced to the strictly earlier executable
+cutpoint where `"wotsPk"` has just been bound. -/
+theorem c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1_of_beforeAuthOff
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hWotsPk : C13FoldOkBeforeAuthOffWotsPkDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  rw [beforeMerkle_wotsPk_eq_beforeAuthOff_wotsPk]
+  exact hWotsPk d
+
+/-- Layer-0 after-Merkle initial WOTS start-node fact reduced all the way down
+to the executable final masked-Keccak cutpoint, threading the existing
+`final_keccak ⇒ wotsPkWord ⇒ beforeAuthOff ⇒ afterMerkle` reducer chain.  The
+caller now only has to discharge the executable evaluation of the final 45-word
+masked Keccak load at `beforeAuthOff`. -/
+theorem c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0_of_final_keccak
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hFinal : C13FoldOkBeforeAuthOffWotsPkFinalKeccakDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0_of_beforeAuthOff
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    (c13FoldOkBeforeAuthOffWotsPkDataLayer0_of_wotsPkWord
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      (c13FoldOkBeforeAuthOffWotsPkWordDataLayer0_of_final_keccak
+        pkSeed pkRoot message sig sigParsed forsPk specRoot hFinal))
+
+/-- Layer-1 analogue of
+`c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0_of_final_keccak`. -/
+theorem c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1_of_final_keccak
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hFinal : C13FoldOkBeforeAuthOffWotsPkFinalKeccakDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1_of_beforeAuthOff
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    (c13FoldOkBeforeAuthOffWotsPkDataLayer1_of_wotsPkWord
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      (c13FoldOkBeforeAuthOffWotsPkWordDataLayer1_of_final_keccak
+        pkSeed pkRoot message sig sigParsed forsPk specRoot hFinal))
+
+/-- Layer-0 after-Merkle initial WOTS start-node fact reduced to the strictly
+weaker `C13FoldOkBeforeAuthOffWotsPkWordDataLayer0` cutpoint.  Unlike
+`_of_final_keccak`, the caller no longer has to discharge the binding-eval
+structural conjunct nor the executable masked-Keccak evaluation: the single
+direct binding equation
+`lookup "wotsPk" = C13Concrete.wotsPkWord …` is enough.  The `wotsPkWord =
+wordOfHash16 d.wotsPk0` reduction comes from `d.hWots0` via
+`c13_wotsPkWord_eq_wordOfHash16_of_wots_success` (no executable side). -/
+theorem c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0_of_wotsPkWord
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hWotsPkWord : C13FoldOkBeforeAuthOffWotsPkWordDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0_of_beforeAuthOff
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    (c13FoldOkBeforeAuthOffWotsPkDataLayer0_of_wotsPkWord
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hWotsPkWord)
+
+/-- Layer-1 analogue of
+`c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0_of_wotsPkWord`. -/
+theorem c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1_of_wotsPkWord
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hWotsPkWord : C13FoldOkBeforeAuthOffWotsPkWordDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1_of_beforeAuthOff
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    (c13FoldOkBeforeAuthOffWotsPkDataLayer1_of_wotsPkWord
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hWotsPkWord)
+
+/-- Explicit per-step witness package for one frame-threaded XMSS climb.  It is
+the C13-local surface needed to invoke the generic `MerkleClimbFrame_hstep`
+builder without expanding that proof at every layer-specific residual. -/
+def C13AfterMerkleXmssFrameStepWitnessPremiseAt
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs merklePtr : Nat)
+    (auth : List Bytes) (cdAt : Nat → Nat) : Prop :=
+  ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth cdAt idx →
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+      "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+      pkSeed pkRoot message sig seed treeAdrs merklePtr s a →
+    ∃ vsib vpar vadr sval o5 vnode o6 vsib2,
+      ((a.1 % 2 = 0 ∧ o5 = 0x40 ∧ o6 = 0x60)
+          ∨ (a.1 % 2 = 1 ∧ o5 = 0x60 ∧ o6 = 0x40)) ∧
+      vpar = a.1 / 2 ∧
+      wordNormalize vnode = a.2 ∧
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.StepDataObligations
+        { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+        vadr vsib2 seed treeAdrs idx a.1 auth ∧
+      evalExpr [] { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+        (.bitAnd (.calldataload (.add (.localVar "merklePtr")
+          (.shl (.literal 4) (.localVar "h")))) (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+          = some vsib ∧
+      evalExpr []
+        { s with bindings :=
+          bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib }
+        (.shr (.literal 1) (.localVar "mIdx")) = some vpar ∧
+      evalExpr []
+        { s with bindings :=
+          bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+            "sibling" vsib) "parentIdx" vpar }
+        (.bitOr (.localVar "treeAdrs")
+          (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+            (.localVar "parentIdx"))) = some vadr ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+          bindings :=
+            bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar }
+        (.shl (.literal 5) (.bitAnd (.localVar "mIdx") (.literal 1))) = some sval ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.bitXor (.literal 0x40) (.localVar "s")) = some o5 ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.localVar "merkleNode") = some vnode ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate s.world.memory 0x20 vadr) o5 vnode },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.bitXor (.literal 0x60) (.localVar "s")) = some o6 ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate s.world.memory 0x20 vadr) o5 vnode },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.localVar "sibling") = some vsib2
+
+/-- Raw exact-node analogue of
+`C13AfterMerkleXmssFrameStepWitnessPremiseAt`. -/
+def C13AfterMerkleXmssRawStepWitnessPremiseAt
+    (seed treeAdrs : Nat)
+    (auth : List Bytes) (cdAt : Nat → Nat) : Prop :=
+  ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth cdAt idx →
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRawRel
+      "merkleNode" "mIdx" s a →
+    ∃ vsib vpar vadr sval o5 vnode o6 vsib2,
+      ((a.1 % 2 = 0 ∧ o5 = 0x40 ∧ o6 = 0x60)
+          ∨ (a.1 % 2 = 1 ∧ o5 = 0x60 ∧ o6 = 0x40)) ∧
+      vpar = a.1 / 2 ∧
+      wordNormalize vnode = a.2 ∧
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.StepDataObligations
+        { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+        vadr vsib2 seed treeAdrs idx a.1 auth ∧
+      evalExpr [] { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+        (.bitAnd (.calldataload (.add (.localVar "merklePtr")
+          (.shl (.literal 4) (.localVar "h")))) (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+          = some vsib ∧
+      evalExpr []
+        { s with bindings :=
+          bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib }
+        (.shr (.literal 1) (.localVar "mIdx")) = some vpar ∧
+      evalExpr []
+        { s with bindings :=
+          bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+            "sibling" vsib) "parentIdx" vpar }
+        (.bitOr (.localVar "treeAdrs")
+          (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+            (.localVar "parentIdx"))) = some vadr ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+          bindings :=
+            bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar }
+        (.shl (.literal 5) (.bitAnd (.localVar "mIdx") (.literal 1))) = some sval ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.bitXor (.literal 0x40) (.localVar "s")) = some o5 ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.localVar "merkleNode") = some vnode ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate s.world.memory 0x20 vadr) o5 vnode },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.bitXor (.literal 0x60) (.localVar "s")) = some o6 ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate s.world.memory 0x20 vadr) o5 vnode },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.localVar "sibling") = some vsib2
+
+/-- Smaller per-call eval package behind
+`C13AfterMerkleXmssFrameStepWitnessPremiseAt`: the hard executable facts are
+the bounded masked sibling load (`h1`), the ADRS expression eval (`h3`), and
+the normalized ADRS word.  The generic parent-index/selector/child-slot
+bookkeeping is reconstructed by
+`c13AfterMerkleXmssFrameStepWitnessCall_of_eval`. -/
+def C13AfterMerkleXmssFrameStepEvalFacts
+    (s : RuntimeState) (a : Nat × Nat) (idx treeAdrs : Nat)
+    (cdAt : Nat → Nat) : Prop :=
+  ∃ vsib vadr,
+    idx < 11 ∧
+    a.1 < 2 ^ 256 ∧
+    lookupValue s.bindings "treeAdrs" = treeAdrs ∧
+    treeAdrs < 2 ^ 256 ∧
+    evalExpr [] { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+      (.bitAnd (.calldataload (.add (.localVar "merklePtr")
+        (.shl (.literal 4) (.localVar "h")))) (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+        = some vsib ∧
+    vsib = SphincsMinusVerifierSpec.C13Concrete.maskN (cdAt idx) ∧
+    evalExpr []
+      { s with bindings :=
+        bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+          "sibling" vsib) "parentIdx" (a.1 / 2) }
+      (.bitOr (.localVar "treeAdrs")
+        (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+          (.localVar "parentIdx"))) = some vadr ∧
+    wordNormalize vadr = treeAdrs ||| ((idx + 1) <<< 32) ||| a.1 / 2
+
+/-- Smaller site-specific residue for
+`C13AfterMerkleXmssFrameStepEvalFacts`.  The frame supplies the `"treeAdrs"`
+binding, and the normalized ADRS word is reconstructed from the ADRS expression
+eval plus ordinary operand bounds. -/
+def C13AfterMerkleXmssFrameStepCoreEvalFacts
+    (s : RuntimeState) (a : Nat × Nat) (idx treeAdrs : Nat)
+    (cdAt : Nat → Nat) : Prop :=
+  ∃ vsib vadr,
+    idx < 11 ∧
+    a.1 < 2 ^ 256 ∧
+    treeAdrs < 2 ^ 256 ∧
+    evalExpr [] { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+      (.bitAnd (.calldataload (.add (.localVar "merklePtr")
+        (.shl (.literal 4) (.localVar "h")))) (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+        = some vsib ∧
+    vsib = SphincsMinusVerifierSpec.C13Concrete.maskN (cdAt idx) ∧
+    evalExpr []
+      { s with bindings :=
+        bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+          "sibling" vsib) "parentIdx" (a.1 / 2) }
+        (.bitOr (.localVar "treeAdrs")
+          (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+            (.localVar "parentIdx"))) = some vadr
+
+/-- Concrete C13 layer-frame constructor for the smaller core eval package.  The
+remaining non-executable inputs are exactly the loop height bound and the current
+`"mIdx"`/tree-address word bounds; the masked sibling read and ADRS expression
+eval are discharged from the frozen calldata/frame facts. -/
+theorem c13AfterMerkleXmssFrameStepCoreEvalFacts_of_c13_layer_frame
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs : Nat) (layer idx : Nat)
+    (s : RuntimeState) (a : Nat × Nat)
+    (hLayer : layer < 2)
+    (hidx : idx < 11)
+    (hmIdxLt : a.1 < 2 ^ 256)
+    (hTreeLt : treeAdrs < 2 ^ 256)
+    (hFrame :
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+        "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+        pkSeed pkRoot message sig seed treeAdrs
+        (sigDataOffset + (1952 + 868 * layer + 692)) s a) :
+    C13AfterMerkleXmssFrameStepCoreEvalFacts s a idx treeAdrs
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * layer + 692))) := by
+  let stH : RuntimeState :=
+    { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+  let ap : Nat := sigDataOffset + (1952 + 868 * layer + 692)
+  let sOff : Nat := 1952 + 868 * layer + 692 + 16 * idx
+  let vsib : Nat :=
+    SphincsMinusVerifierSpec.C13Concrete.maskN
+      (c13XmssAuthCdAt pkSeed pkRoot message sig ap idx)
+  have hidx256 : idx < 2 ^ 256 := lt_trans hidx (by decide)
+  have hselH : stH.selector = 0 := by
+    dsimp [stH]
+    exact hFrame.2.2.2.2.1
+  have hcdH : stH.world.calldata =
+      headWords pkSeed pkRoot message sig.size ++ bytesToWords sig := by
+    dsimp [stH]
+    exact hFrame.2.2.2.2.2.1
+  have hapH : evalExpr [] stH (.localVar "merklePtr") = some ap := by
+    show some (lookupValue stH.bindings "merklePtr") = some ap
+    dsimp [stH, ap]
+    rw [MemoryKit.lookupValue_bindValue_ne
+      s.bindings "h" "merklePtr" (wordNormalize idx) (by decide)]
+    exact congrArg some hFrame.2.2.1
+  have hhH : evalExpr [] stH (.localVar "h") = some idx := by
+    show some (lookupValue stH.bindings "h") = some idx
+    dsimp [stH]
+    rw [MemoryKit.lookupValue_bindValue_self]
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt hidx256]
+  have haplt : ap < 2 ^ 256 := by
+    dsimp [ap]
+    rw [SphincsMinusVerifiers.MkC13State.sigDataOffset]
+    omega
+  have hshift : idx <<< 4 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    omega
+  have hsum : ap + idx <<< 4 < 2 ^ 256 := by
+    dsimp [ap]
+    rw [SphincsMinusVerifiers.MkC13State.sigDataOffset, Nat.shiftLeft_eq]
+    omega
+  have hoff : ap + idx <<< 4 = sigDataOffset + sOff := by
+    dsimp [ap, sOff]
+    rw [Nat.shiftLeft_eq]
+    omega
+  have hoff4 : 4 ≤ sigDataOffset + sOff := by
+    dsimp [sOff]
+    rw [SphincsMinusVerifiers.MkC13State.sigDataOffset]
+    omega
+  have h1 : evalExpr [] stH
+      (.bitAnd (.calldataload (.add (.localVar "merklePtr")
+        (.shl (.literal 4) (.localVar "h")))) (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+      = some vsib := by
+    dsimp [vsib]
+    have hread :=
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.merkle_sibling_read_frozen
+        stH "merklePtr" pkSeed pkRoot message sig ap idx sOff
+        hselH hcdH hapH hhH haplt hidx256 hshift hsum hoff hoff4
+    simpa [c13XmssAuthCdAt, ap, sOff, Nat.shiftLeft_eq, Nat.mul_comm,
+      Nat.mul_left_comm, Nat.mul_assoc, Nat.add_assoc] using hread
+  rcases SegmentLayer3MerkleFrame.layer_address_assembly_eval_exists
+      s idx vsib treeAdrs a.1 hFrame.2.1 hTreeLt hmIdxLt hidx with
+    ⟨vadr, h3⟩
+  refine ⟨vsib, vadr, hidx, hmIdxLt, hTreeLt, ?_, ?_, ?_⟩
+  · simpa [stH] using h1
+  · dsimp [vsib]
+  · simpa [Nat.shiftRight_eq_div_pow] using h3
+
+/-- Reconstruct the full C13 per-call eval package from the smaller
+site-specific residue and the static `MerkleClimbFrame`. -/
+theorem c13AfterMerkleXmssFrameStepEvalFacts_of_core
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs merklePtr : Nat)
+    (s : RuntimeState) (a : Nat × Nat) (idx : Nat)
+    (cdAt : Nat → Nat)
+    (hFrame :
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+        "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+        pkSeed pkRoot message sig seed treeAdrs merklePtr s a)
+    (hCore : C13AfterMerkleXmssFrameStepCoreEvalFacts s a idx treeAdrs cdAt) :
+    C13AfterMerkleXmssFrameStepEvalFacts s a idx treeAdrs cdAt := by
+  rcases hCore with
+    ⟨vsib, vadr, hidx, hmIdxLt, hTreeLt, h1, hload, h3⟩
+  let stA : RuntimeState :=
+    { s with bindings :=
+      bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+        "sibling" vsib) "parentIdx" (a.1 / 2) }
+  let sh : Nat := (idx + 1) <<< 32
+  have hidx256 : idx < 2 ^ 256 := lt_trans hidx (by decide)
+  have hwordlt : idx + 1 < 2 ^ 256 := by omega
+  have hshlt : sh < 2 ^ 256 := by
+    dsimp [sh]
+    rw [Nat.shiftLeft_eq]
+    exact lt_of_le_of_lt
+      (Nat.mul_le_mul_right (2 ^ 32) (Nat.succ_le_of_lt hidx))
+      (by decide : 11 * 2 ^ 32 < 2 ^ 256)
+  have hparentLt : a.1 / 2 < 2 ^ 256 := by
+    exact Nat.lt_of_le_of_lt (Nat.div_le_self a.1 2) hmIdxLt
+  have hbaseEval : evalExpr [] stA (.localVar "treeAdrs") = some treeAdrs := by
+    show some (lookupValue stA.bindings "treeAdrs") = some treeAdrs
+    dsimp [stA]
+    rw [MemoryKit.lookupValue_bindValue_ne
+      (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
+      "parentIdx" "treeAdrs" (a.1 / 2) (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_ne
+      (bindValue s.bindings "h" (wordNormalize idx))
+      "sibling" "treeAdrs" vsib (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_ne
+      s.bindings "h" "treeAdrs" (wordNormalize idx) (by decide)]
+    exact congrArg some hFrame.2.1
+  have hhEval : evalExpr [] stA (.localVar "h") = some idx := by
+    show some (lookupValue stA.bindings "h") = some idx
+    dsimp [stA]
+    rw [MemoryKit.lookupValue_bindValue_ne
+      (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
+      "parentIdx" "h" (a.1 / 2) (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_ne
+      (bindValue s.bindings "h" (wordNormalize idx))
+      "sibling" "h" vsib (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_self]
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt hidx256]
+  have hparentEval : evalExpr [] stA (.localVar "parentIdx") = some (a.1 / 2) := by
+    show some (lookupValue stA.bindings "parentIdx") = some (a.1 / 2)
+    dsimp [stA]
+    rw [MemoryKit.lookupValue_bindValue_self]
+  have hlit1 : evalExpr [] stA (.literal 1) = some 1 := by
+    show some (wordNormalize 1) = some 1
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  have hplus : evalExpr [] stA (.add (.localVar "h") (.literal 1))
+      = some (idx + 1) := by
+    exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      stA (.localVar "h") (.literal 1) idx 1 hhEval hlit1 hidx256 (by decide) hwordlt
+  have hlit32 : evalExpr [] stA (.literal 32) = some 32 := by
+    show some (wordNormalize 32) = some 32
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  have hsh : evalExpr [] stA
+      (.shl (.literal 32) (.add (.localVar "h") (.literal 1))) = some sh := by
+    dsimp [sh]
+    exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      stA (.literal 32) (.add (.localVar "h") (.literal 1)) 32 (idx + 1)
+      hlit32 hplus (by decide) hwordlt hshlt
+  have hadr : wordNormalize vadr = treeAdrs ||| ((idx + 1) <<< 32) ||| a.1 / 2 := by
+    have hadr' := SphincsMinusVerifiers.ClimbMemFrameMerkle.address_assembly_eq
+      stA (.localVar "treeAdrs")
+      (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+      (.localVar "parentIdx") vadr treeAdrs sh (a.1 / 2)
+      h3 hbaseEval hsh hparentEval hTreeLt hshlt hparentLt
+    simpa [stA, sh] using hadr'
+  exact ⟨vsib, vadr, hidx, hmIdxLt, hFrame.2.1, hTreeLt, h1, hload, h3, hadr⟩
+
+/-- Per-call constructor for the frame step witness from the smaller executable
+eval package.  This closes all generic binding, parity, and reread fields; what
+remains outside this theorem is exactly the site-specific executable eval data
+named by `C13AfterMerkleXmssFrameStepEvalFacts`. -/
+theorem c13AfterMerkleXmssFrameStepWitnessCall_of_eval
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs merklePtr : Nat)
+    (auth : List Bytes) (cdAt : Nat → Nat)
+    (s : RuntimeState) (a : Nat × Nat) (idx : Nat)
+    (hData :
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth cdAt idx)
+    (hFrame :
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+        "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+        pkSeed pkRoot message sig seed treeAdrs merklePtr s a)
+    (hEval : C13AfterMerkleXmssFrameStepEvalFacts s a idx treeAdrs cdAt) :
+    ∃ vsib vpar vadr sval o5 vnode o6 vsib2,
+      ((a.1 % 2 = 0 ∧ o5 = 0x40 ∧ o6 = 0x60)
+          ∨ (a.1 % 2 = 1 ∧ o5 = 0x60 ∧ o6 = 0x40)) ∧
+      vpar = a.1 / 2 ∧
+      wordNormalize vnode = a.2 ∧
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.StepDataObligations
+        { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+        vadr vsib2 seed treeAdrs idx a.1 auth ∧
+      evalExpr [] { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+        (.bitAnd (.calldataload (.add (.localVar "merklePtr")
+          (.shl (.literal 4) (.localVar "h")))) (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+          = some vsib ∧
+      evalExpr []
+        { s with bindings :=
+          bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib }
+        (.shr (.literal 1) (.localVar "mIdx")) = some vpar ∧
+      evalExpr []
+        { s with bindings :=
+          bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+            "sibling" vsib) "parentIdx" vpar }
+        (.bitOr (.localVar "treeAdrs")
+          (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+            (.localVar "parentIdx"))) = some vadr ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+          bindings :=
+            bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar }
+        (.shl (.literal 5) (.bitAnd (.localVar "mIdx") (.literal 1))) = some sval ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.bitXor (.literal 0x40) (.localVar "s")) = some o5 ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.localVar "merkleNode") = some vnode ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate s.world.memory 0x20 vadr) o5 vnode },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.bitXor (.literal 0x60) (.localVar "s")) = some o6 ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate s.world.memory 0x20 vadr) o5 vnode },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.localVar "sibling") = some vsib2 := by
+  rcases hEval with
+    ⟨vsib, vadr, hidx, hmIdxLt, _hTree, _hTreeLt, h1, hload, h3, hadr⟩
+  let stH : RuntimeState := { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+  let vpar : Nat := a.1 / 2
+  let st1 : RuntimeState := { stH with bindings := bindValue stH.bindings "sibling" vsib }
+  let st2 : RuntimeState := { st1 with bindings := bindValue st1.bindings "parentIdx" vpar }
+  let sval : Nat := (a.1 &&& 1) <<< 5
+  let st3 : RuntimeState :=
+    { st2 with world := { st2.world with memory := MemoryKit.memUpdate st2.world.memory 0x20 vadr } }
+  let st4 : RuntimeState := { st3 with bindings := bindValue st3.bindings "s" sval }
+  let o5 : Nat := (0x40 : Nat) ^^^ sval
+  let vnode : Nat := lookupValue st4.bindings "merkleNode"
+  let st5 : RuntimeState :=
+    { st4 with world := { st4.world with memory := MemoryKit.memUpdate st4.world.memory o5 vnode } }
+  let o6 : Nat := (0x60 : Nat) ^^^ sval
+  let vsib2 : Nat := lookupValue st5.bindings "sibling"
+  have hmIdxH : lookupValue stH.bindings "mIdx" = a.1 := by
+    dsimp [stH]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "h" "mIdx" _ (by decide)]
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel.idx hFrame.1
+  have hmIdx1 : lookupValue st1.bindings "mIdx" = a.1 := by
+    dsimp [st1]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "sibling" "mIdx" _ (by decide)]
+    exact hmIdxH
+  have h2 : evalExpr [] st1 (.shr (.literal 1) (.localVar "mIdx")) = some vpar := by
+    dsimp [vpar]
+    rw [← SphincsMinusVerifiers.ClimbMemFrameMerkle.parentIdx_shiftRight a.1]
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.eval_parentIdx_shr
+      "mIdx" st1 a.1 hmIdx1 hmIdxLt
+  have hmIdx2 : lookupValue st2.bindings "mIdx" = a.1 := by
+    dsimp [st2]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "parentIdx" "mIdx" _ (by decide)]
+    exact hmIdx1
+  have hmIdx3 : lookupValue st3.bindings "mIdx" = a.1 := by
+    dsimp [st3]
+    exact hmIdx2
+  have h4 : evalExpr [] st3
+      (.shl (.literal 5) (.bitAnd (.localVar "mIdx") (.literal 1))) = some sval := by
+    dsimp [sval]
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.eval_selector_shl
+      "mIdx" st3 a.1 hmIdx3 hmIdxLt
+  have hsvalt : sval < 2 ^ 256 := by
+    dsimp [sval]
+    rw [Nat.shiftLeft_eq]
+    exact Nat.lt_of_le_of_lt (Nat.mul_le_mul Nat.and_le_right (le_refl _)) (by decide)
+  have hs4 : lookupValue st4.bindings "s" = sval := by
+    dsimp [st4]
+    rw [MemoryKit.lookupValue_bindValue_self]
+  have h5off : evalExpr [] st4 (.bitXor (.literal 0x40) (.localVar "s")) = some o5 := by
+    dsimp [o5]
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.eval_childOffset_xor
+      st4 0x40 sval hs4 (by decide) hsvalt
+  have h5val : evalExpr [] st4 (.localVar "merkleNode") = some vnode := by
+    rfl
+  have hs5 : lookupValue st5.bindings "s" = sval := by
+    dsimp [st5]
+    exact hs4
+  have h6off : evalExpr [] st5 (.bitXor (.literal 0x60) (.localVar "s")) = some o6 := by
+    dsimp [o6]
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.eval_childOffset_xor
+      st5 0x60 sval hs5 (by decide) hsvalt
+  have h6val : evalExpr [] st5 (.localVar "sibling") = some vsib2 := by
+    rfl
+  have hnode : wordNormalize vnode = a.2 := by
+    dsimp [vnode, st4, st3, st2, st1, stH]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "s" "merkleNode" _ (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "parentIdx" "merkleNode" _ (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "sibling" "merkleNode" _ (by decide)]
+    rw [MemoryKit.lookupValue_bindValue_ne _ "h" "merkleNode" _ (by decide)]
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel.node hFrame.1
+  have hseed : (stH.world.memory 0x00).val = seed := by
+    dsimp [stH]
+    exact hFrame.2.2.2.1
+  have hstepData :
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.StepDataObligations
+        stH vadr vsib2 seed treeAdrs idx a.1 auth := by
+    refine SphincsMinusVerifiers.ClimbMemFrameMerkle.StepDataObligations.intro
+      hseed hadr ?_
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleClimbData_to_sib
+      auth cdAt idx stH vsib vpar vadr sval o5 vnode vsib2 h6val hload hData
+  have hpar : a.1 % 2 = 0 ∨ a.1 % 2 = 1 := by
+    have hlt : a.1 % 2 < 2 := Nat.mod_lt a.1 (by decide)
+    omega
+  have hparOff : (a.1 % 2 = 0 ∧ o5 = 0x40 ∧ o6 = 0x60)
+      ∨ (a.1 % 2 = 1 ∧ o5 = 0x60 ∧ o6 = 0x40) := by
+    rcases hpar with hzero | hone
+    · left
+      have ho := SphincsMinusVerifiers.ClimbMemFrameMerkle.merkle_offsets_even a.1 hzero
+      exact ⟨hzero, by simpa [o5, sval] using ho.1, by simpa [o6, sval] using ho.2⟩
+    · right
+      have ho := SphincsMinusVerifiers.ClimbMemFrameMerkle.merkle_offsets_odd a.1 hone
+      exact ⟨hone, by simpa [o5, sval] using ho.1, by simpa [o6, sval] using ho.2⟩
+  refine ⟨vsib, vpar, vadr, sval, o5, vnode, o6, vsib2,
+    hparOff, rfl, hnode, hstepData, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · simpa [stH] using h1
+  · simpa [st1] using h2
+  · simpa [stH, st1, st2, vpar] using h3
+  · simpa [stH, st1, st2, st3] using h4
+  · simpa [stH, st1, st2, st3, st4] using h5off
+  · simpa [stH, st1, st2, st3, st4, vnode] using h5val
+  · simpa [stH, st1, st2, st3, st4, st5, o5, vnode] using h6off
+  · simpa [stH, st1, st2, st3, st4, st5, o5, vnode, vsib2] using h6val
+
+/-- If an abstract natural already is its EVM word normalization, then it is a
+256-bit word. -/
+theorem wordNormalize_eq_self_lt {n : Nat} (h : wordNormalize n = n) :
+    n < 2 ^ 256 := by
+  rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl] at h
+  rw [← h]
+  exact Nat.mod_lt n (by decide : 0 < 2 ^ 256)
+
+/-- A value below the C13 XMSS leaf range is already an EVM word. -/
+theorem wordNormalize_mod_2048 (n : Nat) :
+    wordNormalize (n % 2048) = n % 2048 :=
+  SegmentS2.wordNormalize_of_lt
+    (lt_trans (Nat.mod_lt n (by decide : 0 < 2048))
+      (by decide : 2048 < 2 ^ 256))
+
+/-- Layer-0 `beforeMerkle` `"mIdx"` is word-normalized because the concrete site
+binds it to the low 11 bits of the C13 hypertree index. -/
+theorem c13FirstLayerBeforeMerkle_mIdx_norm_of_hyperIndex
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    wordNormalize
+        (lookupValue
+          (SegmentLayer3.beforeMerkle
+            (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+          "mIdx") =
+      lookupValue
+        (SegmentLayer3.beforeMerkle
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+        "mIdx" := by
+  rw [c13FirstLayerBeforeMerkle_mIdx_hyperIndex
+    pkSeed pkRoot message sig sigParsed hParse]
+  exact wordNormalize_mod_2048 _
+
+/-- Layer-1 analogue of `c13FirstLayerBeforeMerkle_mIdx_norm_of_hyperIndex`. -/
+theorem c13SecondLayerBeforeMerkle_mIdx_norm_of_hyperIndex
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    wordNormalize
+        (lookupValue
+          (SegmentLayer3.beforeMerkle
+            (c13SecondLayerGuardState pkSeed pkRoot message sig)).bindings
+          "mIdx") =
+      lookupValue
+        (SegmentLayer3.beforeMerkle
+          (c13SecondLayerGuardState pkSeed pkRoot message sig)).bindings
+        "mIdx" := by
+  rw [c13SecondLayerBeforeMerkle_mIdx_hyperIndex
+    pkSeed pkRoot message sig sigParsed hParse]
+  exact wordNormalize_mod_2048 _
+
+/-- The actual layer-0 initial XMSS frame starts with a normalized `"mIdx"`,
+projected through the frame relation from the concrete before-Merkle site. -/
+theorem c13AfterMerkleXmssInitialFramePremiseAt_layer0_mIdx_norm
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (node : Nat) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    C13AfterMerkleXmssInitialFramePremiseAt pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+      (sigDataOffset + (1952 + 868 * 0 + 692))
+      (CurrentNodeFrame.c13LayerLoopState0
+        (mkC13State pkSeed pkRoot message sig))
+      (digest.hyperIndex % 2048) node →
+    wordNormalize (digest.hyperIndex % 2048) = digest.hyperIndex % 2048 := by
+  intro pk digest hFrame
+  have hidx :=
+    (SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame.toRel hFrame).idx
+  rw [MemoryKit.lookupValue_bindValue_ne _ "h" "mIdx" _ (by decide)] at hidx
+  have hsite :=
+    c13FirstLayerBeforeMerkle_mIdx_norm_of_hyperIndex
+      pkSeed pkRoot message sig sigParsed hParse
+  simpa [c13FirstLayerGuardState_eq_c13LayerLoopState0, hidx] using hsite
+
+/-- The actual layer-1 initial XMSS frame starts with a normalized `"mIdx"`,
+again projected from the concrete before-Merkle low-11-bit binding. -/
+theorem c13AfterMerkleXmssInitialFramePremiseAt_layer1_mIdx_norm
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (node : Nat) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    C13AfterMerkleXmssInitialFramePremiseAt pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+      (sigDataOffset + (1952 + 868 * 1 + 692))
+      (CurrentNodeFrame.c13LayerLoopState1
+        (mkC13State pkSeed pkRoot message sig))
+      ((digest.hyperIndex / 2048) % 2048) node →
+    wordNormalize ((digest.hyperIndex / 2048) % 2048) =
+      (digest.hyperIndex / 2048) % 2048 := by
+  intro pk digest hFrame
+  have hidx :=
+    (SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame.toRel hFrame).idx
+  rw [MemoryKit.lookupValue_bindValue_ne _ "h" "mIdx" _ (by decide)] at hidx
+  have hsite :=
+    c13SecondLayerBeforeMerkle_mIdx_norm_of_hyperIndex
+      pkSeed pkRoot message sig sigParsed hParse
+  simpa [c13SecondLayerGuardState_eq_c13LayerLoopState1, hidx] using hsite
+
+/-- The C13 Merkle-climb parent index preserves the current `"mIdx"` word
+normalization invariant. -/
+theorem wordNormalize_div_two_of_eq_self {n : Nat}
+    (h : wordNormalize n = n) :
+    wordNormalize (n / 2) = n / 2 :=
+  SegmentS2.wordNormalize_of_lt
+    (lt_of_le_of_lt (Nat.div_le_self n 2) (wordNormalize_eq_self_lt h))
+
+/-- The first component of one XMSS Merkle spec step is exactly the parent index. -/
+theorem merkleSpecStep_fst
+    (seed treeAdrs : Nat) (auth : List Bytes) (idx : Nat) (a : Nat × Nat) :
+    (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
+      seed treeAdrs auth idx a).1 = a.1 / 2 := by
+  cases a
+  rfl
+
+/-- The remaining runtime word-normalization invariant needed by the concrete C13
+XMSS frame-step witness.  The constructor below turns this into the arithmetic
+`a.1 < 2^256` bound exactly where the evaluator needs it.  The universal
+frame-step surface does not by itself constrain the loop height `idx`; the
+`[0, 11)` fact is kept as a separate height premise at the constructor boundary
+below. -/
+def C13AfterMerkleXmssFrameStepRuntimeBoundsAt
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs merklePtr : Nat)
+    (auth : List Bytes) (cdAt : Nat → Nat) : Prop :=
+  ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth cdAt idx →
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+      "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+      pkSeed pkRoot message sig seed treeAdrs merklePtr s a →
+    wordNormalize a.1 = a.1
+
+/-- The separate loop-height component formerly bundled into
+`C13AfterMerkleXmssFrameStepRuntimeBoundsAt`.  It cannot be projected from
+`MerkleClimbData`, which is only a sibling-correspondence predicate at the given
+index. -/
+def C13AfterMerkleXmssFrameStepHeightBoundsAt
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs merklePtr : Nat)
+    (auth : List Bytes) (cdAt : Nat → Nat) : Prop :=
+  ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth cdAt idx →
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+      "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+      pkSeed pkRoot message sig seed treeAdrs merklePtr s a →
+    idx < 11
+
+/-- Concrete C13 layer frame witness reduced to the remaining loop bounds.  The
+frozen calldata read, masked sibling identity, and ADRS expression eval are
+closed by `c13AfterMerkleXmssFrameStepCoreEvalFacts_of_c13_layer_frame`; callers
+must supply the 11-level XMSS height bound separately from the current `"mIdx"`
+word bound. -/
+theorem c13AfterMerkleXmssFrameStepWitnessPremiseAt_of_c13_layer_bounds
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs : Nat) (layer : Nat) (auth : List Bytes)
+    (hLayer : layer < 2)
+    (hTreeLt : treeAdrs < 2 ^ 256)
+    (hHeight :
+      C13AfterMerkleXmssFrameStepHeightBoundsAt
+        pkSeed pkRoot message sig seed treeAdrs
+        (sigDataOffset + (1952 + 868 * layer + 692)) auth
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * layer + 692))))
+    (hBounds :
+      C13AfterMerkleXmssFrameStepRuntimeBoundsAt
+        pkSeed pkRoot message sig seed treeAdrs
+        (sigDataOffset + (1952 + 868 * layer + 692)) auth
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * layer + 692)))) :
+    C13AfterMerkleXmssFrameStepWitnessPremiseAt
+      pkSeed pkRoot message sig seed treeAdrs
+      (sigDataOffset + (1952 + 868 * layer + 692)) auth
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * layer + 692))) := by
+  intro s a idx hData hFrame
+  have hidx := hHeight s a idx hData hFrame
+  have hmIdxLt := wordNormalize_eq_self_lt (hBounds s a idx hData hFrame)
+  have hCore :
+      C13AfterMerkleXmssFrameStepCoreEvalFacts s a idx treeAdrs
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * layer + 692))) :=
+    c13AfterMerkleXmssFrameStepCoreEvalFacts_of_c13_layer_frame
+      pkSeed pkRoot message sig seed treeAdrs layer idx s a
+      hLayer hidx hmIdxLt hTreeLt hFrame
+  have hEval :
+      C13AfterMerkleXmssFrameStepEvalFacts s a idx treeAdrs
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * layer + 692))) :=
+    c13AfterMerkleXmssFrameStepEvalFacts_of_core
+      pkSeed pkRoot message sig seed treeAdrs
+      (sigDataOffset + (1952 + 868 * layer + 692))
+      s a idx
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * layer + 692)))
+      hFrame hCore
+  exact c13AfterMerkleXmssFrameStepWitnessCall_of_eval
+    pkSeed pkRoot message sig seed treeAdrs
+    (sigDataOffset + (1952 + 868 * layer + 692))
+    auth
+    (c13XmssAuthCdAt pkSeed pkRoot message sig
+      (sigDataOffset + (1952 + 868 * layer + 692)))
+    s a idx hData hFrame hEval
+
+/-- Site-bounded C13 layer step witness.  Unlike the broad
+`C13AfterMerkleXmssFrameStepWitnessPremiseAt` residual, this is the shape consumed by
+the actual C13 XMSS loop: the fold site supplies `idx < 11`, while the strengthened
+loop invariant supplies the current `"mIdx"` word-normalization fact. -/
+theorem c13AfterMerkleXmssFrameStepWitnessPremiseAt_of_c13_layer_site_bounds
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs : Nat) (layer : Nat) (auth : List Bytes)
+    (hLayer : layer < 2)
+    (hTreeLt : treeAdrs < 2 ^ 256)
+    (s : RuntimeState) (a : Nat × Nat) (idx : Nat)
+    (hidx : idx < 11)
+    (hmIdxNorm : wordNormalize a.1 = a.1)
+    (hData :
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * layer + 692))) idx)
+    (hFrame :
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+        "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+        pkSeed pkRoot message sig seed treeAdrs
+        (sigDataOffset + (1952 + 868 * layer + 692)) s a) :
+    ∃ vsib vpar vadr sval o5 vnode o6 vsib2,
+      ((a.1 % 2 = 0 ∧ o5 = 0x40 ∧ o6 = 0x60)
+          ∨ (a.1 % 2 = 1 ∧ o5 = 0x60 ∧ o6 = 0x40)) ∧
+      vpar = a.1 / 2 ∧
+      wordNormalize vnode = a.2 ∧
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.StepDataObligations
+        { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+        vadr vsib2 seed treeAdrs idx a.1 auth ∧
+      evalExpr [] { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+        (.bitAnd (.calldataload (.add (.localVar "merklePtr")
+          (.shl (.literal 4) (.localVar "h")))) (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+          = some vsib ∧
+      evalExpr []
+        { s with bindings :=
+          bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib }
+        (.shr (.literal 1) (.localVar "mIdx")) = some vpar ∧
+      evalExpr []
+        { s with bindings :=
+          bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+            "sibling" vsib) "parentIdx" vpar }
+        (.bitOr (.localVar "treeAdrs")
+          (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+            (.localVar "parentIdx"))) = some vadr ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+          bindings :=
+            bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar }
+        (.shl (.literal 5) (.bitAnd (.localVar "mIdx") (.literal 1))) = some sval ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.bitXor (.literal 0x40) (.localVar "s")) = some o5 ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.localVar "merkleNode") = some vnode ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate s.world.memory 0x20 vadr) o5 vnode },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.bitXor (.literal 0x60) (.localVar "s")) = some o6 ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate s.world.memory 0x20 vadr) o5 vnode },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.localVar "sibling") = some vsib2 := by
+  have hCore :
+      C13AfterMerkleXmssFrameStepCoreEvalFacts s a idx treeAdrs
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * layer + 692))) :=
+    c13AfterMerkleXmssFrameStepCoreEvalFacts_of_c13_layer_frame
+      pkSeed pkRoot message sig seed treeAdrs layer idx s a
+      hLayer hidx (wordNormalize_eq_self_lt hmIdxNorm) hTreeLt hFrame
+  have hEval :
+      C13AfterMerkleXmssFrameStepEvalFacts s a idx treeAdrs
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * layer + 692))) :=
+    c13AfterMerkleXmssFrameStepEvalFacts_of_core
+      pkSeed pkRoot message sig seed treeAdrs
+      (sigDataOffset + (1952 + 868 * layer + 692))
+      s a idx
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * layer + 692)))
+      hFrame hCore
+  exact c13AfterMerkleXmssFrameStepWitnessCall_of_eval
+    pkSeed pkRoot message sig seed treeAdrs
+    (sigDataOffset + (1952 + 868 * layer + 692))
+    auth
+    (c13XmssAuthCdAt pkSeed pkRoot message sig
+      (sigDataOffset + (1952 + 868 * layer + 692)))
+    s a idx hData hFrame hEval
+
+/-- The site-bounded C13 layer step preserves both the frame and the strengthened
+runtime invariant.  This is the substantive runtime reduction at the real C13 loop
+site: the next `"mIdx"` is `a.1 / 2`, so word-normalization is preserved without a
+separate universal `C13AfterMerkleXmssFrameStepRuntimeBoundsAt` assumption. -/
+theorem c13AfterMerkleXmssFrameStepBoundedInvariant_of_c13_layer_site_bounds
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs : Nat) (layer : Nat) (auth : List Bytes)
+    (hLayer : layer < 2)
+    (hTreeLt : treeAdrs < 2 ^ 256)
+    (s : RuntimeState) (a : Nat × Nat) (idx : Nat)
+    (hSite :
+      idx < 11 ∧
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * layer + 692))) idx)
+    (hInv :
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+        "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+        pkSeed pkRoot message sig seed treeAdrs
+        (sigDataOffset + (1952 + 868 * layer + 692)) s a ∧
+      wordNormalize a.1 = a.1) :
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+        "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+        pkSeed pkRoot message sig seed treeAdrs
+        (sigDataOffset + (1952 + 868 * layer + 692))
+        (SphincsMinusVerifiers.ClimbKit.stepMerkle
+          "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+          { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+        (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
+          seed treeAdrs auth idx a) ∧
+      wordNormalize
+        (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
+          seed treeAdrs auth idx a).1 =
+        (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
+          seed treeAdrs auth idx a).1 := by
+  rcases hSite with ⟨hidx, hData⟩
+  rcases hInv with ⟨hFrame, hmIdxNorm⟩
+  rcases a with ⟨mIdx, node⟩
+  have hWitness :=
+    c13AfterMerkleXmssFrameStepWitnessPremiseAt_of_c13_layer_site_bounds
+      pkSeed pkRoot message sig seed treeAdrs layer auth hLayer hTreeLt
+      s (mIdx, node) idx hidx hmIdxNorm hData hFrame
+  constructor
+  · rcases hWitness with
+      ⟨vsib, vpar, vadr, sval, o5, vnode, o6, vsib2,
+        hparOff, hvpar, hnode, hStepData,
+        h1, h2, h3, h4, h5off, h5val, h6off, h6val⟩
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame_hstep
+      "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+      pkSeed pkRoot message sig seed treeAdrs
+      (sigDataOffset + (1952 + 868 * layer + 692))
+      s mIdx node idx auth
+      vsib vpar vadr sval o5 vnode o6 vsib2 hFrame
+      hparOff hvpar hnode hStepData
+      h1 h2 h3 h4 h5off h5val h6off h6val
+  · rw [merkleSpecStep_fst]
+    exact wordNormalize_div_two_of_eq_self hmIdxNorm
+
+/-- Local bounded-step model lift: the `wordNormalize`-of-`afterMerkle` to
+`xmssClimb` equality at one C13 layer site, threaded through the bounded
+universal step preserved by
+`c13AfterMerkleXmssFrameStepBoundedInvariant_of_c13_layer_site_bounds`.
+Unlike `SegmentAcceptSpec.afterMerkle_model_node_of_xmss_frame_c13`, this lift
+carries the `wordNormalize a.1 = a.1` invariant in the loop-invariant predicate,
+so no broad universal step witness (and hence no
+`C13AfterMerkleXmssFrameStepRuntimeBoundsAt`) is required from the caller. -/
+theorem c13AfterMerkleNormalizedXmssClimb_of_layer_site_bounded
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs : Nat) (layer : Nat) (auth : List Bytes)
+    (hLayer : layer < 2)
+    (hTreeLt : treeAdrs < 2 ^ 256)
+    (ls : RuntimeState) (mIdx node : Nat)
+    (hData : ∀ i, i < 11 →
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * layer + 692))) i)
+    (hR : SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+            "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+            pkSeed pkRoot message sig seed treeAdrs
+            (sigDataOffset + (1952 + 868 * layer + 692))
+            { SegmentLayer3.beforeMerkle ls with
+              bindings := bindValue (SegmentLayer3.beforeMerkle ls).bindings "h"
+                (wordNormalize 0) }
+            (mIdx, node))
+    (hMIdxNorm : wordNormalize mIdx = mIdx) :
+    wordNormalize (lookupValue (SegmentLayer3.afterMerkle ls).bindings "merkleNode")
+      = C13Concrete.xmssClimb seed treeAdrs 11 0 mIdx node auth := by
+  let R : RuntimeState → Nat × Nat → Prop := fun s a =>
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+      "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+      pkSeed pkRoot message sig seed treeAdrs
+      (sigDataOffset + (1952 + 868 * layer + 692)) s a ∧
+    wordNormalize a.1 = a.1
+  let D : Nat → Prop := fun idx =>
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * layer + 692))) idx ∧ idx < 11
+  have hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+      D idx → R s a →
+      R (SphincsMinusVerifiers.ClimbKit.stepMerkle
+            "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+            { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+        (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep seed treeAdrs auth
+          idx a) := by
+    intro s a idx hD hR'
+    exact c13AfterMerkleXmssFrameStepBoundedInvariant_of_c13_layer_site_bounds
+      pkSeed pkRoot message sig seed treeAdrs layer auth hLayer hTreeLt
+      s a idx ⟨hD.2, hD.1⟩ hR'
+  have hRange : ∀ i, 0 ≤ i → i < 0 + 11 → D i := fun i _ hi =>
+    ⟨hData i (by omega), by omega⟩
+  have hR0 : R { SegmentLayer3.beforeMerkle ls with
+                  bindings := bindValue (SegmentLayer3.beforeMerkle ls).bindings "h"
+                    (wordNormalize 0) }
+                 (mIdx, node) := ⟨hR, hMIdxNorm⟩
+  have hresult :=
+    SphincsMinusVerifiers.ClimbLoop.foldLoop_invariant_cond "h"
+      (SphincsMinusVerifiers.ClimbKit.stepMerkle
+        "merkleNode" "mIdx" "treeAdrs" "merklePtr")
+      (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep seed treeAdrs auth)
+      R D hstep
+      { SegmentLayer3.beforeMerkle ls with
+        bindings := bindValue (SegmentLayer3.beforeMerkle ls).bindings "h"
+          (wordNormalize 0) }
+      (mIdx, node) 0 11 hRange hR0
+  rcases hresult with ⟨hframeFinal, _⟩
+  have h11 : wordNormalize 11 = 11 :=
+    SegmentS2.wordNormalize_of_lt (by decide : 11 < 2 ^ 256)
+  rw [SphincsMinusVerifiers.ClimbMemFrameMerkle.xmssClimb_eq_specFold]
+  show wordNormalize (lookupValue (SegmentLayer3.afterMerkle ls).bindings "merkleNode") = _
+  unfold SegmentLayer3.afterMerkle
+  rw [h11]
+  exact hframeFinal.toRel.node
+
+/-- Concrete layer-0 C13 frame-step witness: the static layer and XMSS-tree
+address word bounds are discharged from the C13 hypertree-index bound.  The only
+remaining inputs are the dynamic loop height and current `"mIdx"` word bounds. -/
+theorem c13AfterMerkleXmssFrameStepWitnessPremiseAt_layer0_of_runtime_bounds
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (auth : List Bytes)
+    (hHeight :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      C13AfterMerkleXmssFrameStepHeightBoundsAt
+        pkSeed pkRoot message sig (C13Concrete.wordOfHash16 pkSeed)
+        (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+        (sigDataOffset + (1952 + 868 * 0 + 692)) auth
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hBounds :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      C13AfterMerkleXmssFrameStepRuntimeBoundsAt
+        pkSeed pkRoot message sig (C13Concrete.wordOfHash16 pkSeed)
+        (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+        (sigDataOffset + (1952 + 868 * 0 + 692)) auth
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * 0 + 692)))) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    C13AfterMerkleXmssFrameStepWitnessPremiseAt
+      pkSeed pkRoot message sig (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+      (sigDataOffset + (1952 + 868 * 0 + 692)) auth
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 0 + 692))) := by
+  intro pk digest
+  refine c13AfterMerkleXmssFrameStepWitnessPremiseAt_of_c13_layer_bounds
+    pkSeed pkRoot message sig (C13Concrete.wordOfHash16 pkSeed)
+    (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048)) 0 auth
+    (by decide : 0 < 2) ?_ ?_ ?_
+  · exact c13_adrsXmssTree_lt_of_bounds 0 (digest.hyperIndex / 2048)
+      (by decide : 0 < 2 ^ 32)
+      (lt_of_le_of_lt (Nat.div_le_self _ _)
+        (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message))
+  · simpa [pk, digest] using hHeight
+  · simpa [pk, digest] using hBounds
+
+/-- Concrete layer-1 analogue of
+`c13AfterMerkleXmssFrameStepWitnessPremiseAt_layer0_of_runtime_bounds`. -/
+theorem c13AfterMerkleXmssFrameStepWitnessPremiseAt_layer1_of_runtime_bounds
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (auth : List Bytes)
+    (hHeight :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      C13AfterMerkleXmssFrameStepHeightBoundsAt
+        pkSeed pkRoot message sig (C13Concrete.wordOfHash16 pkSeed)
+        (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+        (sigDataOffset + (1952 + 868 * 1 + 692)) auth
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hBounds :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      C13AfterMerkleXmssFrameStepRuntimeBoundsAt
+        pkSeed pkRoot message sig (C13Concrete.wordOfHash16 pkSeed)
+        (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+        (sigDataOffset + (1952 + 868 * 1 + 692)) auth
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * 1 + 692)))) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    C13AfterMerkleXmssFrameStepWitnessPremiseAt
+      pkSeed pkRoot message sig (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+      (sigDataOffset + (1952 + 868 * 1 + 692)) auth
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 1 + 692))) := by
+  intro pk digest
+  refine c13AfterMerkleXmssFrameStepWitnessPremiseAt_of_c13_layer_bounds
+    pkSeed pkRoot message sig (C13Concrete.wordOfHash16 pkSeed)
+    (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048)) 1 auth
+    (by decide : 1 < 2) ?_ ?_ ?_
+  · exact c13_adrsXmssTree_lt_of_bounds 1 ((digest.hyperIndex / 2048) / 2048)
+      (by decide : 1 < 2 ^ 32)
+      (lt_of_le_of_lt
+        (Nat.div_le_self _ _)
+        (lt_of_le_of_lt
+          (Nat.div_le_self _ _)
+          (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)))
+  · simpa [pk, digest] using hHeight
+  · simpa [pk, digest] using hBounds
+
+/-- Universal step-witness premise carrying the dynamic loop bounds as per-call
+hypotheses.  Unlike `C13AfterMerkleXmssFrameStepWitnessPremiseAt`, this packages
+`idx < 11` and `wordNormalize a.1 = a.1` as explicit per-call inputs rather than
+demanding a separate universal `C13AfterMerkleXmssFrameStepRuntimeBoundsAt`
+discharge from the caller.  The layer-specific proofs below build this
+unconditionally at each C13 climb site. -/
+def C13AfterMerkleXmssFrameStepBoundedWitnessPremiseAt
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs merklePtr : Nat)
+    (auth : List Bytes) (cdAt : Nat → Nat) : Prop :=
+  ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth cdAt idx →
+    SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
+      "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+      pkSeed pkRoot message sig seed treeAdrs merklePtr s a →
+    idx < 11 →
+    wordNormalize a.1 = a.1 →
+    ∃ vsib vpar vadr sval o5 vnode o6 vsib2,
+      ((a.1 % 2 = 0 ∧ o5 = 0x40 ∧ o6 = 0x60)
+          ∨ (a.1 % 2 = 1 ∧ o5 = 0x60 ∧ o6 = 0x40)) ∧
+      vpar = a.1 / 2 ∧
+      wordNormalize vnode = a.2 ∧
+      SphincsMinusVerifiers.ClimbMemFrameMerkle.StepDataObligations
+        { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+        vadr vsib2 seed treeAdrs idx a.1 auth ∧
+      evalExpr [] { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+        (.bitAnd (.calldataload (.add (.localVar "merklePtr")
+          (.shl (.literal 4) (.localVar "h")))) (.literal SphincsMinusVerifiers.ClimbKit.N_MASK))
+          = some vsib ∧
+      evalExpr []
+        { s with bindings :=
+          bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib }
+        (.shr (.literal 1) (.localVar "mIdx")) = some vpar ∧
+      evalExpr []
+        { s with bindings :=
+          bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+            "sibling" vsib) "parentIdx" vpar }
+        (.bitOr (.localVar "treeAdrs")
+          (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
+            (.localVar "parentIdx"))) = some vadr ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+          bindings :=
+            bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar }
+        (.shl (.literal 5) (.bitAnd (.localVar "mIdx") (.literal 1))) = some sval ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.bitXor (.literal 0x40) (.localVar "s")) = some o5 ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate s.world.memory 0x20 vadr },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.localVar "merkleNode") = some vnode ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate s.world.memory 0x20 vadr) o5 vnode },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.bitXor (.literal 0x60) (.localVar "s")) = some o6 ∧
+      evalExpr []
+        { s with
+          world := { s.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate s.world.memory 0x20 vadr) o5 vnode },
+          bindings :=
+            bindValue (bindValue (bindValue (bindValue s.bindings "h" (wordNormalize idx))
+              "sibling" vsib) "parentIdx" vpar) "s" sval }
+        (.localVar "sibling") = some vsib2
+
+/-- Layer-0 bounded step witness, proved unconditionally from the layer-site
+arithmetic: the only static input is the XMSS tree-address word bound, which
+follows from the C13 hypertree-index bound.  This eliminates the broad
+`C13AfterMerkleXmssFrameStepRuntimeBoundsAt` premise at the layer-0 caller. -/
+theorem c13AfterMerkleXmssFrameStepBoundedWitnessPremiseAt_layer0
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (auth : List Bytes) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    C13AfterMerkleXmssFrameStepBoundedWitnessPremiseAt
+      pkSeed pkRoot message sig (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+      (sigDataOffset + (1952 + 868 * 0 + 692)) auth
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 0 + 692))) := by
+  intro pk digest s a idx hData hFrame hidx hmIdxNorm
+  have hTreeLt :
+      C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048) < 2 ^ 256 :=
+    c13_adrsXmssTree_lt_of_bounds 0 (digest.hyperIndex / 2048)
+      (by decide : 0 < 2 ^ 32)
+      (lt_of_le_of_lt (Nat.div_le_self _ _)
+        (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message))
+  have hWitness :=
+    c13AfterMerkleXmssFrameStepWitnessPremiseAt_of_c13_layer_site_bounds
+      pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+      0 auth (by decide : 0 < 2) hTreeLt
+      s a idx hidx hmIdxNorm hData hFrame
+  show ∃ vsib vpar vadr sval o5 vnode o6 vsib2, _
+  exact hWitness
+
+/-- Layer-1 analogue of
+`c13AfterMerkleXmssFrameStepBoundedWitnessPremiseAt_layer0`. -/
+theorem c13AfterMerkleXmssFrameStepBoundedWitnessPremiseAt_layer1
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (auth : List Bytes) :
+    let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+    let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    C13AfterMerkleXmssFrameStepBoundedWitnessPremiseAt
+      pkSeed pkRoot message sig (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+      (sigDataOffset + (1952 + 868 * 1 + 692)) auth
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 1 + 692))) := by
+  intro pk digest s a idx hData hFrame hidx hmIdxNorm
+  have hTreeLt :
+      C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048) < 2 ^ 256 :=
+    c13_adrsXmssTree_lt_of_bounds 1 ((digest.hyperIndex / 2048) / 2048)
+      (by decide : 1 < 2 ^ 32)
+      (lt_of_le_of_lt
+        (Nat.div_le_self _ _)
+        (lt_of_le_of_lt
+          (Nat.div_le_self _ _)
+          (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)))
+  have hWitness :=
+    c13AfterMerkleXmssFrameStepWitnessPremiseAt_of_c13_layer_site_bounds
+      pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+      1 auth (by decide : 1 < 2) hTreeLt
+      s a idx hidx hmIdxNorm hData hFrame
+  show ∃ vsib vpar vadr sval o5 vnode o6 vsib2, _
+  exact hWitness
+
+/-- Frame step residual reduced to the generic per-step witness package. -/
+theorem c13AfterMerkleXmssFrameStepPremiseAt_of_witness
+    (pkSeed pkRoot message sig : Bytes)
+    (seed treeAdrs merklePtr : Nat)
+    (auth : List Bytes) (cdAt : Nat → Nat)
+    (hWitness : C13AfterMerkleXmssFrameStepWitnessPremiseAt
+        pkSeed pkRoot message sig seed treeAdrs merklePtr auth cdAt) :
+    C13AfterMerkleXmssFrameStepPremiseAt
+      pkSeed pkRoot message sig seed treeAdrs merklePtr auth cdAt := by
+  intro s a idx hData hFrame
+  rcases hWitness s a idx hData hFrame with
+    ⟨vsib, vpar, vadr, sval, o5, vnode, o6, vsib2,
+      hparOff, hvpar, hnode, hStepData, h1, h2, h3, h4, h5off, h5val, h6off, h6val⟩
+  exact SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame_hstep
+    "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+    pkSeed pkRoot message sig seed treeAdrs merklePtr s a.1 a.2 idx auth
+    vsib vpar vadr sval o5 vnode o6 vsib2 hFrame
+    hparOff hvpar hnode hStepData h1 h2 h3 h4 h5off h5val h6off h6val
+
+/-- Raw step residual reduced to the exact-node per-step witness package. -/
+theorem c13AfterMerkleXmssRawStepPremiseAt_of_witness
+    (seed treeAdrs : Nat)
+    (auth : List Bytes) (cdAt : Nat → Nat)
+    (hWitness : C13AfterMerkleXmssRawStepWitnessPremiseAt
+        seed treeAdrs auth cdAt) :
+    C13AfterMerkleXmssRawStepPremiseAt seed treeAdrs auth cdAt := by
+  intro s a idx hData hRaw
+  rcases hWitness s a idx hData hRaw with
+    ⟨vsib, vpar, vadr, sval, o5, vnode, o6, vsib2,
+      hparOff, hvpar, hnode, hStepData, h1, h2, h3, h4, h5off, h5val, h6off, h6val⟩
+  refine SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRawRel_of_pair
+    "merkleNode" "mIdx"
+    (SphincsMinusVerifiers.ClimbKit.stepMerkle "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+      { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
+    seed treeAdrs idx a.1 a.2 auth ?_
+  exact SphincsMinusVerifiers.ClimbMemFrameMerkle.stepMerkle_eq_merkleSpecStep
+    "merkleNode" "mIdx" "treeAdrs" "merklePtr"
+    { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
+    vsib vpar vadr sval o5 vnode o6 vsib2 seed treeAdrs idx a.1 a.2 auth
+    (by decide) (by decide) hparOff hvpar hStepData.1 hStepData.2.1 hnode hStepData.2.2
+    h1 h2 h3 h4 h5off h5val h6off h6val
+
+/-- Layer-0 normalized step residual reduced to its per-step witness package. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbFrameStepDataLayer0_of_witness
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hWitness :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssFrameStepWitnessPremiseAt pkSeed pkRoot message sig
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+          (sigDataOffset + (1952 + 868 * 0 + 692))
+          d.lsig0.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 0 + 692)))) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbFrameStepDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  exact c13AfterMerkleXmssFrameStepPremiseAt_of_witness
+    pkSeed pkRoot message sig
+    (C13Concrete.wordOfHash16 pkSeed)
+    (C13Concrete.adrsXmssTree 0
+      ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+    (sigDataOffset + (1952 + 868 * 0 + 692))
+    d.lsig0.authPath
+    (c13XmssAuthCdAt pkSeed pkRoot message sig
+      (sigDataOffset + (1952 + 868 * 0 + 692)))
+    (hWitness d)
+
+/-- Layer-1 normalized step residual reduced to its per-step witness package. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbFrameStepDataLayer1_of_witness
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hWitness :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssFrameStepWitnessPremiseAt pkSeed pkRoot message sig
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+          (sigDataOffset + (1952 + 868 * 1 + 692))
+          d.lsig1.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 1 + 692)))) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbFrameStepDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  exact c13AfterMerkleXmssFrameStepPremiseAt_of_witness
+    pkSeed pkRoot message sig
+    (C13Concrete.wordOfHash16 pkSeed)
+    (C13Concrete.adrsXmssTree 1
+      (((C13Concrete.c13PrimitivesConcrete.hMsg c13
+        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048) / 2048))
+    (sigDataOffset + (1952 + 868 * 1 + 692))
+    d.lsig1.authPath
+    (c13XmssAuthCdAt pkSeed pkRoot message sig
+      (sigDataOffset + (1952 + 868 * 1 + 692)))
+    (hWitness d)
+
+/-- Layer-0 C13 `.ok` bounded per-step witness residual.  Mirrors
+`C13FoldOkAfterMerkleNormalizedXmssClimbFrameStepDataLayer0` but threads the
+bounded universal-witness premise; the dynamic per-call `idx < 11` and
+`wordNormalize a.1 = a.1` inputs replace the broad
+`C13AfterMerkleXmssFrameStepRuntimeBoundsAt` discharge the caller would
+otherwise need. -/
+def C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameStepDataLayer0
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssFrameStepBoundedWitnessPremiseAt pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+      (sigDataOffset + (1952 + 868 * 0 + 692))
+      d.lsig0.authPath
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 0 + 692)))
+
+/-- Layer-1 analogue of
+`C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameStepDataLayer0`. -/
+def C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameStepDataLayer1
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssFrameStepBoundedWitnessPremiseAt pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+      (sigDataOffset + (1952 + 868 * 1 + 692))
+      d.lsig1.authPath
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 1 + 692)))
+
+/-- The layer-0 `.ok` bounded step witness is unconditionally derivable from the
+layer-site arithmetic: no broad `C13AfterMerkleXmssFrameStepRuntimeBoundsAt`,
+`C13AfterMerkleXmssFrameStepHeightBoundsAt`, or `hParse` premises are required.
+This is the actual layer-0 callee that replaces the broad runtime/height bounds
+package at the `.ok` boundary. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameStepDataLayer0_holds
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameStepDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  exact c13AfterMerkleXmssFrameStepBoundedWitnessPremiseAt_layer0
+    pkSeed pkRoot message sig sigParsed d.lsig0.authPath
+
+/-- Layer-1 analogue of
+`c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameStepDataLayer0_holds`. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameStepDataLayer1_holds
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameStepDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  exact c13AfterMerkleXmssFrameStepBoundedWitnessPremiseAt_layer1
+    pkSeed pkRoot message sig sigParsed d.lsig1.authPath
+
+/-- Layer-0 raw step residual reduced to its exact-node per-step witness package. -/
+theorem c13FoldOkAfterMerkleRawXmssClimbFrameStepDataLayer0_of_witness
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hWitness :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssRawStepWitnessPremiseAt
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+          d.lsig0.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 0 + 692)))) :
+    C13FoldOkAfterMerkleRawXmssClimbFrameStepDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  exact c13AfterMerkleXmssRawStepPremiseAt_of_witness
+    (C13Concrete.wordOfHash16 pkSeed)
+    (C13Concrete.adrsXmssTree 0
+      ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+    d.lsig0.authPath
+    (c13XmssAuthCdAt pkSeed pkRoot message sig
+      (sigDataOffset + (1952 + 868 * 0 + 692)))
+    (hWitness d)
+
+/-- Layer-1 raw step residual reduced to its exact-node per-step witness package. -/
+theorem c13FoldOkAfterMerkleRawXmssClimbFrameStepDataLayer1_of_witness
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hWitness :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssRawStepWitnessPremiseAt
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+          d.lsig1.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 1 + 692)))) :
+    C13FoldOkAfterMerkleRawXmssClimbFrameStepDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  exact c13AfterMerkleXmssRawStepPremiseAt_of_witness
+    (C13Concrete.wordOfHash16 pkSeed)
+    (C13Concrete.adrsXmssTree 1
+      (((C13Concrete.c13PrimitivesConcrete.hMsg c13
+        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048) / 2048))
+    d.lsig1.authPath
+    (c13XmssAuthCdAt pkSeed pkRoot message sig
+      (sigDataOffset + (1952 + 868 * 1 + 692)))
+    (hWitness d)
+
+/-- Layer-0 raw initial residual reduced to the exact WOTS-start-node fact plus
+the preexisting `beforeMerkle` `"mIdx"` site lemma. -/
+theorem c13FoldOkAfterMerkleRawXmssClimbInitialFrameDataLayer0_of_wotsPk
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hWotsPk : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleRawXmssClimbInitialFrameDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  refine SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRawRel.intro ?_ ?_ ?_
+  · rw [MemoryKit.lookupValue_bindValue_ne _ "h" "mIdx" _ (by decide)]
+    exact c13FirstLayerBeforeMerkle_mIdx_hyperIndex
+      pkSeed pkRoot message sig sigParsed hParse
+  · rw [MemoryKit.lookupValue_bindValue_ne _ "h" "merkleNode" _ (by decide)]
+    rw [beforeMerkle_merkleNode_eq_wotsPk]
+    exact hWotsPk d
+  · exact SphincsMinusVerifiers.ClimbMemFrameMerkle.wordNormalize_wordOfHash16 d.wotsPk0
+
+/-- Layer-1 raw initial residual reduced to the exact WOTS-start-node fact plus
+the preexisting `beforeMerkle` `"mIdx"` site lemma. -/
+theorem c13FoldOkAfterMerkleRawXmssClimbInitialFrameDataLayer1_of_wotsPk
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hWotsPk : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleRawXmssClimbInitialFrameDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  refine SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRawRel.intro ?_ ?_ ?_
+  · rw [MemoryKit.lookupValue_bindValue_ne _ "h" "mIdx" _ (by decide)]
+    exact c13SecondLayerBeforeMerkle_mIdx_hyperIndex
+      pkSeed pkRoot message sig sigParsed hParse
+  · rw [MemoryKit.lookupValue_bindValue_ne _ "h" "merkleNode" _ (by decide)]
+    rw [beforeMerkle_merkleNode_eq_wotsPk]
+    exact hWotsPk d
+  · exact SphincsMinusVerifiers.ClimbMemFrameMerkle.wordNormalize_wordOfHash16 d.wotsPk1
+
+/-- Layer-0 `beforeMerkle` still carries the public seed word in scratch cell
+`0x00`; the WOTS and copy loops do not disturb that cell. -/
+theorem c13FirstLayerBeforeMerkle_seed_slot_of_parse
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (_hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    ((SegmentLayer3.beforeMerkle
+      (CurrentNodeFrame.c13LayerLoopState0
+        (mkC13State pkSeed pkRoot message sig))).world.memory 0x00).val =
+      C13Concrete.wordOfHash16 pkSeed := by
+  have hMem :
+      ((SegmentLayer3.beforeMerkle
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+        ((SegmentLayer3.afterDigit
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val := by
+    exact SegmentLayer3.beforeMerkle_preserves_memory_zero_of_loop_frames
+      (c13FirstLayerGuardState pkSeed pkRoot message sig)
+      SegmentLayer3.wotsOuterForEach_preserves_memory_zero
+      SegmentLayer3.copyForEach_preserves_memory_zero
+  have hDigit :
+      ((SegmentLayer3.afterDigit
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+        C13Concrete.wordOfHash16 pkSeed := by
+    rw [SegmentLayer3.afterDigit_preserves_memory_zero]
+    exact c13FirstLayerGuardState_seed_slot pkSeed pkRoot message sig
+  simpa [c13FirstLayerGuardState_eq_c13LayerLoopState0] using hMem.trans hDigit
+
+/-- Layer-1 `beforeMerkle` still carries the public seed word in scratch cell
+`0x00`.  The seed is preserved by the first layer step and by the layer-1
+WOTS/copy prefixes before the Merkle climb. -/
+theorem c13SecondLayerBeforeMerkle_seed_slot_of_parse
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
+    ((SegmentLayer3.beforeMerkle
+      (CurrentNodeFrame.c13LayerLoopState1
+        (mkC13State pkSeed pkRoot message sig))).world.memory 0x00).val =
+      C13Concrete.wordOfHash16 pkSeed := by
+  have hStepMem0 :
+      ((SegmentLayer3.stepLayer
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+        ((c13FirstLayerGuardState pkSeed pkRoot message sig).world.memory 0x00).val := by
+    simpa [c13FirstLayerGuardState_eq_c13LayerLoopState0] using
+      c13FirstLayerStep_preserves_memory_zero_of_parse
+        pkSeed pkRoot message sig sigParsed hParse
+  have hBeforeDigest :
+      ((SegmentLayer3.beforeDigest
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+        C13Concrete.wordOfHash16 pkSeed :=
+    c13SecondLayerBeforeDigest_seed_slot_of_first_step_seed_slot
+      pkSeed pkRoot message sig
+      (c13FirstStepLayer_seed_slot_of_memory_zero
+        pkSeed pkRoot message sig hStepMem0)
+  have hMem :
+      ((SegmentLayer3.beforeMerkle
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+        ((SegmentLayer3.afterDigit
+          (c13SecondLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val := by
+    exact SegmentLayer3.beforeMerkle_preserves_memory_zero_of_loop_frames
+      (c13SecondLayerGuardState pkSeed pkRoot message sig)
+      SegmentLayer3.wotsOuterForEach_preserves_memory_zero
+      SegmentLayer3.copyForEach_preserves_memory_zero
+  have hDigit :
+      ((SegmentLayer3.afterDigit
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+        C13Concrete.wordOfHash16 pkSeed := by
+    rw [SegmentLayer3.afterDigit_preserves_memory_zero]
+    exact hBeforeDigest
+  simpa [c13SecondLayerGuardState_eq_c13LayerLoopState1] using hMem.trans hDigit
+
+/-- The layer-0 normalized initial frame follows from the exact raw initial
+relation plus the already-proved frozen-site facts. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer0_of_raw
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hRaw : C13FoldOkAfterMerkleRawXmssClimbInitialFrameDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  have hSite :=
+    c13FirstLayerBeforeMerkle_layerFrozenSite pkSeed pkRoot message sig sigParsed hParse
+  rcases hSite with ⟨treeAdrs, hSel, hCd, hPtr, hTree, _hTreeLt, _hmIdxLt⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_,
+    by decide, by decide, by decide, by decide, by decide,
+    by decide, by decide, by decide, by decide,
+    by decide, by decide, by decide, by decide, by decide, by decide,
+    by decide, by decide, by decide, by decide, by decide, by decide⟩
+  · exact (hRaw d).toRel
+  · change lookupValue
+        (bindValue
+          (SegmentLayer3.beforeMerkle
+            (CurrentNodeFrame.c13LayerLoopState0
+              (mkC13State pkSeed pkRoot message sig))).bindings
+          "h" (wordNormalize 0)) "treeAdrs" =
+        C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048)
+    rw [MemoryKit.lookupValue_bindValue_ne _ "h" "treeAdrs" _ (by decide)]
+    have hTreeConcrete :
+        lookupValue
+            (SegmentLayer3.beforeMerkle
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "treeAdrs" =
+          C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048) := by
+      simpa [pk, digest] using
+        SegmentLayer3.beforeMerkle_treeAdrs_eq_of_layer_idxTree
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)
+          0 digest.hyperIndex
+          (c13FirstLayerGuardState_layer pkSeed pkRoot message sig)
+          (c13FirstLayerGuardState_idxTree_hyperIndex
+            pkSeed pkRoot message sig hParse)
+          (by decide : 0 < 2 ^ 32)
+          (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
+    simpa [c13FirstLayerGuardState_eq_c13LayerLoopState0] using hTreeConcrete
+  · change lookupValue
+        (bindValue
+          (SegmentLayer3.beforeMerkle
+            (CurrentNodeFrame.c13LayerLoopState0
+              (mkC13State pkSeed pkRoot message sig))).bindings
+          "h" (wordNormalize 0)) "merklePtr" =
+        sigDataOffset + (1952 + 868 * 0 + 692)
+    rw [MemoryKit.lookupValue_bindValue_ne _ "h" "merklePtr" _ (by decide)]
+    simpa [pk, digest, c13FirstLayerGuardState_eq_c13LayerLoopState0] using hPtr
+  · change ((SegmentLayer3.beforeMerkle
+        (CurrentNodeFrame.c13LayerLoopState0
+          (mkC13State pkSeed pkRoot message sig))).world.memory 0x00).val =
+        C13Concrete.wordOfHash16 pkSeed
+    exact c13FirstLayerBeforeMerkle_seed_slot_of_parse
+      pkSeed pkRoot message sig sigParsed hParse
+  · change (SegmentLayer3.beforeMerkle
+        (CurrentNodeFrame.c13LayerLoopState0
+          (mkC13State pkSeed pkRoot message sig))).selector = 0
+    simpa [c13FirstLayerGuardState_eq_c13LayerLoopState0] using hSel
+  · change (SegmentLayer3.beforeMerkle
+        (CurrentNodeFrame.c13LayerLoopState0
+          (mkC13State pkSeed pkRoot message sig))).world.calldata =
+        headWords pkSeed pkRoot message sig.size ++ bytesToWords sig
+    simpa [c13FirstLayerGuardState_eq_c13LayerLoopState0] using hCd
+
+/-- The layer-1 normalized initial frame follows from the exact raw initial
+relation plus the frozen-site facts.  The layer-1 seed slot remains an explicit
+data premise, because proving it inline expands the layer-0 step preservation
+proof too aggressively for this local adapter. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer1_of_raw
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hSeed :
+      ((SegmentLayer3.beforeMerkle
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))).world.memory 0x00).val =
+        C13Concrete.wordOfHash16 pkSeed)
+    (hRaw : C13FoldOkAfterMerkleRawXmssClimbInitialFrameDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  have hSite :=
+    c13SecondLayerBeforeMerkle_layerFrozenSite pkSeed pkRoot message sig sigParsed hParse
+  rcases hSite with ⟨treeAdrs, hSel, hCd, hPtr, hTree, _hTreeLt, _hmIdxLt⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_,
+    by decide, by decide, by decide, by decide, by decide,
+    by decide, by decide, by decide, by decide,
+    by decide, by decide, by decide, by decide, by decide, by decide,
+    by decide, by decide, by decide, by decide, by decide, by decide⟩
+  · exact (hRaw d).toRel
+  · change lookupValue
+        (bindValue
+          (SegmentLayer3.beforeMerkle
+            (CurrentNodeFrame.c13LayerLoopState1
+              (mkC13State pkSeed pkRoot message sig))).bindings
+          "h" (wordNormalize 0)) "treeAdrs" =
+        C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048)
+    rw [MemoryKit.lookupValue_bindValue_ne _ "h" "treeAdrs" _ (by decide)]
+    have hTreeConcrete :
+        lookupValue
+            (SegmentLayer3.beforeMerkle
+              (c13SecondLayerGuardState pkSeed pkRoot message sig)).bindings
+            "treeAdrs" =
+          C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048) := by
+      simpa [pk, digest] using
+        SegmentLayer3.beforeMerkle_treeAdrs_eq_of_layer_idxTree
+          (c13SecondLayerGuardState pkSeed pkRoot message sig)
+          1 (digest.hyperIndex / 2048)
+          (c13SecondLayerGuardState_layer pkSeed pkRoot message sig)
+          (c13SecondLayerGuardState_idxTree_hyperIndex
+            pkSeed pkRoot message sig hParse)
+          (by decide : 1 < 2 ^ 32)
+          (lt_of_le_of_lt
+            (Nat.div_le_self _ _)
+            (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message))
+    simpa [c13SecondLayerGuardState_eq_c13LayerLoopState1] using hTreeConcrete
+  · change lookupValue
+        (bindValue
+          (SegmentLayer3.beforeMerkle
+            (CurrentNodeFrame.c13LayerLoopState1
+              (mkC13State pkSeed pkRoot message sig))).bindings
+          "h" (wordNormalize 0)) "merklePtr" =
+        sigDataOffset + (1952 + 868 * 1 + 692)
+    rw [MemoryKit.lookupValue_bindValue_ne _ "h" "merklePtr" _ (by decide)]
+    simpa [pk, digest, c13SecondLayerGuardState_eq_c13LayerLoopState1] using hPtr
+  · change ((SegmentLayer3.beforeMerkle
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))).world.memory 0x00).val =
+        C13Concrete.wordOfHash16 pkSeed
+    exact hSeed
+  · change (SegmentLayer3.beforeMerkle
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))).selector = 0
+    simpa [c13SecondLayerGuardState_eq_c13LayerLoopState1] using hSel
+  · change (SegmentLayer3.beforeMerkle
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))).world.calldata =
+        headWords pkSeed pkRoot message sig.size ++ bytesToWords sig
+    simpa [c13SecondLayerGuardState_eq_c13LayerLoopState1] using hCd
+
+/-- Layer-0 normalized initial residual reduced directly to the WOTS public-key
+start-node fact. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer0_of_wotsPk
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hWotsPk : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer0_of_raw
+    pkSeed pkRoot message sig sigParsed forsPk specRoot hParse
+    (c13FoldOkAfterMerkleRawXmssClimbInitialFrameDataLayer0_of_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hWotsPk)
+
+/-- Layer-1 normalized initial residual reduced directly to the WOTS public-key
+start-node fact plus the layer-1 seed-slot fact. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer1_of_wotsPk
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hSeed :
+      ((SegmentLayer3.beforeMerkle
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))).world.memory 0x00).val =
+        C13Concrete.wordOfHash16 pkSeed)
+    (hWotsPk : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer1_of_raw
+    pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hSeed
+    (c13FoldOkAfterMerkleRawXmssClimbInitialFrameDataLayer1_of_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hWotsPk)
+
+/-- Layer-1 normalized initial residual reduced directly to the WOTS public-key
+start-node fact; the seed-slot premise is discharged locally from the parse
+trace. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer1_of_wotsPk_parse
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hWotsPk : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer1_of_wotsPk
+    pkSeed pkRoot message sig sigParsed forsPk specRoot hParse
+    (c13SecondLayerBeforeMerkle_seed_slot_of_parse
+      pkSeed pkRoot message sig sigParsed hParse)
+    hWotsPk
+
+/-- The layer-0 normalized residual is reduced to the exact per-step advance and
+initial `beforeMerkle` frame facts. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer0_of_step_and_initial
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hStep : C13FoldOkAfterMerkleNormalizedXmssClimbFrameStepDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hInit : C13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  exact ⟨hStep d, hInit d⟩
+
+/-- The layer-1 normalized residual is reduced to the exact per-step advance and
+initial `beforeMerkle` frame facts. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer1_of_step_and_initial
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hStep : C13FoldOkAfterMerkleNormalizedXmssClimbFrameStepDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hInit : C13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  exact ⟨hStep d, hInit d⟩
+
+/-- The layer-0 raw residual is reduced to the exact per-step advance and
+initial `beforeMerkle` raw facts. -/
+theorem c13FoldOkAfterMerkleRawXmssClimbFrameDataLayer0_of_step_and_initial
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hStep : C13FoldOkAfterMerkleRawXmssClimbFrameStepDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hInit : C13FoldOkAfterMerkleRawXmssClimbInitialFrameDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleRawXmssClimbFrameDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  exact ⟨hStep d, hInit d⟩
+
+/-- The layer-1 raw residual is reduced to the exact per-step advance and
+initial `beforeMerkle` raw facts. -/
+theorem c13FoldOkAfterMerkleRawXmssClimbFrameDataLayer1_of_step_and_initial
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hStep : C13FoldOkAfterMerkleRawXmssClimbFrameStepDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hInit : C13FoldOkAfterMerkleRawXmssClimbInitialFrameDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleRawXmssClimbFrameDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  exact ⟨hStep d, hInit d⟩
+
+/-- Layer-0 normalized frame data from the exact per-step witness package and
+the executable WOTS start-node fact. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer0_of_witness_and_wotsPk
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hStepWitness :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssFrameStepWitnessPremiseAt pkSeed pkRoot message sig
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+          (sigDataOffset + (1952 + 868 * 0 + 692))
+          d.lsig0.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hWotsPk : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer0_of_step_and_initial
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    (c13FoldOkAfterMerkleNormalizedXmssClimbFrameStepDataLayer0_of_witness
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hStepWitness)
+    (c13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer0_of_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hWotsPk)
+
+/-- Layer-1 normalized frame data from the exact per-step witness package and
+the executable WOTS start-node fact. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer1_of_witness_and_wotsPk
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hStepWitness :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssFrameStepWitnessPremiseAt pkSeed pkRoot message sig
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+          (sigDataOffset + (1952 + 868 * 1 + 692))
+          d.lsig1.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hWotsPk : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer1_of_step_and_initial
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    (c13FoldOkAfterMerkleNormalizedXmssClimbFrameStepDataLayer1_of_witness
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hStepWitness)
+    (c13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer1_of_wotsPk_parse
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hWotsPk)
+
+/-- Layer-0 C13 `.ok` bounded frame residual: the bounded per-step witness
+package threaded with the initial `beforeMerkle` frame.  Unlike
+`C13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer0`, this carries the
+bounded universal step (dynamic per-call `idx < 11` and `wordNormalize a.1 = a.1`
+inputs), eliminating the broad `C13AfterMerkleXmssFrameStepRuntimeBoundsAt`
+discharge from the caller. -/
+def C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer0
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssFrameStepBoundedWitnessPremiseAt pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+      (sigDataOffset + (1952 + 868 * 0 + 692))
+      d.lsig0.authPath
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 0 + 692))) ∧
+    C13AfterMerkleXmssInitialFramePremiseAt pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+      (sigDataOffset + (1952 + 868 * 0 + 692))
+      (CurrentNodeFrame.c13LayerLoopState0
+        (mkC13State pkSeed pkRoot message sig))
+      (digest.hyperIndex % 2048)
+      (C13Concrete.wordOfHash16 d.wotsPk0)
+
+/-- Layer-1 analogue of
+`C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer0`. -/
+def C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer1
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssFrameStepBoundedWitnessPremiseAt pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+      (sigDataOffset + (1952 + 868 * 1 + 692))
+      d.lsig1.authPath
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 1 + 692))) ∧
+    C13AfterMerkleXmssInitialFramePremiseAt pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+      (sigDataOffset + (1952 + 868 * 1 + 692))
+      (CurrentNodeFrame.c13LayerLoopState1
+        (mkC13State pkSeed pkRoot message sig))
+      ((digest.hyperIndex / 2048) % 2048)
+      (C13Concrete.wordOfHash16 d.wotsPk1)
+
+/-- Layer-0 bounded normalized residual reduced to the bounded per-step witness
+and the initial `beforeMerkle` frame.  Bounded analogue of
+`c13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer0_of_step_and_initial`. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer0_of_step_and_initial
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hStep : C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameStepDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hInit : C13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  exact ⟨hStep d, hInit d⟩
+
+/-- Layer-1 analogue of
+`c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer0_of_step_and_initial`. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer1_of_step_and_initial
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hStep : C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameStepDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hInit : C13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  exact ⟨hStep d, hInit d⟩
+
+/-- Layer-0 bounded normalized frame data directly from the executable WOTS
+start-node fact: the broad step witness premise is internalised through the
+proved bounded step holds.  No `C13AfterMerkleXmssFrameStepWitnessPremiseAt`
+input is required at the caller boundary. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer0_of_wotsPk
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hWotsPk : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer0_of_step_and_initial
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    (c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameStepDataLayer0_holds
+      pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (c13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer0_of_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hWotsPk)
+
+/-- Layer-1 analogue of
+`c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer0_of_wotsPk`. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer1_of_wotsPk
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hWotsPk : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer1_of_step_and_initial
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    (c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameStepDataLayer1_holds
+      pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (c13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer1_of_wotsPk_parse
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hWotsPk)
+
+/-- Layer-0 raw frame data from the exact per-step witness package and the
+executable WOTS start-node fact. -/
+theorem c13FoldOkAfterMerkleRawXmssClimbFrameDataLayer0_of_witness_and_wotsPk
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hStepWitness :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssRawStepWitnessPremiseAt
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+          d.lsig0.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hWotsPk : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleRawXmssClimbFrameDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkAfterMerkleRawXmssClimbFrameDataLayer0_of_step_and_initial
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    (c13FoldOkAfterMerkleRawXmssClimbFrameStepDataLayer0_of_witness
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hStepWitness)
+    (c13FoldOkAfterMerkleRawXmssClimbInitialFrameDataLayer0_of_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hWotsPk)
+
+/-- Layer-1 raw frame data from the exact per-step witness package and the
+executable WOTS start-node fact. -/
+theorem c13FoldOkAfterMerkleRawXmssClimbFrameDataLayer1_of_witness_and_wotsPk
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hStepWitness :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssRawStepWitnessPremiseAt
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+          d.lsig1.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hWotsPk : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleRawXmssClimbFrameDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkAfterMerkleRawXmssClimbFrameDataLayer1_of_step_and_initial
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    (c13FoldOkAfterMerkleRawXmssClimbFrameStepDataLayer1_of_witness
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hStepWitness)
+    (c13FoldOkAfterMerkleRawXmssClimbInitialFrameDataLayer1_of_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hWotsPk)
+
+/-- C13 `.ok` model residual reduced to the smallest frame-threaded premises:
+for each successful fold witness and each executable layer, provide the
+per-step frame advance and initial `beforeMerkle` frame. -/
+def C13FoldOkAfterMerkleNormalizedXmssClimbFrameData
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+      pk digest forsPk sigParsed.layers specRoot,
+    C13AfterMerkleXmssFramePremisesAt pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+      (sigDataOffset + (1952 + 868 * 0 + 692))
+      d.lsig0.authPath
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 0 + 692)))
+      (CurrentNodeFrame.c13LayerLoopState0
+        (mkC13State pkSeed pkRoot message sig))
+      (digest.hyperIndex % 2048)
+      (C13Concrete.wordOfHash16 d.wotsPk0) ∧
+    C13AfterMerkleXmssFramePremisesAt pkSeed pkRoot message sig
+      (C13Concrete.wordOfHash16 pkSeed)
+      (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+      (sigDataOffset + (1952 + 868 * 1 + 692))
+      d.lsig1.authPath
+      (c13XmssAuthCdAt pkSeed pkRoot message sig
+        (sigDataOffset + (1952 + 868 * 1 + 692)))
+      (CurrentNodeFrame.c13LayerLoopState1
+        (mkC13State pkSeed pkRoot message sig))
+      ((digest.hyperIndex / 2048) % 2048)
+      (C13Concrete.wordOfHash16 d.wotsPk1)
+
+/-- Both-layer bounded normalized frame-data package: the two bounded-witness
+per-step residuals threaded with their initial `beforeMerkle` frames.  Carries
+exactly the surface produced from the proved bounded step holds plus the
+WOTS start-node facts, without the broad
+`C13AfterMerkleXmssFrameStepWitnessPremiseAt` step input the existing
+`C13FoldOkAfterMerkleNormalizedXmssClimbFrameData` requires. -/
+def C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameData
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
+  C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot ∧
+  C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+
+/-- Higher analog of
+`c13FoldOkAfterMerkleNormalizedXmssClimbFrameData_of_layers`: combines the two
+bounded layer residuals into the both-layer bounded frame-data package without
+any broad step-witness premise. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameData_of_layers
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hLayer0 : C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hLayer1 : C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  ⟨hLayer0, hLayer1⟩
+
+/-- The bounded both-layer normalized frame-data package follows from just
+`hParse` plus the layer-0/layer-1 WOTS start-node facts.  The broad step witness
+inputs `hFrameStep0`/`hFrameStep1` that
+`c13FoldOkAfterMerkleNormalizedXmssClimbData_of_step_witnesses_and_wotsPk`
+demands are eliminated; the bounded step is supplied internally by the proved
+`_holds` reducers. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameData_of_wotsPk
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hWotsPk0 : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hWotsPk1 : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameData_of_layers
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    (c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer0_of_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hWotsPk0)
+    (c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer1_of_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hWotsPk1)
+
+/-- The separated layer-0/layer-1 frame residuals reconstitute the existing
+combined normalized frame-data package. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbFrameData_of_layers
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hLayer0 : C13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hLayer1 : C13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbFrameData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  intro d
+  exact ⟨hLayer0 d, hLayer1 d⟩
+
+/-- The named frame-threaded `afterMerkle` theorem discharges the true normalized
+model residual once the two C13 layer frame packages are supplied.  Auth-path
+calldata ranges are discharged from the parsed signature and each successful
+fold witness's layer membership facts. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbModelData_of_frame_data
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hFrame : C13FoldOkAfterMerkleNormalizedXmssClimbFrameData
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbModelData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  constructor
+  · intro d
+    rcases hFrame d with ⟨hFrame0, _⟩
+    rcases hFrame0 with ⟨hstep0, hR0⟩
+    have hD0 :
+        ∀ i, i < 11 →
+          SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData
+            d.lsig0.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 0 + 692))) i := by
+      simpa [pk, c13XmssAuthCdAt] using
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.xmss_climb_data_range
+          pkSeed pkRoot message sig c13 sigParsed d.lsig0 0
+          (sigDataOffset + (1952 + 868 * 0 + 692))
+          hParse (by decide : 0 < 2) d.hLayer0 rfl
+    simpa [pk, digest] using
+      SegmentAcceptSpec.afterMerkle_model_node_of_xmss_frame_c13
+        pkSeed pkRoot message sig
+        (C13Concrete.wordOfHash16 pkSeed)
+        (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+        (sigDataOffset + (1952 + 868 * 0 + 692))
+        d.lsig0.authPath
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * 0 + 692)))
+        (CurrentNodeFrame.c13LayerLoopState0
+          (mkC13State pkSeed pkRoot message sig))
+        (digest.hyperIndex % 2048)
+        (C13Concrete.wordOfHash16 d.wotsPk0)
+        hstep0 hD0 hR0
+  · intro d
+    rcases hFrame d with ⟨_, hFrame1⟩
+    rcases hFrame1 with ⟨hstep1, hR1⟩
+    have hD1 :
+        ∀ i, i < 11 →
+          SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData
+            d.lsig1.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 1 + 692))) i := by
+      simpa [pk, c13XmssAuthCdAt] using
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.xmss_climb_data_range
+          pkSeed pkRoot message sig c13 sigParsed d.lsig1 1
+          (sigDataOffset + (1952 + 868 * 1 + 692))
+          hParse (by decide : 1 < 2) d.hLayer1 rfl
+    simpa [pk, digest] using
+      SegmentAcceptSpec.afterMerkle_model_node_of_xmss_frame_c13
+        pkSeed pkRoot message sig
+        (C13Concrete.wordOfHash16 pkSeed)
+        (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+        (sigDataOffset + (1952 + 868 * 1 + 692))
+        d.lsig1.authPath
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * 1 + 692)))
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))
+        ((digest.hyperIndex / 2048) % 2048)
+        (C13Concrete.wordOfHash16 d.wotsPk1)
+        hstep1 hD1 hR1
+
+/-- Matching normalized-frame and raw-relation Merkle projections discharge the
+C13 cell-normalization source package.  The remaining premises are explicitly
+split by layer: normalized `MerkleClimbFrame` advance/initial-frame facts and
+raw `MerkleClimbRawRel` advance/initial-relation facts for layer 0 and layer 1. -/
+theorem c13FoldOkAfterMerkleCellNormalizedSourceData_of_frame_and_raw_layers
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hFrame0 : C13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hFrame1 : C13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hRaw0 : C13FoldOkAfterMerkleRawXmssClimbFrameDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hRaw1 : C13FoldOkAfterMerkleRawXmssClimbFrameDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleCellNormalizedSourceData
+      pkSeed pkRoot message sig := by
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  let d :=
+    C13Concrete.foldHypertree_c13_ok_two_layer_data
+      pk digest forsPk specRoot sigParsed.layers
+      (by simpa [pk, digest] using hFold)
+  constructor
+  · have hD0 :
+        ∀ i, i < 11 →
+          SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData
+            d.lsig0.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 0 + 692))) i := by
+      simpa [pk, c13XmssAuthCdAt] using
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.xmss_climb_data_range
+          pkSeed pkRoot message sig c13 sigParsed d.lsig0 0
+          (sigDataOffset + (1952 + 868 * 0 + 692))
+          hParse (by decide : 0 < 2) d.hLayer0 rfl
+    exact
+      c13AfterMerkleCellNormalizedSourceData_of_frame_and_raw_premises_at
+        pkSeed pkRoot message sig
+        (C13Concrete.wordOfHash16 pkSeed)
+        (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+        (sigDataOffset + (1952 + 868 * 0 + 692))
+        d.lsig0.authPath
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * 0 + 692)))
+        (CurrentNodeFrame.c13LayerLoopState0
+          (mkC13State pkSeed pkRoot message sig))
+        (digest.hyperIndex % 2048)
+        (C13Concrete.wordOfHash16 d.wotsPk0)
+        hD0
+        (by simpa [pk, digest] using hFrame0 d)
+        (by simpa [pk, digest] using hRaw0 d)
+  · have hD1 :
+        ∀ i, i < 11 →
+          SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData
+            d.lsig1.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 1 + 692))) i := by
+      simpa [pk, c13XmssAuthCdAt] using
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.xmss_climb_data_range
+          pkSeed pkRoot message sig c13 sigParsed d.lsig1 1
+          (sigDataOffset + (1952 + 868 * 1 + 692))
+          hParse (by decide : 1 < 2) d.hLayer1 rfl
+    exact
+      c13AfterMerkleCellNormalizedSourceData_of_frame_and_raw_premises_at
+        pkSeed pkRoot message sig
+        (C13Concrete.wordOfHash16 pkSeed)
+        (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+        (sigDataOffset + (1952 + 868 * 1 + 692))
+        d.lsig1.authPath
+        (c13XmssAuthCdAt pkSeed pkRoot message sig
+          (sigDataOffset + (1952 + 868 * 1 + 692)))
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))
+        ((digest.hyperIndex / 2048) % 2048)
+        (C13Concrete.wordOfHash16 d.wotsPk1)
+        hD1
+        (by simpa [pk, digest] using hFrame1 d)
+        (by simpa [pk, digest] using hRaw1 d)
+
+/-- The split residuals reconstitute the previous normalized C13 `.ok`
+after-Merkle package. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbData_of_model_and_cell_normalized
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hModel : C13FoldOkAfterMerkleNormalizedXmssClimbModelData
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hCell : C13FoldOkAfterMerkleCellNormalizedData
+        pkSeed pkRoot message sig) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  rcases hModel with ⟨hModel0, hModel1⟩
+  rcases hCell with ⟨hCell0, hCell1⟩
+  exact ⟨hModel0, hCell0, hModel1, hCell1⟩
+
+/-- C13 `.ok` after-Merkle package from the exact residual surface left after
+the per-step reducers: four executable step witness packages and the two WOTS
+start-node facts. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbData_of_step_witnesses_and_wotsPk
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hFrameStep0 :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssFrameStepWitnessPremiseAt pkSeed pkRoot message sig
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+          (sigDataOffset + (1952 + 868 * 0 + 692))
+          d.lsig0.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hFrameStep1 :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssFrameStepWitnessPremiseAt pkSeed pkRoot message sig
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+          (sigDataOffset + (1952 + 868 * 1 + 692))
+          d.lsig1.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hRawStep0 :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssRawStepWitnessPremiseAt
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+          d.lsig0.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hRawStep1 :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssRawStepWitnessPremiseAt
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+          d.lsig1.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hWotsPk0 : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hWotsPk1 : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  have hFrame0 :
+      C13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+    c13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer0_of_witness_and_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hFrameStep0 hWotsPk0
+  have hFrame1 :
+      C13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+    c13FoldOkAfterMerkleNormalizedXmssClimbFrameDataLayer1_of_witness_and_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hFrameStep1 hWotsPk1
+  have hRaw0 :
+      C13FoldOkAfterMerkleRawXmssClimbFrameDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+    c13FoldOkAfterMerkleRawXmssClimbFrameDataLayer0_of_witness_and_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hRawStep0 hWotsPk0
+  have hRaw1 :
+      C13FoldOkAfterMerkleRawXmssClimbFrameDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+    c13FoldOkAfterMerkleRawXmssClimbFrameDataLayer1_of_witness_and_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hRawStep1 hWotsPk1
+  have hFrame :
+      C13FoldOkAfterMerkleNormalizedXmssClimbFrameData
+        pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+    c13FoldOkAfterMerkleNormalizedXmssClimbFrameData_of_layers
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hFrame0 hFrame1
+  have hModel :
+      C13FoldOkAfterMerkleNormalizedXmssClimbModelData
+        pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+    c13FoldOkAfterMerkleNormalizedXmssClimbModelData_of_frame_data
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hFrame
+  have hCellSource :
+      C13FoldOkAfterMerkleCellNormalizedSourceData
+        pkSeed pkRoot message sig :=
+    c13FoldOkAfterMerkleCellNormalizedSourceData_of_frame_and_raw_layers
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hFold
+      hFrame0 hFrame1 hRaw0 hRaw1
+  exact
+    c13FoldOkAfterMerkleNormalizedXmssClimbData_of_model_and_cell_normalized
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hModel
+      (c13FoldOkAfterMerkleCellNormalizedData_of_source_data
+        pkSeed pkRoot message sig hCellSource)
+
+/-- C13 `.ok` normalized model data from just the executable WOTS start-node
+facts and parsing.  No broad `hFrameStep0`/`hFrameStep1` step-witness premise
+is required: the bounded local model lift
+`c13AfterMerkleNormalizedXmssClimb_of_layer_site_bounded` produces each layer's
+`wordNormalize`-of-`afterMerkle`-equals-`xmssClimb` equality from the bounded
+step invariant threaded through `foldLoop_invariant_cond`. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbModelData_of_wotsPk
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hWotsPk0 : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hWotsPk1 : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbModelData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  have hInit0 :
+      C13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+    c13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer0_of_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hWotsPk0
+  have hInit1 :
+      C13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+    c13FoldOkAfterMerkleNormalizedXmssClimbInitialFrameDataLayer1_of_wotsPk_parse
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hWotsPk1
+  refine ⟨?_, ?_⟩
+  · intro d
+    have hD0 :
+        ∀ i, i < 11 →
+          SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData
+            d.lsig0.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 0 + 692))) i := by
+      simpa [pk, c13XmssAuthCdAt] using
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.xmss_climb_data_range
+          pkSeed pkRoot message sig c13 sigParsed d.lsig0 0
+          (sigDataOffset + (1952 + 868 * 0 + 692))
+          hParse (by decide : 0 < 2) d.hLayer0 rfl
+    have hTreeLt0 :
+        C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048) < 2 ^ 256 :=
+      c13_adrsXmssTree_lt_of_bounds 0 (digest.hyperIndex / 2048)
+        (by decide : 0 < 2 ^ 32)
+        (lt_of_le_of_lt (Nat.div_le_self _ _)
+          (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message))
+    have hMIdxNorm0 : wordNormalize (digest.hyperIndex % 2048) = digest.hyperIndex % 2048 :=
+      wordNormalize_mod_2048 digest.hyperIndex
+    simpa [pk, digest] using
+      c13AfterMerkleNormalizedXmssClimb_of_layer_site_bounded
+        pkSeed pkRoot message sig
+        (C13Concrete.wordOfHash16 pkSeed)
+        (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+        0 d.lsig0.authPath
+        (by decide : 0 < 2) hTreeLt0
+        (CurrentNodeFrame.c13LayerLoopState0
+          (mkC13State pkSeed pkRoot message sig))
+        (digest.hyperIndex % 2048)
+        (C13Concrete.wordOfHash16 d.wotsPk0)
+        hD0
+        (by simpa [pk, digest] using hInit0 d)
+        hMIdxNorm0
+  · intro d
+    have hD1 :
+        ∀ i, i < 11 →
+          SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData
+            d.lsig1.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 1 + 692))) i := by
+      simpa [pk, c13XmssAuthCdAt] using
+        SphincsMinusVerifiers.ClimbMemFrameMerkle.xmss_climb_data_range
+          pkSeed pkRoot message sig c13 sigParsed d.lsig1 1
+          (sigDataOffset + (1952 + 868 * 1 + 692))
+          hParse (by decide : 1 < 2) d.hLayer1 rfl
+    have hTreeLt1 :
+        C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048) < 2 ^ 256 :=
+      c13_adrsXmssTree_lt_of_bounds 1 ((digest.hyperIndex / 2048) / 2048)
+        (by decide : 1 < 2 ^ 32)
+        (lt_of_le_of_lt
+          (Nat.div_le_self _ _)
+          (lt_of_le_of_lt
+            (Nat.div_le_self _ _)
+            (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)))
+    have hMIdxNorm1 :
+        wordNormalize ((digest.hyperIndex / 2048) % 2048) =
+          (digest.hyperIndex / 2048) % 2048 :=
+      wordNormalize_mod_2048 (digest.hyperIndex / 2048)
+    simpa [pk, digest] using
+      c13AfterMerkleNormalizedXmssClimb_of_layer_site_bounded
+        pkSeed pkRoot message sig
+        (C13Concrete.wordOfHash16 pkSeed)
+        (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+        1 d.lsig1.authPath
+        (by decide : 1 < 2) hTreeLt1
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))
+        ((digest.hyperIndex / 2048) % 2048)
+        (C13Concrete.wordOfHash16 d.wotsPk1)
+        hD1
+        (by simpa [pk, digest] using hInit1 d)
+        hMIdxNorm1
+
+/-- C13 `.ok` after-Merkle package from the bounded model side (internally
+discharged) plus the broad exact-raw step witnesses and the WOTS start-node
+facts.  Bounded analog of
+`c13FoldOkAfterMerkleNormalizedXmssClimbData_of_step_witnesses_and_wotsPk`:
+the layer-0/layer-1 normalized step witness premises `hFrameStep0`/`hFrameStep1`
+are eliminated.  Only the raw-relation step witnesses and the WOTS start-node
+facts remain as caller surface. -/
+theorem c13FoldOkAfterMerkleNormalizedXmssClimbData_of_raw_step_witnesses_and_wotsPk
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hRawStep0 :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssRawStepWitnessPremiseAt
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+          d.lsig0.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hRawStep1 :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssRawStepWitnessPremiseAt
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+          d.lsig1.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hWotsPk0 : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hWotsPk1 : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleNormalizedXmssClimbData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  have hModel :
+      C13FoldOkAfterMerkleNormalizedXmssClimbModelData
+        pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+    c13FoldOkAfterMerkleNormalizedXmssClimbModelData_of_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hWotsPk0 hWotsPk1
+  have hRaw0 :
+      C13FoldOkAfterMerkleRawXmssClimbFrameDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+    c13FoldOkAfterMerkleRawXmssClimbFrameDataLayer0_of_witness_and_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hRawStep0 hWotsPk0
+  have hRaw1 :
+      C13FoldOkAfterMerkleRawXmssClimbFrameDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+    c13FoldOkAfterMerkleRawXmssClimbFrameDataLayer1_of_witness_and_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hRawStep1 hWotsPk1
+  -- Build cell-normalized source data directly from the bounded model equality
+  -- and the raw equality, without going through the universal frame step.
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  let d :=
+    C13Concrete.foldHypertree_c13_ok_two_layer_data
+      pk digest forsPk specRoot sigParsed.layers
+      (by simpa [pk, digest] using hFold)
+  have hCellSource :
+      C13FoldOkAfterMerkleCellNormalizedSourceData
+        pkSeed pkRoot message sig := by
+    refine ⟨?_, ?_⟩
+    · have hD0 :
+          ∀ i, i < 11 →
+            SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData
+              d.lsig0.authPath
+              (c13XmssAuthCdAt pkSeed pkRoot message sig
+                (sigDataOffset + (1952 + 868 * 0 + 692))) i := by
+        simpa [pk, c13XmssAuthCdAt] using
+          SphincsMinusVerifiers.ClimbMemFrameMerkle.xmss_climb_data_range
+            pkSeed pkRoot message sig c13 sigParsed d.lsig0 0
+            (sigDataOffset + (1952 + 868 * 0 + 692))
+            hParse (by decide : 0 < 2) d.hLayer0 rfl
+      refine ⟨C13Concrete.wordOfHash16 pkSeed,
+              C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048),
+              digest.hyperIndex % 2048,
+              C13Concrete.wordOfHash16 d.wotsPk0,
+              d.lsig0.authPath, ?_, ?_⟩
+      · exact hModel.1 d
+      · exact c13AfterMerkleRawXmssClimb_of_raw_premises_at
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+          d.lsig0.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 0 + 692)))
+          (CurrentNodeFrame.c13LayerLoopState0
+            (mkC13State pkSeed pkRoot message sig))
+          (digest.hyperIndex % 2048)
+          (C13Concrete.wordOfHash16 d.wotsPk0)
+          hD0
+          (by simpa [pk, digest] using hRaw0 d)
+    · have hD1 :
+          ∀ i, i < 11 →
+            SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData
+              d.lsig1.authPath
+              (c13XmssAuthCdAt pkSeed pkRoot message sig
+                (sigDataOffset + (1952 + 868 * 1 + 692))) i := by
+        simpa [pk, c13XmssAuthCdAt] using
+          SphincsMinusVerifiers.ClimbMemFrameMerkle.xmss_climb_data_range
+            pkSeed pkRoot message sig c13 sigParsed d.lsig1 1
+            (sigDataOffset + (1952 + 868 * 1 + 692))
+            hParse (by decide : 1 < 2) d.hLayer1 rfl
+      refine ⟨C13Concrete.wordOfHash16 pkSeed,
+              C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048),
+              (digest.hyperIndex / 2048) % 2048,
+              C13Concrete.wordOfHash16 d.wotsPk1,
+              d.lsig1.authPath, ?_, ?_⟩
+      · exact hModel.2 d
+      · exact c13AfterMerkleRawXmssClimb_of_raw_premises_at
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+          d.lsig1.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 1 + 692)))
+          (CurrentNodeFrame.c13LayerLoopState1
+            (mkC13State pkSeed pkRoot message sig))
+          ((digest.hyperIndex / 2048) % 2048)
+          (C13Concrete.wordOfHash16 d.wotsPk1)
+          hD1
+          (by simpa [pk, digest] using hRaw1 d)
+  exact
+    c13FoldOkAfterMerkleNormalizedXmssClimbData_of_model_and_cell_normalized
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hModel
+      (c13FoldOkAfterMerkleCellNormalizedData_of_source_data
+        pkSeed pkRoot message sig hCellSource)
+
+/-- A normalized after-Merkle climb package implies the exact raw package by
+rewriting each raw cell through its supplied `wordNormalize` identity. -/
+theorem c13FoldOkAfterMerkleRawXmssClimbData_of_normalized
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hNorm : C13FoldOkAfterMerkleNormalizedXmssClimbData
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkAfterMerkleRawXmssClimbData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  rcases hNorm with ⟨hModel0, hCell0, hModel1, hCell1⟩
+  constructor
+  · intro d
+    rw [← hCell0]
+    exact hModel0 d
+  · intro d
+    rw [← hCell1]
+    exact hModel1 d
+
+/-- Packaged `.ok` bridge from the normalized frame-threaded after-Merkle
+residual. -/
+theorem c13FoldOkDigitMerkleData_of_afterMerkle_normalized_xmssClimb_data
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hZero : forcedZeroOk c13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        sigParsed.fors = some forsPk)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hNorm : C13FoldOkAfterMerkleNormalizedXmssClimbData
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkDigitMerkleData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  rcases c13FoldOkAfterMerkleRawXmssClimbData_of_normalized
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hNorm with
+    ⟨hAfter0, hAfter1⟩
+  exact
+    c13FoldOkDigitMerkleData_of_afterMerkle_raw_xmssClimbs
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hZero hFors hFold hAfter0 hAfter1
+
+/-- `.ok` digit/Merkle data from the exact after-Merkle residual surface: four
+step witness packages and the two WOTS start-node facts. -/
+theorem c13FoldOkDigitMerkleData_of_afterMerkle_step_witnesses_and_wotsPk
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hZero : forcedZeroOk c13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        sigParsed.fors = some forsPk)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hFrameStep0 :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssFrameStepWitnessPremiseAt pkSeed pkRoot message sig
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+          (sigDataOffset + (1952 + 868 * 0 + 692))
+          d.lsig0.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hFrameStep1 :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssFrameStepWitnessPremiseAt pkSeed pkRoot message sig
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+          (sigDataOffset + (1952 + 868 * 1 + 692))
+          d.lsig1.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hRawStep0 :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssRawStepWitnessPremiseAt
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+          d.lsig0.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hRawStep1 :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssRawStepWitnessPremiseAt
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+          d.lsig1.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hWotsPk0 : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hWotsPk1 : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkDigitMerkleData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkDigitMerkleData_of_afterMerkle_normalized_xmssClimb_data
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse hZero hFors hFold
+    (c13FoldOkAfterMerkleNormalizedXmssClimbData_of_step_witnesses_and_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hFold
+      hFrameStep0 hFrameStep1 hRawStep0 hRawStep1 hWotsPk0 hWotsPk1)
+
+/-- Bounded analog of
+`c13FoldOkDigitMerkleData_of_afterMerkle_step_witnesses_and_wotsPk`.  The broad
+`hFrameStep0`/`hFrameStep1` step-witness premises are eliminated: the normalized
+after-Merkle climb data is built internally by
+`c13FoldOkAfterMerkleNormalizedXmssClimbData_of_raw_step_witnesses_and_wotsPk`,
+which threads the bounded step preservation through the climb loop.  The
+exact-raw step witnesses and WOTS start-node facts remain as caller surface. -/
+theorem c13FoldOkDigitMerkleData_of_afterMerkle_raw_step_witnesses_and_wotsPk
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hZero : forcedZeroOk c13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        sigParsed.fors = some forsPk)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hRawStep0 :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssRawStepWitnessPremiseAt
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+          d.lsig0.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hRawStep1 :
+      let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+      let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+      ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+          pk digest forsPk sigParsed.layers specRoot,
+        C13AfterMerkleXmssRawStepWitnessPremiseAt
+          (C13Concrete.wordOfHash16 pkSeed)
+          (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+          d.lsig1.authPath
+          (c13XmssAuthCdAt pkSeed pkRoot message sig
+            (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hWotsPk0 : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hWotsPk1 : C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkDigitMerkleData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  c13FoldOkDigitMerkleData_of_afterMerkle_normalized_xmssClimb_data
+    pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse hZero hFors hFold
+    (c13FoldOkAfterMerkleNormalizedXmssClimbData_of_raw_step_witnesses_and_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hFold hRawStep0 hRawStep1 hWotsPk0 hWotsPk1)
+
+/-- Packaged form of
+`c13FoldOkDigitMerkleData_of_afterMerkle_raw_xmssClimbs`.  Callers now discharge
+one named residual, `C13FoldOkAfterMerkleRawXmssClimbData`, rather than carrying
+the two full exact binding equalities inline. -/
+theorem c13FoldOkDigitMerkleData_of_afterMerkle_raw_xmssClimb_data
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hZero : forcedZeroOk c13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        sigParsed.fors = some forsPk)
+    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers = .ok specRoot)
+    (hAfter : C13FoldOkAfterMerkleRawXmssClimbData
+        pkSeed pkRoot message sig sigParsed forsPk specRoot) :
+    C13FoldOkDigitMerkleData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot := by
+  rcases hAfter with ⟨hAfter0, hAfter1⟩
+  exact
+    c13FoldOkDigitMerkleData_of_afterMerkle_raw_xmssClimbs
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hZero hFors hFold
+      (by
+        intro d
+        exact hAfter0 d)
+      (by
+        intro d
+        exact hAfter1 d)
 
 /-- Convert the bounded accept-side two-step current-node observation package
 into the exact successful C13 fold data consumed by the word-comparison bridge
@@ -1872,6 +7469,84 @@ theorem c13FoldRevertedDigestScratchData_of_layer_facts
     · exact c13SecondLayerBeforeDigest_count_slot_hyperIndex
         pkSeed pkRoot message sig sigParsed d.lsig1 hParse d.hLayer1
 
+/-- Variant of `c13FoldRevertedDigestScratchData_of_layer_facts` that replaces
+the broad first-step `"currentNode"` correspondence with the smaller raw
+layer-0 `afterMerkle` XMSS-climb equality needed only for the reverted-at-layer-1
+case.  The layer-0 reverted scratch branch remains proved from the parse/FORS
+facts alone. -/
+theorem c13FoldRevertedDigestScratchData_of_layer1_afterMerkle_raw_xmssClimb
+    (pkSeed pkRoot message sig : Bytes)
+    (sigParsed : Signature) (forsPk : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) sigParsed.fors
+          = some forsPk)
+    (hFirstStepMem :
+      ((SegmentLayer3.stepLayer
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+        ((c13FirstLayerGuardState pkSeed pkRoot message sig).world.memory 0x00).val)
+    (hAfter :
+      ∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers,
+        lookupValue
+            (SegmentLayer3.afterMerkle
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "merkleNode" =
+          C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 0
+              ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+            11 0
+            ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+            (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath) :
+    C13FoldRevertedDigestScratchData
+      pkSeed pkRoot message sig sigParsed forsPk := by
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  have hForsPk :=
+    c13AfterFinalize_forsPk_of_parse_fors
+      pkSeed pkRoot message sig sigParsed forsPk hParse hFors
+  have hSecondCurrent :=
+    c13SecondLayerGuardState_currentNode_of_reverted_layer1_afterMerkle_raw_xmssClimb
+      pkSeed pkRoot message sig sigParsed forsPk hAfter
+  have hSecondSeed :=
+    c13SecondLayerBeforeDigest_seed_slot_of_first_step_seed_slot
+      pkSeed pkRoot message sig
+      (c13FirstStepLayer_seed_slot_of_memory_zero
+        pkSeed pkRoot message sig hFirstStepMem)
+  refine ⟨?_, ?_⟩
+  · intro d
+    refine ⟨?_, ?_, ?_, ?_⟩
+    · exact c13FirstLayerBeforeDigest_seed_slot pkSeed pkRoot message sig
+    · exact c13FirstLayerBeforeDigest_wotsAdrs_slot_hyperIndex
+        pkSeed pkRoot message sig sigParsed hParse
+    · exact c13FirstLayerBeforeDigest_currentNode_slot
+        pkSeed pkRoot message sig forsPk hForsPk
+    · exact c13FirstLayerBeforeDigest_count_slot_hyperIndex
+        pkSeed pkRoot message sig sigParsed d.lsig0 hParse d.hLayer0
+  · intro d
+    refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    · exact c13FirstLayerBeforeDigest_seed_slot pkSeed pkRoot message sig
+    · exact c13FirstLayerBeforeDigest_wotsAdrs_slot_hyperIndex
+        pkSeed pkRoot message sig sigParsed hParse
+    · exact c13FirstLayerBeforeDigest_currentNode_slot
+        pkSeed pkRoot message sig forsPk hForsPk
+    · exact c13FirstLayerBeforeDigest_count_slot_hyperIndex
+        pkSeed pkRoot message sig sigParsed d.lsig0 hParse d.hLayer0
+    · exact hSecondSeed
+    · exact c13SecondLayerBeforeDigest_wotsAdrs_slot_hyperIndex
+        pkSeed pkRoot message sig sigParsed hParse
+    · exact c13SecondLayerBeforeDigest_currentNode_slot
+        pkSeed pkRoot message sig d.root0 (hSecondCurrent d)
+    · exact c13SecondLayerBeforeDigest_count_slot_hyperIndex
+        pkSeed pkRoot message sig sigParsed d.lsig1 hParse d.hLayer1
+
 /-- The generic Layer-3 pre-digest theorem turns concrete scratch-cell data into
 the `"d" = C13Concrete.wotsDigest ...` facts required by the checksum reducer. -/
 theorem c13FoldRevertedBeforeDigitData_of_digest_scratch_data
@@ -1913,13 +7588,6 @@ theorem c13FoldRevertedBeforeDigitData_of_digest_scratch_data
         d.lsig1.wots.count
         (C13Concrete.wordOfHash16 d.root0)
         hSeed1 hAdrs1 hNode1 hCount1
-
-private theorem c13_wotsDigest_lt
-    (seed : C13Concrete.Word) (layer idxTree idxLeaf count node : Nat) :
-    C13Concrete.wotsDigest seed layer idxTree idxLeaf count node < 2 ^ 256 := by
-  simpa [C13Concrete.wotsDigest, Compiler.Constants.evmModulus] using
-    SphincsMinusVerifiers.KeccakBridge.keccakWords_lt
-      [seed, C13Concrete.adrsWotsHashBase layer idxTree idxLeaf, node, count]
 
 /-- The executable checksum fold computes exactly the spec-side WOTS+C digit
 sum once the straight-line prefix has bound `"d"` to the layer digest. -/
@@ -2661,6 +8329,1537 @@ theorem c13_refines_byte_spec_of_current_node_facts_and_reverted_layer_facts_cov
       pkSeed pkRoot message sig sigParsed forsPk hParse hFors
       hFirstStepMem hCurrent0
 
+/-- C13 bridge reducer with the reverted branch reduced to the raw layer-0
+`afterMerkle` XMSS-climb equality needed by the layer-1 reverted case.  This is
+strictly below the older first-step `"currentNode"` premise; the packaging lemma
+derives the layer-1 scratch-cell current node from the raw merkle-node frame. -/
+theorem c13_refines_byte_spec_of_current_node_facts_and_reverted_afterMerkle_raw_xmss_cover
+    (hOkFacts :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        SegmentLayer3.layerGuard
+          (CurrentNodeFrame.c13LayerLoopState0
+            (mkC13State pkSeed pkRoot message sig)) = true ∧
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (CurrentNodeFrame.c13LayerLoopState0
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "currentNode"
+          =
+            C13Concrete.wordOfHash16
+              (SegmentAcceptSpec.c13HypertreeSpecStepAtLayer
+                { pkSeed := pkSeed, pkRoot := pkRoot }
+                (C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+                sigParsed.layers 0 forsPk) ∧
+        SegmentLayer3.layerGuard
+          (CurrentNodeFrame.c13LayerLoopState1
+            (mkC13State pkSeed pkRoot message sig)) = true ∧
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (CurrentNodeFrame.c13LayerLoopState1
+                (mkC13State pkSeed pkRoot message sig))).bindings
+            "currentNode"
+          = C13Concrete.wordOfHash16 specRoot)
+    (hRevertedLayerFacts :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .reverted →
+        ((SegmentLayer3.stepLayer
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+          ((c13FirstLayerGuardState pkSeed pkRoot message sig).world.memory 0x00).val ∧
+        (∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+            { pkSeed := pkSeed, pkRoot := pkRoot }
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+            forsPk sigParsed.layers,
+          lookupValue
+              (SegmentLayer3.afterMerkle
+                (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+              "merkleNode" =
+            C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+              (C13Concrete.adrsXmssTree 0
+                ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+              11 0
+              ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+              (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath)) :
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
+  refine
+    c13_refines_byte_spec_of_current_node_facts_and_reverted_digest_scratch_cover
+      hOkFacts ?_
+  intro pkSeed pkRoot message sig sigParsed forsPk hParse _hZero hFors hFold
+  rcases hRevertedLayerFacts pkSeed pkRoot message sig sigParsed forsPk
+      hParse _hZero hFors hFold with
+    ⟨hFirstStepMem, hAfter⟩
+  exact
+    c13FoldRevertedDigestScratchData_of_layer1_afterMerkle_raw_xmssClimb
+      pkSeed pkRoot message sig sigParsed forsPk hParse hFors
+      hFirstStepMem hAfter
+
+/-- C13 bridge reducer with the `.ok` branch reduced below the primitive
+guard/current-node facts.  Callers provide post-prefix checksum cells for the
+two guards and post-step `"merkleNode"` cells for the two `"currentNode"` facts;
+the final comparison remains at the C13 word-roundtrip boundary and no
+`pkRoot.size` premise is required. -/
+theorem c13_refines_byte_spec_of_ok_digit_merkle_and_reverted_layer_facts_cover
+    (hOkFacts :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkDigitMerkleData
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hRevertedLayerFacts :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .reverted →
+        ((SegmentLayer3.stepLayer
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+          ((c13FirstLayerGuardState pkSeed pkRoot message sig).world.memory 0x00).val ∧
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "currentNode" =
+          C13Concrete.wordOfHash16
+            (SegmentAcceptSpec.c13HypertreeSpecStepAtLayer
+              { pkSeed := pkSeed, pkRoot := pkRoot }
+              (C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+              sigParsed.layers 0 forsPk)) :
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
+  refine
+    c13_refines_byte_spec_of_current_node_wordcmp_and_reverted_digest_scratch_cover
+      ?_ ?_
+  · intro pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold
+    exact
+      c13FoldOkCurrentNodeWordcmpData_of_digit_merkle_facts
+        pkSeed pkRoot message sig sigParsed forsPk specRoot hFors hFold
+        (hOkFacts pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold)
+  · intro pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors hFold
+    rcases hRevertedLayerFacts pkSeed pkRoot message sig sigParsed forsPk
+        hParse hZero hFors hFold with
+      ⟨hFirstStepMem, hCurrent0⟩
+    exact
+      c13FoldRevertedDigestScratchData_of_layer_facts
+        pkSeed pkRoot message sig sigParsed forsPk hParse hFors
+        hFirstStepMem hCurrent0
+
+/-- C13 bridge reducer with the `.ok` branch at digit/Merkle facts and the
+reverted branch reduced to the raw layer-0 `afterMerkle` XMSS equality.  This is
+the direct after-Merkle analogue of
+`c13_refines_byte_spec_of_ok_digit_merkle_and_reverted_layer_facts_cover`. -/
+theorem c13_refines_byte_spec_of_ok_digit_merkle_and_reverted_afterMerkle_raw_xmss_cover
+    (hOkFacts :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkDigitMerkleData
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hRevertedLayerFacts :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .reverted →
+        ((SegmentLayer3.stepLayer
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+          ((c13FirstLayerGuardState pkSeed pkRoot message sig).world.memory 0x00).val ∧
+        (∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+            { pkSeed := pkSeed, pkRoot := pkRoot }
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+            forsPk sigParsed.layers,
+          lookupValue
+              (SegmentLayer3.afterMerkle
+                (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+              "merkleNode" =
+            C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+              (C13Concrete.adrsXmssTree 0
+                ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+              11 0
+              ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+              (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath)) :
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
+  refine
+    c13_refines_byte_spec_of_current_node_wordcmp_and_reverted_digest_scratch_cover
+      ?_ ?_
+  · intro pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold
+    exact
+      c13FoldOkCurrentNodeWordcmpData_of_digit_merkle_facts
+        pkSeed pkRoot message sig sigParsed forsPk specRoot hFors hFold
+        (hOkFacts pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold)
+  · intro pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors hFold
+    rcases hRevertedLayerFacts pkSeed pkRoot message sig sigParsed forsPk
+        hParse hZero hFors hFold with
+      ⟨hFirstStepMem, hAfter⟩
+    exact
+      c13FoldRevertedDigestScratchData_of_layer1_afterMerkle_raw_xmssClimb
+        pkSeed pkRoot message sig sigParsed forsPk hParse hFors
+        hFirstStepMem hAfter
+
+/-- Bounded variant of
+`c13_refines_byte_spec_of_ok_digit_merkle_and_reverted_layer_facts_cover`.  The
+caller no longer threads `C13FoldOkDigitMerkleData` through `hOkFacts`; instead
+the accept branch consumes the exact-raw step witnesses and WOTS start-node
+facts directly, and the normalized after-Merkle climb data is discharged
+internally by
+`c13FoldOkDigitMerkleData_of_afterMerkle_raw_step_witnesses_and_wotsPk` (no
+broad `hFrameStep0`/`hFrameStep1` step witness premise). -/
+theorem c13_refines_byte_spec_of_ok_raw_step_witnesses_and_reverted_layer_facts_cover
+    (hOkRawStep0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+            d.lsig0.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hOkRawStep1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+            d.lsig1.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hOkWotsPk0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hOkWotsPk1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hRevertedLayerFacts :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .reverted →
+        ((SegmentLayer3.stepLayer
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+          ((c13FirstLayerGuardState pkSeed pkRoot message sig).world.memory 0x00).val ∧
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "currentNode" =
+          C13Concrete.wordOfHash16
+            (SegmentAcceptSpec.c13HypertreeSpecStepAtLayer
+              { pkSeed := pkSeed, pkRoot := pkRoot }
+              (C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+              sigParsed.layers 0 forsPk)) :
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
+  refine
+    c13_refines_byte_spec_of_ok_digit_merkle_and_reverted_layer_facts_cover
+      ?_ hRevertedLayerFacts
+  intro pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold
+  exact
+    c13FoldOkDigitMerkleData_of_afterMerkle_raw_step_witnesses_and_wotsPk
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hZero hFors hFold
+      (hOkRawStep0 pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold)
+      (hOkRawStep1 pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold)
+      (hOkWotsPk0 pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold)
+        (hOkWotsPk1 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold)
+
+/-- After-Merkle reverted variant of
+`c13_refines_byte_spec_of_ok_raw_step_witnesses_and_reverted_layer_facts_cover`.
+The caller-side reverted branch no longer states the first-step
+`"currentNode"` equality; it only supplies the raw layer-0 `afterMerkle`
+XMSS-climb equality, while the first-step memory-zero fact is discharged from
+`hParse`. -/
+theorem c13_refines_byte_spec_of_ok_raw_step_witnesses_and_reverted_afterMerkle_raw_xmss_cover
+    (hOkRawStep0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+            d.lsig0.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hOkRawStep1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+            d.lsig1.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hOkWotsPk0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hOkWotsPk1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hRevertedAfterMerkle :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .reverted →
+        ∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+            { pkSeed := pkSeed, pkRoot := pkRoot }
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+            forsPk sigParsed.layers,
+          lookupValue
+              (SegmentLayer3.afterMerkle
+                (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+              "merkleNode" =
+            C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+              (C13Concrete.adrsXmssTree 0
+                ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+              11 0
+              ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+              (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath) :
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
+  refine
+    c13_refines_byte_spec_of_ok_digit_merkle_and_reverted_afterMerkle_raw_xmss_cover
+      ?_ ?_
+  · intro pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold
+    exact
+      c13FoldOkDigitMerkleData_of_afterMerkle_raw_step_witnesses_and_wotsPk
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold
+        (hOkRawStep0 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold)
+        (hOkRawStep1 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold)
+        (hOkWotsPk0 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold)
+        (hOkWotsPk1 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold)
+  · intro pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors hFold
+    exact
+      ⟨c13FirstStepLayer_memory_zero_eq_of_parse
+          pkSeed pkRoot message sig sigParsed hParse,
+       hRevertedAfterMerkle pkSeed pkRoot message sig sigParsed forsPk
+          hParse hZero hFors hFold⟩
+
+/-- Reduced variant of
+`c13_refines_byte_spec_of_ok_raw_step_witnesses_and_reverted_layer_facts_cover`.
+The caller now provides the layer-0/layer-1 WOTS start-node facts at the
+strictly earlier `beforeAuthOff` final-keccak cutpoint, which is closer to the
+executable runtime; the chain to the after-Merkle initial WOTS PK shape needed
+downstream is discharged internally by
+`c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer{0,1}_of_final_keccak`. -/
+theorem c13_refines_byte_spec_of_ok_raw_step_witnesses_and_final_keccak_and_reverted_layer_facts_cover
+    (hOkRawStep0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+            d.lsig0.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hOkRawStep1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+            d.lsig1.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hOkFinalKeccak0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkBeforeAuthOffWotsPkFinalKeccakDataLayer0
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hOkFinalKeccak1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkBeforeAuthOffWotsPkFinalKeccakDataLayer1
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hRevertedLayerFacts :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .reverted →
+        ((SegmentLayer3.stepLayer
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+          ((c13FirstLayerGuardState pkSeed pkRoot message sig).world.memory 0x00).val ∧
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "currentNode" =
+          C13Concrete.wordOfHash16
+            (SegmentAcceptSpec.c13HypertreeSpecStepAtLayer
+              { pkSeed := pkSeed, pkRoot := pkRoot }
+              (C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+              sigParsed.layers 0 forsPk)) :
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete :=
+  c13_refines_byte_spec_of_ok_raw_step_witnesses_and_reverted_layer_facts_cover
+    hOkRawStep0 hOkRawStep1
+    (fun pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold =>
+      c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0_of_final_keccak
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        (hOkFinalKeccak0 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold))
+    (fun pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold =>
+      c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1_of_final_keccak
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        (hOkFinalKeccak1 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold))
+    hRevertedLayerFacts
+
+/-- After-Merkle reverted variant of
+`c13_refines_byte_spec_of_ok_raw_step_witnesses_and_final_keccak_and_reverted_layer_facts_cover`.
+The accept branch is unchanged; the reverted branch is forwarded to the
+raw-XMSS after-Merkle reducer. -/
+theorem c13_refines_byte_spec_of_ok_raw_step_witnesses_and_final_keccak_and_reverted_afterMerkle_raw_xmss_cover
+    (hOkRawStep0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+            d.lsig0.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hOkRawStep1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+            d.lsig1.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hOkFinalKeccak0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkBeforeAuthOffWotsPkFinalKeccakDataLayer0
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hOkFinalKeccak1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkBeforeAuthOffWotsPkFinalKeccakDataLayer1
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hRevertedAfterMerkle :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .reverted →
+        ∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+            { pkSeed := pkSeed, pkRoot := pkRoot }
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+            forsPk sigParsed.layers,
+          lookupValue
+              (SegmentLayer3.afterMerkle
+                (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+              "merkleNode" =
+            C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+              (C13Concrete.adrsXmssTree 0
+                ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+              11 0
+              ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+              (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath) :
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete :=
+  c13_refines_byte_spec_of_ok_raw_step_witnesses_and_reverted_afterMerkle_raw_xmss_cover
+    hOkRawStep0 hOkRawStep1
+    (fun pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold =>
+      c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0_of_final_keccak
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        (hOkFinalKeccak0 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold))
+    (fun pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold =>
+      c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1_of_final_keccak
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        (hOkFinalKeccak1 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold))
+    hRevertedAfterMerkle
+
+/-- Reduced variant of
+`c13_refines_byte_spec_of_ok_raw_step_witnesses_and_final_keccak_and_reverted_layer_facts_cover`.
+The caller now provides the layer-0/layer-1 WOTS start-node facts as the
+single-equation `C13FoldOkBeforeAuthOffWotsPkWordDataLayer{0,1}` shape — just
+`lookup "wotsPk" = C13Concrete.wotsPkWord …` — instead of the two-conjunct
+`FinalKeccak` cutpoint.  The structural binding-eval equation that previously
+had to be discharged alongside the executable masked-Keccak evaluation is
+internalised: only the direct `wotsPkWord` equation is required at the boundary.
+The reducer chain to the after-Merkle initial WOTS PK shape is dispatched via
+`c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer{0,1}_of_wotsPkWord`. -/
+theorem c13_refines_byte_spec_of_ok_raw_step_witnesses_and_wotsPkWord_and_reverted_layer_facts_cover
+    (hOkRawStep0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+            d.lsig0.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hOkRawStep1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+            d.lsig1.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hOkWotsPkWord0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkBeforeAuthOffWotsPkWordDataLayer0
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hOkWotsPkWord1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkBeforeAuthOffWotsPkWordDataLayer1
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hRevertedLayerFacts :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .reverted →
+        ((SegmentLayer3.stepLayer
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+          ((c13FirstLayerGuardState pkSeed pkRoot message sig).world.memory 0x00).val ∧
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "currentNode" =
+          C13Concrete.wordOfHash16
+            (SegmentAcceptSpec.c13HypertreeSpecStepAtLayer
+              { pkSeed := pkSeed, pkRoot := pkRoot }
+              (C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+              sigParsed.layers 0 forsPk)) :
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete :=
+  c13_refines_byte_spec_of_ok_raw_step_witnesses_and_reverted_layer_facts_cover
+    hOkRawStep0 hOkRawStep1
+    (fun pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold =>
+      c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0_of_wotsPkWord
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        (hOkWotsPkWord0 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold))
+    (fun pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold =>
+      c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1_of_wotsPkWord
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        (hOkWotsPkWord1 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold))
+    hRevertedLayerFacts
+
+/-- After-Merkle reverted variant of
+`c13_refines_byte_spec_of_ok_raw_step_witnesses_and_wotsPkWord_and_reverted_layer_facts_cover`.
+Only the reverted branch changes; the accept-side `wotsPkWord` adapters are
+identical to the older layer-facts reducer. -/
+theorem c13_refines_byte_spec_of_ok_raw_step_witnesses_and_wotsPkWord_and_reverted_afterMerkle_raw_xmss_cover
+    (hOkRawStep0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+            d.lsig0.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hOkRawStep1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+            d.lsig1.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hOkWotsPkWord0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkBeforeAuthOffWotsPkWordDataLayer0
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hOkWotsPkWord1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkBeforeAuthOffWotsPkWordDataLayer1
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hRevertedAfterMerkle :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .reverted →
+        ∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+            { pkSeed := pkSeed, pkRoot := pkRoot }
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+            forsPk sigParsed.layers,
+          lookupValue
+              (SegmentLayer3.afterMerkle
+                (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+              "merkleNode" =
+            C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+              (C13Concrete.adrsXmssTree 0
+                ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+              11 0
+              ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+              (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath) :
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete :=
+  c13_refines_byte_spec_of_ok_raw_step_witnesses_and_reverted_afterMerkle_raw_xmss_cover
+    hOkRawStep0 hOkRawStep1
+    (fun pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold =>
+      c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0_of_wotsPkWord
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        (hOkWotsPkWord0 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold))
+    (fun pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold =>
+      c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1_of_wotsPkWord
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        (hOkWotsPkWord1 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold))
+    hRevertedAfterMerkle
+
+/-- Strictly reduced variant of
+`c13_refines_byte_spec_of_ok_raw_step_witnesses_and_wotsPkWord_and_reverted_layer_facts_cover`.
+The caller now provides the layer-0/layer-1 WOTS start-node facts in their
+shortest spec-shape:
+`lookup "wotsPk" = C13Concrete.wordOfHash16 d.wotsPk0` (six-argument
+`C13Concrete.wotsPkWord …` reconstruction is no longer part of the caller
+surface).  The `wotsPkWord = wordOfHash16 d.wotsPk0` reduction the previous
+variant relied on is internalised: the cover dispatches via the existing
+single-step `c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer{0,1}_of_beforeAuthOff`
+reducer (which threads `beforeMerkle_wotsPk_eq_beforeAuthOff_wotsPk`). -/
+theorem c13_refines_byte_spec_of_ok_raw_step_witnesses_and_beforeAuthOffWotsPk_and_reverted_layer_facts_cover
+    (hOkRawStep0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+            d.lsig0.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hOkRawStep1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+            d.lsig1.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hOkBeforeAuthOffWotsPk0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkBeforeAuthOffWotsPkDataLayer0
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hOkBeforeAuthOffWotsPk1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkBeforeAuthOffWotsPkDataLayer1
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hRevertedLayerFacts :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .reverted →
+        ((SegmentLayer3.stepLayer
+          (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+          ((c13FirstLayerGuardState pkSeed pkRoot message sig).world.memory 0x00).val ∧
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "currentNode" =
+          C13Concrete.wordOfHash16
+            (SegmentAcceptSpec.c13HypertreeSpecStepAtLayer
+              { pkSeed := pkSeed, pkRoot := pkRoot }
+              (C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+              sigParsed.layers 0 forsPk)) :
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete :=
+  c13_refines_byte_spec_of_ok_raw_step_witnesses_and_reverted_layer_facts_cover
+    hOkRawStep0 hOkRawStep1
+    (fun pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold =>
+      c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0_of_beforeAuthOff
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        (hOkBeforeAuthOffWotsPk0 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold))
+    (fun pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold =>
+      c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1_of_beforeAuthOff
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        (hOkBeforeAuthOffWotsPk1 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold))
+    hRevertedLayerFacts
+
+/-- After-Merkle reverted variant of
+`c13_refines_byte_spec_of_ok_raw_step_witnesses_and_beforeAuthOffWotsPk_and_reverted_layer_facts_cover`.
+This keeps the accept branch at the `beforeAuthOff` WOTS-PK facts while replacing
+the older reverted first-step `"currentNode"` surface with the raw layer-0
+`afterMerkle` XMSS equality. -/
+theorem c13_refines_byte_spec_of_ok_raw_step_witnesses_and_beforeAuthOffWotsPk_and_reverted_afterMerkle_raw_xmss_cover
+    (hOkRawStep0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+            d.lsig0.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hOkRawStep1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+            d.lsig1.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hOkBeforeAuthOffWotsPk0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkBeforeAuthOffWotsPkDataLayer0
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hOkBeforeAuthOffWotsPk1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkBeforeAuthOffWotsPkDataLayer1
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hRevertedAfterMerkle :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .reverted →
+        ∀ d : C13Concrete.FoldHypertreeC13RevertedLayer1Data
+            { pkSeed := pkSeed, pkRoot := pkRoot }
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+            forsPk sigParsed.layers,
+          lookupValue
+              (SegmentLayer3.afterMerkle
+                (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+              "merkleNode" =
+            C13Concrete.xmssClimb (C13Concrete.wordOfHash16 pkSeed)
+              (C13Concrete.adrsXmssTree 0
+                ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048))
+              11 0
+              ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+              (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath) :
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete :=
+  c13_refines_byte_spec_of_ok_raw_step_witnesses_and_reverted_afterMerkle_raw_xmss_cover
+    hOkRawStep0 hOkRawStep1
+    (fun pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold =>
+      c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0_of_beforeAuthOff
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        (hOkBeforeAuthOffWotsPk0 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold))
+    (fun pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold =>
+      c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1_of_beforeAuthOff
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        (hOkBeforeAuthOffWotsPk1 pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold))
+    hRevertedAfterMerkle
+
+/-- Strictly reduced variant of
+`c13_refines_byte_spec_of_ok_raw_step_witnesses_and_beforeAuthOffWotsPk_and_reverted_layer_facts_cover`.
+The caller-side `hRevertedLayerFacts` has had its memory-zero conjunct
+internalised via `c13FirstStepLayer_memory_zero_eq_of_parse` (proved unconditionally
+from `hParse`).  Only the substantive `"currentNode"` correctness claim
+remains on the reverted-branch caller surface. -/
+theorem c13_refines_byte_spec_of_ok_raw_step_witnesses_and_beforeAuthOffWotsPk_and_reverted_currentNode_facts_cover
+    (hOkRawStep0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 0 (digest.hyperIndex / 2048))
+            d.lsig0.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 0 + 692))))
+    (hOkRawStep1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+        let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+        ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+            pk digest forsPk sigParsed.layers specRoot,
+          C13AfterMerkleXmssRawStepWitnessPremiseAt
+            (C13Concrete.wordOfHash16 pkSeed)
+            (C13Concrete.adrsXmssTree 1 ((digest.hyperIndex / 2048) / 2048))
+            d.lsig1.authPath
+            (c13XmssAuthCdAt pkSeed pkRoot message sig
+              (sigDataOffset + (1952 + 868 * 1 + 692))))
+    (hOkBeforeAuthOffWotsPk0 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkBeforeAuthOffWotsPkDataLayer0
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hOkBeforeAuthOffWotsPk1 :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .ok specRoot →
+        C13FoldOkBeforeAuthOffWotsPkDataLayer1
+          pkSeed pkRoot message sig sigParsed forsPk specRoot)
+    (hRevertedCurrentNode :
+      ∀ pkSeed pkRoot message sig sigParsed forsPk,
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+        forcedZeroOk c13
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          sigParsed.fors = some forsPk →
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+          forsPk sigParsed.layers = .reverted →
+        lookupValue
+            (SegmentLayer3.stepLayer
+              (c13FirstLayerGuardState pkSeed pkRoot message sig)).bindings
+            "currentNode" =
+          C13Concrete.wordOfHash16
+            (SegmentAcceptSpec.c13HypertreeSpecStepAtLayer
+              { pkSeed := pkSeed, pkRoot := pkRoot }
+              (C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+              sigParsed.layers 0 forsPk)) :
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete :=
+  c13_refines_byte_spec_of_ok_raw_step_witnesses_and_beforeAuthOffWotsPk_and_reverted_layer_facts_cover
+    hOkRawStep0 hOkRawStep1 hOkBeforeAuthOffWotsPk0 hOkBeforeAuthOffWotsPk1
+    (fun pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors hFold =>
+      ⟨c13FirstStepLayer_memory_zero_eq_of_parse pkSeed pkRoot message sig sigParsed hParse,
+       hRevertedCurrentNode pkSeed pkRoot message sig sigParsed forsPk
+         hParse hZero hFors hFold⟩)
+
 /-- C13 bridge reducer with the accept branch using the bounded two-step
 current-node observation package and the reverted branch reduced to WOTS digest
 scratch cells.  This keeps the final comparison at the C13 wordcmp boundary and
@@ -2715,6 +9914,248 @@ theorem c13_refines_byte_spec_of_two_step_current_node_and_reverted_digest_scrat
 
 /-- C12 bridge reducer: the full concrete C12 byte-refinement follows from its
 good-length branch plus the proved malformed-length observable bridge. -/
+theorem c13_refines_byte_spec_of_accept_guard_current_node_and_reverted_digest_scratch_cover
+
+    (hGuard0 :
+
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+
+        forcedZeroOk c13
+
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+
+          sigParsed.fors = some forsPk →
+
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+
+          forsPk sigParsed.layers = .ok specRoot →
+
+        SegmentLayer3.layerGuard
+
+          (CurrentNodeFrame.c13LayerLoopState0
+
+            (mkC13State pkSeed pkRoot message sig)) = true)
+
+    (hCurrent0 :
+
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+
+        forcedZeroOk c13
+
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+
+          sigParsed.fors = some forsPk →
+
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+
+          forsPk sigParsed.layers = .ok specRoot →
+
+        lookupValue
+
+            (SegmentLayer3.stepLayer
+
+              (CurrentNodeFrame.c13LayerLoopState0
+
+                (mkC13State pkSeed pkRoot message sig))).bindings
+
+            "currentNode"
+
+          =
+
+            C13Concrete.wordOfHash16
+
+              (SegmentAcceptSpec.c13HypertreeSpecStepAtLayer
+
+                { pkSeed := pkSeed, pkRoot := pkRoot }
+
+                (C13Concrete.c13PrimitivesConcrete.hMsg c13
+
+                  { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+
+                sigParsed.layers 0 forsPk))
+
+    (hGuard1 :
+
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+
+        forcedZeroOk c13
+
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+
+          sigParsed.fors = some forsPk →
+
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+
+          forsPk sigParsed.layers = .ok specRoot →
+
+        SegmentLayer3.layerGuard
+
+          (CurrentNodeFrame.c13LayerLoopState1
+
+            (mkC13State pkSeed pkRoot message sig)) = true)
+
+    (hCurrent1 :
+
+      ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
+
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+
+        forcedZeroOk c13
+
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+
+          sigParsed.fors = some forsPk →
+
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+
+          forsPk sigParsed.layers = .ok specRoot →
+
+        lookupValue
+
+            (SegmentLayer3.stepLayer
+
+              (CurrentNodeFrame.c13LayerLoopState1
+
+                (mkC13State pkSeed pkRoot message sig))).bindings
+
+            "currentNode"
+
+          = C13Concrete.wordOfHash16 specRoot)
+
+    (hPkRootSize : ∀ pkRoot : ByteArray, pkRoot.size = 16)
+
+    (hRevertedScratchData :
+
+      ∀ pkSeed pkRoot message sig sigParsed forsPk,
+
+        C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
+
+        forcedZeroOk c13
+
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true →
+
+        C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
+
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+
+          sigParsed.fors = some forsPk →
+
+        foldHypertree C13Concrete.c13PrimitivesConcrete c13
+
+          { pkSeed := pkSeed, pkRoot := pkRoot }
+
+          (C13Concrete.c13PrimitivesConcrete.hMsg c13
+
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+
+          forsPk sigParsed.layers = .reverted →
+
+        C13FoldRevertedDigestScratchData pkSeed pkRoot message sig sigParsed forsPk) :
+
+    ByteLevel.ImplementsByteVerifier c13Primitives c13 execC13Concrete := by
+
+  refine
+
+    c13_refines_byte_spec_of_two_step_current_node_and_reverted_digest_scratch_cover
+
+      ?_ hRevertedScratchData
+
+  intro pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold
+
+  exact
+
+    SegmentAcceptSpec.concrete_layer_current_node_two_step_obligations_of_fold_ok_current_nodes
+
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hFold
+
+      (hGuard0 pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold)
+
+      (hCurrent0 pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold)
+
+      (hGuard1 pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold)
+
+      (hCurrent1 pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold)
+
+      (hPkRootSize pkRoot)
+
+
+
 theorem c12_refines_byte_spec_of_good_length_cover
     (hGood :
       ∀ pkSeed pkRoot message sig,
@@ -2745,6 +10186,28 @@ theorem c12_refines_byte_spec_of_parsed_cover
     SphincsMinusVerifierSpec.C12Concrete.parseSignatureC12_some_of_size
       (v := c12) (sig := sig) hLenC12
   exact hParsed pkSeed pkRoot message sig sigParsed hParse
+
+/-- C12 bridge reducer at the exact public `execC12` boundary.  The C12 prep
+module already proves the byte-refinement for `runC12BodyObserved`, which is
+definitionally the same observable as `execC12`; this wrapper exposes that proof
+with the same type as the former bridge axiom once the remaining layer-4 WOTS
+public-key premise is discharged. -/
+theorem c12_refines_byte_spec_of_layer4_wotsPk_beforeAuthOff_cover
+    (hLayer4WotsPkBeforeAuthOff :
+      C12BridgePrep.C12Layer4WotsPkBeforeAuthOffPremise) :
+    ByteLevel.ImplementsByteVerifier c12Primitives c12 execC12 := by
+  simpa [C12BridgePrep.runC12BodyObserved] using
+    C12BridgePrep.c12_refines_byte_spec_of_layer4_known_authPtr_cover
+      hLayer4WotsPkBeforeAuthOff
+
+/-- C12 bridge reducer at the public `execC12` boundary with the remaining
+layer-4 WOTS-PK obligation stated as the post-copy-loop final-Keccak scratch
+memory image. -/
+theorem c12_refines_byte_spec_of_layer4_beforeWotsPk_memory_cover
+    (hMem : C12BridgePrep.C12Layer4WotsPkBeforeWotsPkMemoryPremise) :
+    ByteLevel.ImplementsByteVerifier c12Primitives c12 execC12 := by
+  simpa [C12BridgePrep.runC12BodyObserved] using
+    C12BridgePrep.c12_refines_byte_spec_of_layer4_beforeWotsPk_memory_cover hMem
 
 /-- C12: on the length-ok branch, byte-level verification reaches the parsed
 verifier under the concrete C12 primitive package.  This is the C12 analogue of
@@ -2912,6 +10375,7 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13SecondLayer_wotsCount_norm
 #print axioms c13FirstLayerBeforeDigest_count_slot_hyperIndex
 #print axioms c13SecondLayerBeforeDigest_count_slot_hyperIndex
+#print axioms c13SecondLayerGuardState_currentNode_of_reverted_layer1_afterMerkle_raw_xmssClimb
 #print axioms c13FoldOkCurrentNodePkRootSizeData_of_current_node_facts
 #print axioms c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
 #print axioms c13FoldOkCurrentNodeWordcmpData_of_two_step_obligations
@@ -2929,8 +10393,39 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13_refines_byte_spec_of_current_node_wordcmp_and_reverted_digest_scratch_cover
 #print axioms c13_refines_byte_spec_of_current_node_facts_and_reverted_digest_scratch_cover
 #print axioms c13_refines_byte_spec_of_current_node_facts_and_reverted_layer_facts_cover
+#print axioms c13_refines_byte_spec_of_current_node_facts_and_reverted_afterMerkle_raw_xmss_cover
+#print axioms c13_refines_byte_spec_of_ok_digit_merkle_and_reverted_afterMerkle_raw_xmss_cover
 #print axioms c13_refines_byte_spec_of_two_step_current_node_and_reverted_digest_scratch_cover
 #print axioms c12_refines_byte_spec_of_good_length_cover
 #print axioms c12_refines_byte_spec_of_parsed_cover
+#print axioms c13AfterMerkleXmssFrameStepBoundedWitnessPremiseAt_layer0
+#print axioms c13AfterMerkleXmssFrameStepBoundedWitnessPremiseAt_layer1
+#print axioms c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameStepDataLayer0_holds
+#print axioms c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameStepDataLayer1_holds
+#print axioms c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer0_of_wotsPk
+#print axioms c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameDataLayer1_of_wotsPk
+#print axioms c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameData_of_wotsPk
+#print axioms c13AfterMerkleNormalizedXmssClimb_of_layer_site_bounded
+#print axioms c13FoldOkAfterMerkleNormalizedXmssClimbModelData_of_wotsPk
+#print axioms c13FoldOkAfterMerkleNormalizedXmssClimbData_of_raw_step_witnesses_and_wotsPk
+#print axioms c13FoldOkDigitMerkleData_of_afterMerkle_raw_step_witnesses_and_wotsPk
+#print axioms c13_refines_byte_spec_of_ok_raw_step_witnesses_and_reverted_layer_facts_cover
+#print axioms c13_refines_byte_spec_of_ok_raw_step_witnesses_and_reverted_afterMerkle_raw_xmss_cover
+#print axioms c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0_of_final_keccak
+#print axioms c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1_of_final_keccak
+#print axioms c13_refines_byte_spec_of_ok_raw_step_witnesses_and_final_keccak_and_reverted_layer_facts_cover
+#print axioms c13_refines_byte_spec_of_ok_raw_step_witnesses_and_final_keccak_and_reverted_afterMerkle_raw_xmss_cover
+#print axioms c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0_of_wotsPkWord
+#print axioms c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1_of_wotsPkWord
+#print axioms c13_refines_byte_spec_of_ok_raw_step_witnesses_and_wotsPkWord_and_reverted_layer_facts_cover
+#print axioms c13_refines_byte_spec_of_ok_raw_step_witnesses_and_wotsPkWord_and_reverted_afterMerkle_raw_xmss_cover
+#print axioms c13_refines_byte_spec_of_ok_raw_step_witnesses_and_beforeAuthOffWotsPk_and_reverted_layer_facts_cover
+#print axioms c13_refines_byte_spec_of_ok_raw_step_witnesses_and_beforeAuthOffWotsPk_and_reverted_afterMerkle_raw_xmss_cover
+#print axioms c13FirstStepLayer_memory_zero_eq_of_parse
+#print axioms c13FoldRevertedDigestScratchData_of_layer1_afterMerkle_raw_xmssClimb
+#print axioms c13_refines_byte_spec_of_ok_raw_step_witnesses_and_beforeAuthOffWotsPk_and_reverted_currentNode_facts_cover
+#print axioms c13FoldOkBeforeAuthOffWotsPkWordDataLayer0_of_prebind_keccak
+#print axioms c13FoldOkBeforeAuthOffWotsPkWordDataLayer1_of_prebind_keccak
 
 end SphincsMinusVerifiers
+#print axioms SphincsMinusVerifiers.c13_refines_byte_spec_of_accept_guard_current_node_and_reverted_digest_scratch_cover
