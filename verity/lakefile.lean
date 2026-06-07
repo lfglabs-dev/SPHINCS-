@@ -50,6 +50,8 @@ lean_lib SphincsMinusVerifiers where
              `SphincsMinusVerifiers.KeccakBridge,
              `SphincsMinusVerifiers.InitialNodeKeccak,
              `SphincsMinusVerifiers.CurrentNodeFrame,
+             `SphincsMinusVerifiers.SegmentLayer3CopyCells,
+             `SphincsMinusVerifiers.C13ChainCells,
              `SphincsMinusVerifiers.SegmentLayer3,
              `SphincsMinusVerifiers.SegmentLayer3MerkleFrame,
              `SphincsMinusVerifiers.SegmentCompose,
