@@ -296,6 +296,35 @@ theorem stepWots_preserves_lookup_of_ne
   · exact execStmt_mstore_preserves_lookup s s'' key _ _ hexec
   · exact execStmt_assignVar_preserves_lookup s s'' "val" key _ hne hexec
 
+/-- One WOTS outer-loop step preserves any binding not written by the body or
+its inner chain loop. -/
+theorem wotsOuterStep_preserves_lookup_of_ne
+    (st : RuntimeState) (key : String)
+    (hneDigit : "digit" ≠ key) (hneSteps : "steps" ≠ key)
+    (hneVal : "val" ≠ key) (hneChainBase : "chainBase" ≠ key)
+    (hneStep : "step" ≠ key) :
+    lookupValue (wotsOuterStep st).bindings key =
+      lookupValue st.bindings key := by
+  refine execStmtList_preserves_lookup key wotsOuterBody st (wotsOuterStep st) ?_
+    (wotsOuterStepLemma st)
+  intro s s'' stmt hmem hexec
+  simp [wotsOuterBody, mstoreE] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl
+  · exact execStmt_letVar_preserves_lookup s s'' "digit" key _ hneDigit hexec
+  · exact execStmt_letVar_preserves_lookup s s'' "steps" key _ hneSteps hexec
+  · exact execStmt_letVar_preserves_lookup s s'' "val" key _ hneVal hexec
+  · exact execStmt_letVar_preserves_lookup s s'' "chainBase" key _ hneChainBase hexec
+  · exact execStmt_forEach_preserves_lookup "step" key _ _ _ _ hneStep
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [wotsChainBody] at hmem'
+        rcases hmem' with rfl | rfl | rfl
+        · exact execStmt_mstore_preserves_lookup t t'' key _ _ hexec'
+        · exact execStmt_mstore_preserves_lookup t t'' key _ _ hexec'
+        · exact execStmt_assignVar_preserves_lookup t t'' "val" key _ hneVal hexec')
+      hexec
+  · exact execStmt_mstore_preserves_lookup s s'' key _ _ hexec
+
 /-- The WOTS-pk copy loop body (`forEach "i" (u 43)`). -/
 def copyBody : List Stmt :=
   [ mstoreE (addE (u 0x40) (shlE (u 5) (v "i"))) (mloadE (addE (u 0x80) (shlE (u 5) (v "i")))) ]
@@ -1808,6 +1837,64 @@ theorem copyStep_preserves_future_source_slot
     (s.world.memory (0x80 + 32 * j)).val
   rw [MemoryKit.memUpdate_diff _ _ _ _ (by omega)]
 
+/-- One C13 WOTS-PK copy-loop iteration preserves the WOTS-PK address slot
+`0x20`; copy iterations only write the destination range starting at `0x40`. -/
+theorem copyStep_preserves_memory_0x20
+    (s : RuntimeState) (idx : Nat) (hidx : idx < 43) :
+    ((copyStep { s with bindings := bindValue s.bindings "i" (wordNormalize idx) }).world.memory
+        0x20).val
+      = (s.world.memory 0x20).val := by
+  let st : RuntimeState :=
+    { s with bindings := bindValue s.bindings "i" (wordNormalize idx) }
+  have hoff : evalExpr [] st (addE (u 0x40) (shlE (u 5) (v "i"))) =
+      some (0x40 + 32 * idx) :=
+    copyOffset43 s 0x40 idx (by decide) hidx
+  have hsrc : evalExpr [] st (addE (u 0x80) (shlE (u 5) (v "i"))) =
+      some (0x80 + 32 * idx) :=
+    copyOffset43 s 0x80 idx (by decide) hidx
+  have hval : evalExpr [] st (mloadE (addE (u 0x80) (shlE (u 5) (v "i")))) =
+      some (s.world.memory (0x80 + 32 * idx)).val :=
+    SphincsMinusVerifiers.MemoryKit.evalExpr_mload_eq st
+      (addE (u 0x80) (shlE (u 5) (v "i"))) (0x80 + 32 * idx) hsrc
+  unfold copyStep copyBody mstoreE
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_mstore_continue st (addE (u 0x40) (shlE (u 5) (v "i")))
+      (mloadE (addE (u 0x80) (shlE (u 5) (v "i"))))
+      (0x40 + 32 * idx) (s.world.memory (0x80 + 32 * idx)).val hoff hval)]
+  show (MemoryKit.memUpdate st.world.memory (0x40 + 32 * idx)
+      (s.world.memory (0x80 + 32 * idx)).val 0x20).val =
+    (s.world.memory 0x20).val
+  rw [MemoryKit.memUpdate_diff _ _ _ _ (by omega)]
+
+/-- The actual WOTS-public-key copy statement preserves the WOTS-PK address
+slot `0x20`. -/
+theorem copyForEach_preserves_memory_0x20
+    (s s'' : RuntimeState)
+    (hexec : execStmt [] s (.forEach "i" (u 43) copyBody) = .continue s'') :
+    (s''.world.memory 0x20).val = (s.world.memory 0x20).val := by
+  refine SphincsMinusVerifiers.MemoryFrame.execStmt_forEach_preserves_memory_val_range
+    "i" 0x20 (u 43) copyBody (fun i => i < 43) s s'' ?_ ?_ hexec
+  · intro t i hi t'' hbody
+    rw [copyStepLemma] at hbody
+    cases hbody
+    exact copyStep_preserves_memory_0x20 t i hi
+  · intro bound i hbound _ hi
+    change some (wordNormalize 43) = some bound at hbound
+    injection hbound with hbound'
+    rw [← hbound'] at hi
+    simpa using hi
+
+/-- The folded 43-iteration copy loop preserves the WOTS-PK address slot
+`0x20`. -/
+theorem copyFold43_preserves_memory_0x20 (s : RuntimeState) :
+    ((foldLoop "i" copyStep s 0 43).world.memory 0x20).val =
+      (s.world.memory 0x20).val := by
+  rw [ClimbLoop.foldLoop_preserves_memory_val_range "i" copyStep 0x20
+    (fun i => i < 43)
+    (fun t i hi => copyStep_preserves_memory_0x20 t i hi)
+    s 0 43
+    (fun i _ hi => by simpa using hi)]
+
 /-- Later copy-loop iterations preserve destination slots that have already been
 written. -/
 theorem copyLoop_preserves_past_copy_slot :
@@ -3293,12 +3380,80 @@ def suffixBeforeWotsPk : List Stmt :=
   , mstore 0x20 (v "pkAdrs")
   , .forEach "i" (u 43) copyBody ]
 
+/-- The straight-line prefix of `suffixBeforeWotsPk` through the WOTS-PK address
+store, stopping immediately before the final copy loop. -/
+def suffixBeforeWotsPkCopy : List Stmt :=
+  [ .letVar "wotsPtr" (addE (v "sigBase") (v "sigOff"))
+  , .forEach "i" (u 43) wotsOuterBody
+  , .letVar "pkAdrs" (orE (shlE (u 224) (v "layer")) (orE (shlE (u 128) (v "idxTree")) (orE (shlE (u 96) (u 1)) (shlE (u 64) (v "idxLeaf")))))
+  , mstore 0x20 (v "pkAdrs") ]
+
+/-- The state after the WOTS-PK address has been stored at `0x20`, but before
+the WOTS chain-end copy loop. -/
+def beforeWotsPkCopy (ls : RuntimeState) : RuntimeState :=
+  match execStmtList [] (afterDigit ls) suffixBeforeWotsPkCopy with
+  | .continue s' => s'
+  | _ => afterDigit ls
+
 /-- The state immediately before binding `"wotsPk"` in the accept layer
 suffix.  Analogue of `c12LayerStateBeforeWotsPk`. -/
 def beforeWotsPk (ls : RuntimeState) : RuntimeState :=
   match execStmtList [] (afterDigit ls) suffixBeforeWotsPk with
   | .continue s' => s'
   | _ => afterDigit ls
+
+def wotsPkAdrsExpr : Expr :=
+  orE (shlE (u 224) (v "layer"))
+    (orE (shlE (u 128) (v "idxTree"))
+      (orE (shlE (u 96) (u 1)) (shlE (u 64) (v "idxLeaf"))))
+
+def beforeWotsPkWotsPtr (ls : RuntimeState) : RuntimeState :=
+  { (afterDigit ls) with
+    bindings := bindValue (afterDigit ls).bindings "wotsPtr"
+      ((evalExpr [] (afterDigit ls)
+        (.add (.localVar "sigBase") (.localVar "sigOff"))).getD 0) }
+
+def beforeWotsPkAfterWots (ls : RuntimeState) : RuntimeState :=
+  foldLoop "i" wotsOuterStep
+    { (beforeWotsPkWotsPtr ls) with
+      bindings := bindValue (beforeWotsPkWotsPtr ls).bindings "i" (wordNormalize 0) }
+    0 43
+
+/-- Splitting the WOTS-PK prebind prefix at the chain-end copy loop. -/
+theorem suffixBeforeWotsPk_eq_beforeWotsPkCopy_append :
+    suffixBeforeWotsPk =
+      suffixBeforeWotsPkCopy ++ [ .forEach "i" (u 43) copyBody ] := rfl
+
+/-- The prefix through the WOTS-PK address store always continues. -/
+theorem beforeWotsPkCopy_eq (ls : RuntimeState) :
+    execStmtList [] (afterDigit ls) suffixBeforeWotsPkCopy =
+      .continue (beforeWotsPkCopy ls) := by
+  unfold beforeWotsPkCopy suffixBeforeWotsPkCopy mstore u
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "wotsPtr" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_forEach_of_step "i" (.literal 43) wotsOuterBody _ _ wotsOuterStep rfl wotsOuterStepLemma)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue _ "pkAdrs" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  rfl
+
+theorem beforeWotsPkAfterWots_lookup_of_ne
+    (ls : RuntimeState) (key : String)
+    (hneI : "i" ≠ key)
+    (hneWotsPtr : "wotsPtr" ≠ key)
+    (hneDigit : "digit" ≠ key)
+    (hneSteps : "steps" ≠ key)
+    (hneVal : "val" ≠ key)
+    (hneChainBase : "chainBase" ≠ key)
+    (hneStep : "step" ≠ key) :
+    lookupValue (beforeWotsPkAfterWots ls).bindings key =
+      lookupValue (afterDigit ls).bindings key := by
+  unfold beforeWotsPkAfterWots
+  rw [ClimbLoop.foldLoop_preserves_lookup "i" key wotsOuterStep hneI
+    (fun s => wotsOuterStep_preserves_lookup_of_ne s key
+      hneDigit hneSteps hneVal hneChainBase hneStep)]
+  unfold beforeWotsPkWotsPtr
+  rw [MemoryKit.lookupValue_bindValue_ne _ "i" key _ hneI]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "wotsPtr" key _ hneWotsPtr]
 
 /-- Splitting the accept suffix at the final `"wotsPk"` letVar.  Purely
 syntactic (`rfl`); the right factor is the single `.letVar "wotsPk"` statement. -/
@@ -3320,6 +3475,352 @@ theorem beforeWotsPk_eq (ls : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _
       (execStmt_forEach_of_step "i" (.literal 43) copyBody _ _ copyStep rfl copyStepLemma)]
   rfl
+
+/-- The final WOTS-PK copy loop preserves the address slot written immediately
+before it. -/
+theorem beforeWotsPk_memory_0x20_eq_beforeWotsPkCopy (ls : RuntimeState) :
+    ((beforeWotsPk ls).world.memory 0x20).val =
+      ((beforeWotsPkCopy ls).world.memory 0x20).val := by
+  have hCopy :
+      execStmtList [] (beforeWotsPkCopy ls) [ .forEach "i" (u 43) copyBody ] =
+        .continue (foldLoop "i" copyStep
+          { (beforeWotsPkCopy ls) with
+            bindings := bindValue (beforeWotsPkCopy ls).bindings "i" (wordNormalize 0) }
+          0 43) := by
+    unfold u
+    rw [execStmtList_cons_continue _ _ _ []
+        (execStmt_forEach_of_step "i" (.literal 43) copyBody _ _ copyStep rfl copyStepLemma)]
+    rfl
+  unfold beforeWotsPk
+  rw [suffixBeforeWotsPk_eq_beforeWotsPkCopy_append]
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ (beforeWotsPkCopy_eq ls)]
+  rw [hCopy]
+  simpa using
+    copyFold43_preserves_memory_0x20
+      { (beforeWotsPkCopy ls) with
+        bindings := bindValue (beforeWotsPkCopy ls).bindings "i" (wordNormalize 0) }
+
+/-- The WOTS-PK-address expression evaluates to the spec address when the
+threaded layer/tree/leaf bindings have been identified. -/
+theorem evalExpr_pkAdrs_eq_of_layer_idxTree_idxLeaf
+    (st : RuntimeState) (layer idxTree idxLeaf : Nat)
+    (hLayer : lookupValue st.bindings "layer" = layer)
+    (hIdxTree : lookupValue st.bindings "idxTree" = idxTree)
+    (hIdxLeaf : lookupValue st.bindings "idxLeaf" = idxLeaf)
+    (hLayerLt : layer < 2 ^ 32)
+    (hIdxTreeLt : idxTree < 2 ^ 32)
+    (hIdxLeafLt : idxLeaf < 2 ^ 32) :
+    evalExpr [] st
+      (orE (shlE (u 224) (v "layer"))
+        (orE (shlE (u 128) (v "idxTree"))
+          (orE (shlE (u 96) (u 1))
+            (shlE (u 64) (v "idxLeaf"))))) =
+      some (SphincsMinusVerifierSpec.C13Concrete.adrsWotsPk
+        layer idxTree idxLeaf) := by
+  unfold orE shlE u v
+  have hLayerEval : evalExpr [] st (.localVar "layer") = some layer := by
+    change some (lookupValue st.bindings "layer") = some layer
+    rw [hLayer]
+  have hIdxTreeEval : evalExpr [] st (.localVar "idxTree") = some idxTree := by
+    change some (lookupValue st.bindings "idxTree") = some idxTree
+    rw [hIdxTree]
+  have hIdxLeafEval : evalExpr [] st (.localVar "idxLeaf") = some idxLeaf := by
+    change some (lookupValue st.bindings "idxLeaf") = some idxLeaf
+    rw [hIdxLeaf]
+  have h224 :
+      evalExpr [] st (.shl (.literal 224) (.localVar "layer")) =
+        some (layer <<< 224) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st (.literal 224) (.localVar "layer") 224 layer rfl hLayerEval
+      (by decide : 224 < 2 ^ 256)
+      (lt_trans hLayerLt (by decide : 2 ^ 32 < 2 ^ 256))
+      (by
+        rw [Nat.shiftLeft_eq]
+        calc
+          layer * 2 ^ 224 < 2 ^ 32 * 2 ^ 224 :=
+            Nat.mul_lt_mul_of_pos_right hLayerLt (by decide)
+          _ = 2 ^ 256 := by norm_num [Nat.pow_add])
+  have h128 :
+      evalExpr [] st (.shl (.literal 128) (.localVar "idxTree")) =
+        some (idxTree <<< 128) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st (.literal 128) (.localVar "idxTree") 128 idxTree rfl hIdxTreeEval
+      (by decide : 128 < 2 ^ 256)
+      (lt_trans hIdxTreeLt (by decide : 2 ^ 32 < 2 ^ 256))
+      (by
+        rw [Nat.shiftLeft_eq]
+        calc
+          idxTree * 2 ^ 128 < 2 ^ 32 * 2 ^ 128 :=
+            Nat.mul_lt_mul_of_pos_right hIdxTreeLt (by decide)
+          _ < 2 ^ 256 := by decide)
+  have h96 :
+      evalExpr [] st (.shl (.literal 96) (.literal 1)) =
+        some ((1 : Nat) <<< 96) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st (.literal 96) (.literal 1) 96 1 rfl rfl
+      (by decide : 96 < 2 ^ 256)
+      (by decide : 1 < 2 ^ 256)
+      (by norm_num [Nat.shiftLeft_eq])
+  have h64 :
+      evalExpr [] st (.shl (.literal 64) (.localVar "idxLeaf")) =
+        some (idxLeaf <<< 64) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      st (.literal 64) (.localVar "idxLeaf") 64 idxLeaf rfl hIdxLeafEval
+      (by decide : 64 < 2 ^ 256)
+      (lt_trans hIdxLeafLt (by decide : 2 ^ 32 < 2 ^ 256))
+      (by
+        rw [Nat.shiftLeft_eq]
+        calc
+          idxLeaf * 2 ^ 64 < 2 ^ 32 * 2 ^ 64 :=
+            Nat.mul_lt_mul_of_pos_right hIdxLeafLt (by decide)
+          _ < 2 ^ 256 := by decide)
+  have h224lt : layer <<< 224 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      layer * 2 ^ 224 < 2 ^ 32 * 2 ^ 224 :=
+        Nat.mul_lt_mul_of_pos_right hLayerLt (by decide)
+      _ = 2 ^ 256 := by norm_num [Nat.pow_add]
+  have h128lt : idxTree <<< 128 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      idxTree * 2 ^ 128 < 2 ^ 32 * 2 ^ 128 :=
+        Nat.mul_lt_mul_of_pos_right hIdxTreeLt (by decide)
+      _ < 2 ^ 256 := by decide
+  have h96lt : (1 : Nat) <<< 96 < 2 ^ 256 := by
+    norm_num [Nat.shiftLeft_eq]
+  have h64lt : idxLeaf <<< 64 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      idxLeaf * 2 ^ 64 < 2 ^ 32 * 2 ^ 64 :=
+        Nat.mul_lt_mul_of_pos_right hIdxLeafLt (by decide)
+      _ < 2 ^ 256 := by decide
+  have h96_64 :
+      evalExpr [] st
+        (.bitOr (.shl (.literal 96) (.literal 1))
+          (.shl (.literal 64) (.localVar "idxLeaf"))) =
+        some (((1 : Nat) <<< 96) ||| (idxLeaf <<< 64)) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+      st (.shl (.literal 96) (.literal 1))
+      (.shl (.literal 64) (.localVar "idxLeaf"))
+      ((1 : Nat) <<< 96) (idxLeaf <<< 64) h96 h64 h96lt h64lt
+  have h96_64_lt :
+      (((1 : Nat) <<< 96) ||| (idxLeaf <<< 64)) < 2 ^ 256 :=
+    Nat.bitwise_lt_two_pow h96lt h64lt
+  have hinner :
+      evalExpr [] st
+        (.bitOr (.shl (.literal 128) (.localVar "idxTree"))
+          (.bitOr (.shl (.literal 96) (.literal 1))
+            (.shl (.literal 64) (.localVar "idxLeaf")))) =
+        some ((idxTree <<< 128) |||
+          (((1 : Nat) <<< 96) ||| (idxLeaf <<< 64))) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+      st (.shl (.literal 128) (.localVar "idxTree"))
+      (.bitOr (.shl (.literal 96) (.literal 1))
+        (.shl (.literal 64) (.localVar "idxLeaf")))
+      (idxTree <<< 128)
+      (((1 : Nat) <<< 96) ||| (idxLeaf <<< 64))
+      h128 h96_64 h128lt h96_64_lt
+  have hinnerLt :
+      ((idxTree <<< 128) ||| (((1 : Nat) <<< 96) ||| (idxLeaf <<< 64))) < 2 ^ 256 :=
+    Nat.bitwise_lt_two_pow h128lt h96_64_lt
+  have hfull :
+      evalExpr [] st
+        (.bitOr (.shl (.literal 224) (.localVar "layer"))
+          (.bitOr (.shl (.literal 128) (.localVar "idxTree"))
+            (.bitOr (.shl (.literal 96) (.literal 1))
+              (.shl (.literal 64) (.localVar "idxLeaf"))))) =
+        some ((layer <<< 224) |||
+          ((idxTree <<< 128) ||| (((1 : Nat) <<< 96) ||| (idxLeaf <<< 64)))) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
+      st (.shl (.literal 224) (.localVar "layer"))
+      (.bitOr (.shl (.literal 128) (.localVar "idxTree"))
+        (.bitOr (.shl (.literal 96) (.literal 1))
+          (.shl (.literal 64) (.localVar "idxLeaf")))
+      )
+      (layer <<< 224)
+      ((idxTree <<< 128) ||| (((1 : Nat) <<< 96) ||| (idxLeaf <<< 64)))
+      h224 hinner h224lt hinnerLt
+  rw [hfull]
+  simp [SphincsMinusVerifierSpec.C13Concrete.adrsWotsPk, Nat.lor_assoc]
+
+theorem beforeWotsPkAfterWots_eval_pkAdrs_eq_of_afterDigit_bindings
+    (ls : RuntimeState) (layer idxTree idxLeaf : Nat)
+    (hLayer : lookupValue (afterDigit ls).bindings "layer" = layer)
+    (hIdxTree : lookupValue (afterDigit ls).bindings "idxTree" = idxTree)
+    (hIdxLeaf : lookupValue (afterDigit ls).bindings "idxLeaf" = idxLeaf)
+    (hLayerLt : layer < 2 ^ 32)
+    (hIdxTreeLt : idxTree < 2 ^ 32)
+    (hIdxLeafLt : idxLeaf < 2 ^ 32) :
+    evalExpr [] (beforeWotsPkAfterWots ls) wotsPkAdrsExpr =
+      some (SphincsMinusVerifierSpec.C13Concrete.adrsWotsPk
+        layer idxTree idxLeaf) := by
+  unfold wotsPkAdrsExpr
+  exact evalExpr_pkAdrs_eq_of_layer_idxTree_idxLeaf
+    (beforeWotsPkAfterWots ls) layer idxTree idxLeaf
+    (by
+      rw [beforeWotsPkAfterWots_lookup_of_ne ls "layer"
+        (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)]
+      exact hLayer)
+    (by
+      rw [beforeWotsPkAfterWots_lookup_of_ne ls "idxTree"
+        (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)]
+      exact hIdxTree)
+    (by
+      rw [beforeWotsPkAfterWots_lookup_of_ne ls "idxLeaf"
+        (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)]
+      exact hIdxLeaf)
+    hLayerLt hIdxTreeLt hIdxLeafLt
+
+/-- The WOTS-PK address word assembled from bounded layer/tree/leaf components
+is already normalized as an EVM word. -/
+theorem adrsWotsPk_wordNormalize_of_bounds
+    (layer idxTree idxLeaf : Nat)
+    (hLayerLt : layer < 2 ^ 32)
+    (hIdxTreeLt : idxTree < 2 ^ 32)
+    (hIdxLeafLt : idxLeaf < 2 ^ 32) :
+    wordNormalize
+        (SphincsMinusVerifierSpec.C13Concrete.adrsWotsPk
+          layer idxTree idxLeaf) =
+      SphincsMinusVerifierSpec.C13Concrete.adrsWotsPk
+        layer idxTree idxLeaf := by
+  have h224 : layer <<< 224 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      layer * 2 ^ 224 < 2 ^ 32 * 2 ^ 224 :=
+        Nat.mul_lt_mul_of_pos_right hLayerLt (by decide)
+      _ = 2 ^ 256 := by norm_num [Nat.pow_add]
+  have h128 : idxTree <<< 128 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      idxTree * 2 ^ 128 < 2 ^ 32 * 2 ^ 128 :=
+        Nat.mul_lt_mul_of_pos_right hIdxTreeLt (by decide)
+      _ < 2 ^ 256 := by decide
+  have h96 : (1 : Nat) <<< 96 < 2 ^ 256 := by
+    norm_num [Nat.shiftLeft_eq]
+  have h64 : idxLeaf <<< 64 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      idxLeaf * 2 ^ 64 < 2 ^ 32 * 2 ^ 64 :=
+        Nat.mul_lt_mul_of_pos_right hIdxLeafLt (by decide)
+      _ < 2 ^ 256 := by decide
+  have h96_64 :
+      (((1 : Nat) <<< 96) ||| (idxLeaf <<< 64)) < 2 ^ 256 :=
+    Nat.bitwise_lt_two_pow h96 h64
+  have hinner :
+      ((idxTree <<< 128) ||| (((1 : Nat) <<< 96) ||| (idxLeaf <<< 64))) <
+        2 ^ 256 :=
+    Nat.bitwise_lt_two_pow h128 h96_64
+  have haddr :
+      ((layer <<< 224) |||
+        ((idxTree <<< 128) ||| (((1 : Nat) <<< 96) ||| (idxLeaf <<< 64)))) <
+        2 ^ 256 :=
+    Nat.bitwise_lt_two_pow h224 hinner
+  simpa [SphincsMinusVerifierSpec.C13Concrete.adrsWotsPk, Nat.lor_assoc] using
+    SegmentS2.wordNormalize_of_lt haddr
+
+/-- At the pre-copy WOTS-PK cutpoint, cell `0x20` contains the WOTS-PK address
+assembled from the current layer/tree/leaf bindings. -/
+theorem beforeWotsPkCopy_memory_0x20_eq_of_afterDigit_bindings
+    (ls : RuntimeState) (layer idxTree idxLeaf : Nat)
+    (hLayer : lookupValue (afterDigit ls).bindings "layer" = layer)
+    (hIdxTree : lookupValue (afterDigit ls).bindings "idxTree" = idxTree)
+    (hIdxLeaf : lookupValue (afterDigit ls).bindings "idxLeaf" = idxLeaf)
+    (hLayerLt : layer < 2 ^ 32)
+    (hIdxTreeLt : idxTree < 2 ^ 32)
+    (hIdxLeafLt : idxLeaf < 2 ^ 32) :
+    ((beforeWotsPkCopy ls).world.memory 0x20).val =
+      SphincsMinusVerifierSpec.C13Concrete.adrsWotsPk
+        layer idxTree idxLeaf := by
+  have hEval :=
+    beforeWotsPkAfterWots_eval_pkAdrs_eq_of_afterDigit_bindings
+      ls layer idxTree idxLeaf hLayer hIdxTree hIdxLeaf
+      hLayerLt hIdxTreeLt hIdxLeafLt
+  unfold wotsPkAdrsExpr u at hEval
+  unfold beforeWotsPkCopy suffixBeforeWotsPkCopy mstore u
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_letVar_continue _ "wotsPtr" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_forEach_of_step "i" (.literal 43) wotsOuterBody _ _
+      wotsOuterStep rfl wotsOuterStepLemma)]
+  rw [show wordNormalize 43 = 43 by rfl]
+  change
+    ((match execStmtList [] (beforeWotsPkAfterWots ls)
+        [Stmt.letVar "pkAdrs"
+          (orE (shlE (Expr.literal 224) (v "layer"))
+            (orE (shlE (Expr.literal 128) (v "idxTree"))
+              (orE (shlE (Expr.literal 96) (Expr.literal 1))
+                (shlE (Expr.literal 64) (v "idxLeaf"))))),
+         Stmt.mstore (Expr.literal 32) (v "pkAdrs")] with
+      | .continue s' => s'
+      | _ => afterDigit ls).world.memory 0x20).val =
+      SphincsMinusVerifierSpec.C13Concrete.adrsWotsPk
+        layer idxTree idxLeaf
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_letVar_continue _ "pkAdrs" _ _ hEval)]
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
+  simp only [execStmtList]
+  change
+    (MemoryKit.memUpdate _ (wordNormalize 32)
+        (wordNormalize
+          (SphincsMinusVerifierSpec.C13Concrete.adrsWotsPk
+            layer idxTree idxLeaf))
+        (wordNormalize 32)).val =
+      SphincsMinusVerifierSpec.C13Concrete.adrsWotsPk
+        layer idxTree idxLeaf
+  rw [MemoryKit.memUpdate_val_same]
+  exact adrsWotsPk_wordNormalize_of_bounds
+    layer idxTree idxLeaf hLayerLt hIdxTreeLt hIdxLeafLt
+
+/-- The final copy loop preserves the WOTS-PK address cell at `0x20`, so the
+full pre-`wotsPk` cutpoint has the same address word as the pre-copy cutpoint. -/
+theorem beforeWotsPk_memory_0x20_eq_of_afterDigit_bindings
+    (ls : RuntimeState) (layer idxTree idxLeaf : Nat)
+    (hLayer : lookupValue (afterDigit ls).bindings "layer" = layer)
+    (hIdxTree : lookupValue (afterDigit ls).bindings "idxTree" = idxTree)
+    (hIdxLeaf : lookupValue (afterDigit ls).bindings "idxLeaf" = idxLeaf)
+    (hLayerLt : layer < 2 ^ 32)
+    (hIdxTreeLt : idxTree < 2 ^ 32)
+    (hIdxLeafLt : idxLeaf < 2 ^ 32) :
+    ((beforeWotsPk ls).world.memory 0x20).val =
+      SphincsMinusVerifierSpec.C13Concrete.adrsWotsPk
+        layer idxTree idxLeaf := by
+  rw [beforeWotsPk_memory_0x20_eq_beforeWotsPkCopy]
+  exact beforeWotsPkCopy_memory_0x20_eq_of_afterDigit_bindings
+    ls layer idxTree idxLeaf hLayer hIdxTree hIdxLeaf
+    hLayerLt hIdxTreeLt hIdxLeafLt
+
+/-- The prefix before `"wotsPk"` preserves seed cell `0x00` once the two loop
+statements are supplied as bounded frame facts. -/
+theorem beforeWotsPk_preserves_memory_zero_of_loop_frames
+    (ls : RuntimeState)
+    (hWots :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (u 43) wotsOuterBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hCopy :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (u 43) copyBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val) :
+    ((beforeWotsPk ls).world.memory 0x00).val =
+      ((afterDigit ls).world.memory 0x00).val := by
+  refine SphincsMinusVerifiers.MemoryFrame.execStmtList_preserves_memory_val
+    0x00 suffixBeforeWotsPk (afterDigit ls) (beforeWotsPk ls) ?_
+    (beforeWotsPk_eq ls)
+  intro s s'' stmt hmem hexec
+  simp [suffixBeforeWotsPk, mstore] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl
+  · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' 0x00 "wotsPtr" _ hexec
+  · exact hWots s s'' hexec
+  · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' 0x00 "pkAdrs" _ hexec
+  · refine SphincsMinusVerifiers.MemoryFrame.execStmt_mstore_preserves_memory_val
+      s s'' 0x00 _ _ ?_ hexec
+    intro ro rv hoff _
+    cases hoff
+    decide
+  · exact hCopy s s'' hexec
 
 /-- The `"wotsPk"` binding at `beforeAuthOff` is exactly the masked Keccak
 evaluated at the smaller `beforeWotsPk` boundary.  C13 analogue of the C12

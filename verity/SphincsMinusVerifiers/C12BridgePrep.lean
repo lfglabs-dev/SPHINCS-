@@ -1006,6 +1006,71 @@ theorem c12WotsChainsEnd_length
     (c12WotsChainsEnd seed layer treeIdx leafIdx node wots).length = 45 := by
   simp [c12WotsChainsEnd]
 
+theorem nat_land_low3 (x : Nat) : Nat.land x 0x7 = x % 8 := by
+  change (x &&& (2 ^ 3 - 1)) = x % 2 ^ 3
+  apply Nat.eq_of_testBit_eq
+  intro i
+  rw [Nat.testBit_land]
+  by_cases hi : i < 3
+  · have hmask : (2 ^ 3 - 1).testBit i = true := by
+      rw [Nat.testBit_two_pow_sub_one]
+      exact decide_eq_true hi
+    rw [hmask, Bool.and_true]
+    rw [Nat.testBit_mod_two_pow]
+    simp [hi]
+  · have hmask : (2 ^ 3 - 1).testBit i = false := by
+      rw [Nat.testBit_two_pow_sub_one]
+      exact decide_eq_false hi
+    rw [hmask, Bool.and_false]
+    rw [Nat.testBit_mod_two_pow]
+    simp [hi]
+
+theorem c12WotsChainsEnd_getElem_message
+    (seed : Nat) (layer treeIdx leafIdx node : Nat) (wots : WotsSig)
+    (j : Nat) (hj : j < 42) :
+    (c12WotsChainsEnd seed layer treeIdx leafIdx node wots)[j]'(by
+        rw [c12WotsChainsEnd_length]
+        omega) =
+      C12Concrete.chainHashC12 seed
+        (C12Concrete.wotsBaseC12 layer treeIdx leafIdx ||| (j <<< 64))
+        ((node >>> (128 + 3 * j)) &&& 7)
+        (7 - ((node >>> (128 + 3 * j)) &&& 7)) 0
+        (SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
+          ((wots.chains[j]?).getD ⟨#[]⟩)) := by
+  unfold c12WotsChainsEnd C12Concrete.wotsDigitC12
+  simp only [List.getElem_map, List.getElem_range]
+  have hDigit : (node >>> (128 + 3 * j)) % 8 =
+      (node >>> (128 + 3 * j)) &&& 7 := by
+    change (node >>> (128 + 3 * j)) % 8 =
+      Nat.land (node >>> (128 + 3 * j)) 7
+    rw [nat_land_low3]
+  rw [hDigit]
+  simp [hj]
+
+theorem c12WotsChainsEnd_getElem_checksum
+    (seed : Nat) (layer treeIdx leafIdx node : Nat) (wots : WotsSig)
+    (j : Nat) (hj : j < 3) :
+    (c12WotsChainsEnd seed layer treeIdx leafIdx node wots)[42 + j]'(by
+        rw [c12WotsChainsEnd_length]
+        omega) =
+      C12Concrete.chainHashC12 seed
+        (C12Concrete.wotsBaseC12 layer treeIdx leafIdx ||| ((42 + j) <<< 64))
+        (((C12Concrete.wotsCsumC12 node <<< 7) >>> (13 - 3 * j)) &&& 7)
+        (7 - (((C12Concrete.wotsCsumC12 node <<< 7) >>> (13 - 3 * j)) &&& 7)) 0
+        (SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
+          ((wots.chains[42 + j]?).getD ⟨#[]⟩)) := by
+  unfold c12WotsChainsEnd
+  simp only [List.getElem_map, List.getElem_range]
+  have hNot : ¬ 42 + j < 42 := by omega
+  have hSub : 42 + j - 42 = j := by omega
+  have hDigit :
+      ((C12Concrete.wotsCsumC12 node <<< 7) >>> (13 - 3 * j)) % 8 =
+        ((C12Concrete.wotsCsumC12 node <<< 7) >>> (13 - 3 * j)) &&& 7 := by
+    change ((C12Concrete.wotsCsumC12 node <<< 7) >>> (13 - 3 * j)) % 8 =
+      Nat.land (((C12Concrete.wotsCsumC12 node <<< 7) >>> (13 - 3 * j))) 7
+    rw [nat_land_low3]
+  simp [hNot, hSub, hDigit]
+
 /-- `wotsPkWordC12` is definitionally the masked Keccak over
 `seed || WOTS_PK_ADRS || chain_0..chain_44`. -/
 theorem c12WotsPkWord_eq
@@ -1762,6 +1827,47 @@ theorem c12Layer4PreBodyState_wotsPtr_eval
       (by norm_num [MkC13State.sigDataOffset])
   convert hAdd using 1
 
+/-- Binding `"wotsBase"` during the layer-4 WOTS setup does not affect
+`sigBase + sigOff`, so the intermediate state still evaluates the layer-4 WOTS
+signature pointer. -/
+theorem c12Layer4PreBodyState_wotsPtr_eval_after_wotsBase_bind
+    (pkSeed pkRoot message sig : ByteArray) (wotsBase : Nat) :
+    evalExpr []
+      { c12Layer4PreBodyState pkSeed pkRoot message sig with
+        bindings :=
+          bindValue (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+            "wotsBase" wotsBase }
+      (.add (.localVar "sigBase") (.localVar "sigOff")) =
+      some (MkC13State.sigDataOffset + (2592 + 784 * 4)) := by
+  let st := c12Layer4PreBodyState pkSeed pkRoot message sig
+  have hBase : evalExpr []
+      { st with bindings := bindValue st.bindings "wotsBase" wotsBase }
+      (.localVar "sigBase") = some MkC13State.sigDataOffset := by
+    show some (lookupValue (bindValue st.bindings "wotsBase" wotsBase) "sigBase") =
+      some MkC13State.sigDataOffset
+    rw [MemoryKit.lookupValue_bindValue_ne _ "wotsBase" "sigBase" _ (by decide)]
+    dsimp [st]
+    rw [c12Layer4PreBodyState_sigBase_eq]
+  have hOff : evalExpr []
+      { st with bindings := bindValue st.bindings "wotsBase" wotsBase }
+      (.localVar "sigOff") = some 5728 := by
+    show some (lookupValue (bindValue st.bindings "wotsBase" wotsBase) "sigOff") =
+      some 5728
+    rw [MemoryKit.lookupValue_bindValue_ne _ "wotsBase" "sigOff" _ (by decide)]
+    dsimp [st]
+    rw [c12Layer4PreBodyState_sigOff_eq]
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  have hAdd :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_add_bounded
+      { st with bindings := bindValue st.bindings "wotsBase" wotsBase }
+      (.localVar "sigBase") (.localVar "sigOff")
+      MkC13State.sigDataOffset 5728 hBase hOff
+      (by norm_num [MkC13State.sigDataOffset])
+      (by norm_num)
+      (by norm_num [MkC13State.sigDataOffset])
+  simpa [st] using hAdd
+
 /-- The executable C12 layer fold preserves the public-seed scratch cell for any
 number of layer iterations. -/
 theorem c12LayerLoopFold_preserves_memory_zero
@@ -2086,6 +2192,53 @@ theorem c12_layer4_wots_raw_read_eq_frozen
   rw [hoffset]
   show some _ = _
   rw [hsel, hcd, hoff]
+
+theorem calldataloadWord_eq_selector_zero_of_ge4
+    (sel : Nat) (cd : List Nat) (off : Nat) (hoff : 4 ≤ off) :
+    Compiler.Proofs.YulGeneration.calldataloadWord sel cd off =
+      Compiler.Proofs.YulGeneration.calldataloadWord 0 cd off := by
+  unfold Compiler.Proofs.YulGeneration.calldataloadWord
+  simp [show off ≠ 0 by omega, show ¬ off < 4 by omega]
+
+/-- Raw frozen-calldata read for a layer-4 C12 WOTS chain entry at offsets past
+the ABI selector word.  The selector is irrelevant once the resolved offset is
+at least four bytes into calldata, which is the shape needed by generic loop
+invariants that quantify over states with only frozen world/binding facts. -/
+theorem c12_layer4_wots_raw_read_eq_frozen_any_selector
+    (st : RuntimeState)
+    (wotsPtrE iE : Compiler.CompilationModel.Expr)
+    (pkSeed pkRoot message sig : ByteArray)
+    (k ap hval : Nat)
+    (hcd : st.world.calldata =
+      MkC13State.headWords pkSeed pkRoot message sig.size ++
+        MkC13State.bytesToWords sig)
+    (hap : evalExpr [] st wotsPtrE = some ap)
+    (hi : evalExpr [] st iE = some hval)
+    (haplt : ap < 2 ^ 256) (hhlt : hval < 2 ^ 256)
+    (hshift : hval <<< 4 < 2 ^ 256)
+    (hsum : ap + hval <<< 4 < 2 ^ 256)
+    (hoff : ap + hval <<< 4 =
+      MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * k)) :
+    evalExpr [] st
+        (.calldataload (.add wotsPtrE (.shl (.literal 4) iE))) =
+      some
+        (Compiler.Proofs.YulGeneration.calldataloadWord 0
+          (MkC13State.headWords pkSeed pkRoot message sig.size ++
+            MkC13State.bytesToWords sig)
+          (MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * k))) := by
+  have hoffset := SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_siblingOffset
+    st wotsPtrE iE ap hval hap hi haplt hhlt hshift hsum
+  have hoff4 :
+      4 ≤ MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * k) := by
+    show 4 ≤ 164 + (2592 + 784 * 4 + 16 * k)
+    omega
+  show (evalExpr [] st (.add wotsPtrE (.shl (.literal 4) iE))).bind
+        (fun ro => some (Compiler.Proofs.YulGeneration.calldataloadWord
+          st.selector st.world.calldata ro)) = _
+  rw [hoffset]
+  show some _ = _
+  rw [hcd, hoff]
+  rw [calldataloadWord_eq_selector_zero_of_ge4 st.selector _ _ hoff4]
 
 /-- **Layer-4 WOTS calldata correspondence** — the per-chain kernel of the WOTS
 scratch read for layer 4.  Under the frozen-C13 selector/calldata frame and
@@ -4557,6 +4710,33 @@ theorem c12Layer4Leaf_lt_two_pow_256 (idxTree : Nat) :
     c12Layer4Leaf idxTree < 2 ^ 256 :=
   lt_of_lt_of_le (c12Layer4Leaf_lt_16 idxTree) (by decide)
 
+/-- A parsed C12 WOTS-base address word for layer 4 is EVM-word bounded. -/
+theorem c12_wotsBaseC12_layer4_lt_two_pow_256
+    (treeIdx leafIdx : Nat)
+    (hTree : treeIdx < 2 ^ 64) (hLeaf : leafIdx < 2 ^ 64) :
+    C12Concrete.wotsBaseC12 4 treeIdx leafIdx < 2 ^ 256 := by
+  unfold C12Concrete.wotsBaseC12
+  have hLayerShift : (4 : Nat) <<< 224 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    norm_num [pow_add]
+  have hTreeShift : treeIdx <<< 160 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      treeIdx * 2 ^ 160 < 2 ^ 64 * 2 ^ 160 := by
+        exact Nat.mul_lt_mul_of_pos_right hTree (by positivity)
+      _ = 2 ^ 224 := by rw [← pow_add]
+      _ < 2 ^ 256 := by norm_num
+  have hLeafShift : leafIdx <<< 96 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    calc
+      leafIdx * 2 ^ 96 < 2 ^ 64 * 2 ^ 96 := by
+        exact Nat.mul_lt_mul_of_pos_right hLeaf (by positivity)
+      _ = 2 ^ 160 := by rw [← pow_add]
+      _ < 2 ^ 256 := by norm_num
+  exact Nat.bitwise_lt_two_pow
+    (Nat.bitwise_lt_two_pow hLayerShift hTreeShift)
+    hLeafShift
+
 /-- At the layer-4 WOTS setup entry, evaluating the WOTS-base ADRS expression
 matches the parsed C12 layer-4 WOTS base. -/
 theorem c12Layer4PreBodyState_wotsBase_eval
@@ -5256,6 +5436,15 @@ private theorem c12WotsMessageBody_preserves_sc :
       C12SegmentWotsSetup.c12WotsChainBody _ _ c12WotsChainBody_preserves_sc hexec
   · exact StateFrame.execStmt_mstore_preserves_selector_calldata _ _ _ _ hexec
 
+private theorem c12WotsMessageStep_preserves_sc (st : RuntimeState) :
+    StateFrame.PreservesSelectorCalldata st
+      (C12SegmentWotsSetup.c12WotsMessageStep st) :=
+  StateFrame.execStmtList_preserves_selector_calldata
+    C12SegmentWotsSetup.c12WotsMessageBody st
+    (C12SegmentWotsSetup.c12WotsMessageStep st)
+    c12WotsMessageBody_preserves_sc
+    (C12SegmentWotsSetup.execC12WotsMessageBody st)
+
 private theorem c12WotsChecksumBody_preserves_sc :
     ∀ (s s'' : RuntimeState) (stmt : Compiler.CompilationModel.Stmt),
       stmt ∈ C12SegmentWotsSetup.c12WotsChecksumBody →
@@ -5273,6 +5462,16 @@ private theorem c12WotsChecksumBody_preserves_sc :
   · exact StateFrame.execStmt_forEach_preserves_selector_calldata "s" _
       C12SegmentWotsSetup.c12WotsChainBody _ _ c12WotsChainBody_preserves_sc hexec
   · exact StateFrame.execStmt_mstore_preserves_selector_calldata _ _ _ _ hexec
+
+private theorem c12WotsChecksumStep_preserves_sc (st : RuntimeState) :
+    StateFrame.PreservesSelectorCalldata st
+      (C12SegmentWotsSetup.c12WotsChecksumStep st) :=
+  StateFrame.execStmtList_preserves_selector_calldata
+    C12SegmentWotsSetup.c12WotsChecksumBody
+    st
+    (C12SegmentWotsSetup.c12WotsChecksumStep st)
+    c12WotsChecksumBody_preserves_sc
+    (C12SegmentWotsSetup.execC12WotsChecksumBody st)
 
 private theorem c12WotsPkCopyBody_preserves_sc :
     ∀ (s s'' : RuntimeState) (stmt : Compiler.CompilationModel.Stmt),
@@ -7676,6 +7875,11 @@ def c12Layer4InputState
         (C12SegmentSeed.c12StepSeed
           (MkC13State.mkC13State pkSeed pkRoot message sig))))
 
+theorem c12Layer4InputState_eq_preBodyState
+    (pkSeed pkRoot message sig : ByteArray) :
+    c12Layer4InputState pkSeed pkRoot message sig =
+      c12Layer4PreBodyState pkSeed pkRoot message sig := rfl
+
 def c12Layer4BeforeWotsPkState
     (pkSeed pkRoot message sig : ByteArray) : RuntimeState :=
   C12SegmentWotsSetup.c12LayerStateBeforeWotsPk
@@ -7685,6 +7889,325 @@ def c12Layer4BeforeWotsPkCopyState
     (pkSeed pkRoot message sig : ByteArray) : RuntimeState :=
   C12SegmentWotsSetup.c12LayerStateBeforeWotsPkCopy
     (c12Layer4InputState pkSeed pkRoot message sig)
+
+def c12Layer4BeforePkAdrsState
+    (pkSeed pkRoot message sig : ByteArray) : RuntimeState :=
+  C12SegmentWotsSetup.c12LayerStateBeforePkAdrs
+    (c12Layer4InputState pkSeed pkRoot message sig)
+
+def c12Layer4BeforePkAdrsMessageStartState
+    (pkSeed pkRoot message sig : ByteArray) : RuntimeState :=
+  C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageStart
+    (c12Layer4InputState pkSeed pkRoot message sig)
+
+def c12Layer4BeforePkAdrsMessageLoopState
+    (pkSeed pkRoot message sig : ByteArray) : RuntimeState :=
+  { c12Layer4BeforePkAdrsMessageStartState pkSeed pkRoot message sig with
+    bindings :=
+      bindValue
+        (c12Layer4BeforePkAdrsMessageStartState pkSeed pkRoot message sig).bindings
+        "i" (wordNormalize 0) }
+
+def c12Layer4BeforePkAdrsChecksumStartState
+    (pkSeed pkRoot message sig : ByteArray) : RuntimeState :=
+  C12SegmentWotsSetup.c12LayerBeforePkAdrsChecksumStart
+    (c12Layer4InputState pkSeed pkRoot message sig)
+
+def c12Layer4BeforePkAdrsChecksumLoopState
+    (pkSeed pkRoot message sig : ByteArray) : RuntimeState :=
+  { c12Layer4BeforePkAdrsChecksumStartState pkSeed pkRoot message sig with
+    bindings :=
+      bindValue
+        (c12Layer4BeforePkAdrsChecksumStartState pkSeed pkRoot message sig).bindings
+        "j" (wordNormalize 0) }
+
+/-- Any state whose world is the `j`-prefix world of the layer-4 WOTS message
+loop reads the frozen layer-4 WOTS chain word at index `j` through
+`calldataload(wotsPtr + (i << 4))`, provided its local bindings expose the same
+`wotsPtr` and loop index. -/
+theorem c12Layer4BeforePkAdrsMessageLoop_cdload_raw
+    (pkSeed pkRoot message sig : ByteArray) (j : Nat) (hj : j < 42)
+    (s : RuntimeState)
+    (hWotsPtr :
+      lookupValue s.bindings "wotsPtr" =
+        MkC13State.sigDataOffset + (2592 + 784 * 4))
+    (hI : lookupValue s.bindings "i" = j)
+    (hWorld :
+      s.world =
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "i"
+          C12SegmentWotsSetup.c12WotsMessageStep
+          (c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig)
+          0 j).world) :
+    evalExpr [] s
+        (.calldataload
+          (.add (.localVar "wotsPtr")
+            (.shl (.literal 4) (.localVar "i")))) =
+      some
+        (Compiler.Proofs.YulGeneration.calldataloadWord 0
+          (MkC13State.headWords pkSeed pkRoot message sig.size ++
+            MkC13State.bytesToWords sig)
+          (MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * j))) := by
+  let stLoop := c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig
+  have hPrefixSc :=
+    StateFrame.foldLoop_preserves_selector_calldata "i"
+      C12SegmentWotsSetup.c12WotsMessageStep
+      c12WotsMessageStep_preserves_sc stLoop 0 j
+  have hLoopCd :
+      (SphincsMinusVerifiers.ClimbLoop.foldLoop "i"
+          C12SegmentWotsSetup.c12WotsMessageStep stLoop 0 j).world.calldata =
+        MkC13State.headWords pkSeed pkRoot message sig.size ++
+          MkC13State.bytesToWords sig := by
+    rw [hPrefixSc.2]
+    have hStartCd :
+        stLoop.world.calldata =
+          (c12Layer4PreBodyState pkSeed pkRoot message sig).world.calldata := by
+      simpa [stLoop, c12Layer4BeforePkAdrsMessageLoopState,
+        c12Layer4BeforePkAdrsMessageStartState, c12Layer4InputState] using
+        C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageLoopStart_preserves_calldata
+          (c12Layer4InputState pkSeed pkRoot message sig)
+    rw [hStartCd]
+    exact c12Layer4PreBodyState_calldata_eq pkSeed pkRoot message sig
+  have hCd : s.world.calldata =
+      MkC13State.headWords pkSeed pkRoot message sig.size ++
+        MkC13State.bytesToWords sig := by
+    rw [hWorld]
+    simpa [stLoop] using hLoopCd
+  have hWotsEval :
+      evalExpr [] s (.localVar "wotsPtr") =
+        some (MkC13State.sigDataOffset + (2592 + 784 * 4)) := by
+    show some (lookupValue s.bindings "wotsPtr") =
+      some (MkC13State.sigDataOffset + (2592 + 784 * 4))
+    rw [hWotsPtr]
+  have hIEval : evalExpr [] s (.localVar "i") = some j := by
+    show some (lookupValue s.bindings "i") = some j
+    rw [hI]
+  have hShift : j <<< 4 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    have hj' : j < 42 := hj
+    nlinarith [Nat.mul_lt_mul_of_pos_right hj' (by decide : 0 < 2 ^ 4)]
+  have hSum :
+      MkC13State.sigDataOffset + (2592 + 784 * 4) + (j <<< 4) < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    norm_num [MkC13State.sigDataOffset]
+    nlinarith [hj]
+  have hOff :
+      MkC13State.sigDataOffset + (2592 + 784 * 4) + (j <<< 4) =
+        MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * j) := by
+    rw [Nat.shiftLeft_eq]
+    ring
+  exact c12_layer4_wots_raw_read_eq_frozen_any_selector
+    s (.localVar "wotsPtr") (.localVar "i")
+    pkSeed pkRoot message sig j
+    (MkC13State.sigDataOffset + (2592 + 784 * 4)) j
+    hCd hWotsEval hIEval
+    (by norm_num [MkC13State.sigDataOffset])
+    (lt_trans hj (by decide : 42 < 2 ^ 256))
+    hShift hSum hOff
+
+/-- Any state whose world is the `j`-prefix world of the layer-4 WOTS checksum
+loop reads the frozen layer-4 WOTS chain word at checksum index `42 + j`. -/
+theorem c12Layer4BeforePkAdrsChecksumLoop_cdload_raw
+    (pkSeed pkRoot message sig : ByteArray) (j : Nat) (hj : j < 3)
+    (s : RuntimeState)
+    (hWotsPtr :
+      lookupValue s.bindings "wotsPtr" =
+        MkC13State.sigDataOffset + (2592 + 784 * 4))
+    (hI : lookupValue s.bindings "i" = 42 + j)
+    (hWorld :
+      s.world =
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "j"
+          C12SegmentWotsSetup.c12WotsChecksumStep
+          (c12Layer4BeforePkAdrsChecksumLoopState pkSeed pkRoot message sig)
+          0 j).world) :
+    evalExpr [] s
+        (.calldataload
+          (.add (.localVar "wotsPtr")
+            (.shl (.literal 4) (.localVar "i")))) =
+      some
+        (Compiler.Proofs.YulGeneration.calldataloadWord 0
+          (MkC13State.headWords pkSeed pkRoot message sig.size ++
+            MkC13State.bytesToWords sig)
+          (MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * (42 + j)))) := by
+  let stLoop := c12Layer4BeforePkAdrsChecksumLoopState pkSeed pkRoot message sig
+  have hPrefixSc :=
+    StateFrame.foldLoop_preserves_selector_calldata "j"
+      C12SegmentWotsSetup.c12WotsChecksumStep
+      c12WotsChecksumStep_preserves_sc stLoop 0 j
+  have hLoopCd :
+      (SphincsMinusVerifiers.ClimbLoop.foldLoop "j"
+          C12SegmentWotsSetup.c12WotsChecksumStep stLoop 0 j).world.calldata =
+        MkC13State.headWords pkSeed pkRoot message sig.size ++
+          MkC13State.bytesToWords sig := by
+    rw [hPrefixSc.2]
+    have hMessageCd :
+        (C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageEnd
+            (c12Layer4InputState pkSeed pkRoot message sig)).world.calldata =
+          (c12Layer4PreBodyState pkSeed pkRoot message sig).world.calldata := by
+      let stMessageLoop := c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig
+      have hPrefixSc :=
+        StateFrame.foldLoop_preserves_selector_calldata "i"
+          C12SegmentWotsSetup.c12WotsMessageStep
+          c12WotsMessageStep_preserves_sc stMessageLoop 0 42
+      have hStartCd :
+          stMessageLoop.world.calldata =
+            (c12Layer4PreBodyState pkSeed pkRoot message sig).world.calldata := by
+        simpa [stMessageLoop, c12Layer4BeforePkAdrsMessageLoopState,
+          c12Layer4BeforePkAdrsMessageStartState, c12Layer4InputState] using
+          C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageLoopStart_preserves_calldata
+            (c12Layer4InputState pkSeed pkRoot message sig)
+      have hState :=
+        congrArg (fun s : RuntimeState => s.world.calldata)
+          (C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageEnd_eq_foldLoop42
+            (c12Layer4InputState pkSeed pkRoot message sig))
+      exact hState.trans (by
+        simpa [stMessageLoop, c12Layer4BeforePkAdrsMessageLoopState,
+          c12Layer4BeforePkAdrsMessageStartState] using hPrefixSc.2.trans hStartCd)
+    have hStartCd :
+        stLoop.world.calldata =
+          (c12Layer4PreBodyState pkSeed pkRoot message sig).world.calldata := by
+      simpa [stLoop, c12Layer4BeforePkAdrsChecksumLoopState,
+        c12Layer4BeforePkAdrsChecksumStartState,
+        C12SegmentWotsSetup.c12LayerBeforePkAdrsChecksumStart] using hMessageCd
+    rw [hStartCd]
+    exact c12Layer4PreBodyState_calldata_eq pkSeed pkRoot message sig
+  have hCd : s.world.calldata =
+      MkC13State.headWords pkSeed pkRoot message sig.size ++
+        MkC13State.bytesToWords sig := by
+    rw [hWorld]
+    simpa [stLoop] using hLoopCd
+  have hWotsEval :
+      evalExpr [] s (.localVar "wotsPtr") =
+        some (MkC13State.sigDataOffset + (2592 + 784 * 4)) := by
+    show some (lookupValue s.bindings "wotsPtr") =
+      some (MkC13State.sigDataOffset + (2592 + 784 * 4))
+    rw [hWotsPtr]
+  have hIEval : evalExpr [] s (.localVar "i") = some (42 + j) := by
+    show some (lookupValue s.bindings "i") = some (42 + j)
+    rw [hI]
+  have hShift : (42 + j) <<< 4 < 2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    have hle : 42 + j ≤ 44 := by omega
+    have hbound : (44 : Nat) * 2 ^ 4 < 2 ^ 256 := by decide
+    nlinarith [Nat.mul_le_mul_right (2 ^ 4) hle]
+  have hSum :
+      MkC13State.sigDataOffset + (2592 + 784 * 4) + ((42 + j) <<< 4) <
+        2 ^ 256 := by
+    rw [Nat.shiftLeft_eq]
+    norm_num [MkC13State.sigDataOffset]
+    nlinarith [hj]
+  have hOff :
+      MkC13State.sigDataOffset + (2592 + 784 * 4) + ((42 + j) <<< 4) =
+        MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * (42 + j)) := by
+    rw [Nat.shiftLeft_eq]
+    ring
+  exact c12_layer4_wots_raw_read_eq_frozen_any_selector
+    s (.localVar "wotsPtr") (.localVar "i")
+    pkSeed pkRoot message sig (42 + j)
+    (MkC13State.sigDataOffset + (2592 + 784 * 4)) (42 + j)
+    hCd hWotsEval hIEval
+    (by norm_num [MkC13State.sigDataOffset])
+    (by omega)
+    hShift hSum hOff
+
+/-- The layer-4 message-loop prefix preserves the public-seed scratch word. -/
+theorem c12Layer4BeforePkAdrsMessageLoop_seed_prefix
+    (pkSeed pkRoot message sig : ByteArray) (j : Nat) (hj : j < 42) :
+    ((SphincsMinusVerifiers.ClimbLoop.foldLoop "i"
+        C12SegmentWotsSetup.c12WotsMessageStep
+        (c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig)
+        0 j).world.memory 0x00).val =
+      c12Layer4ParsedSeed pkSeed := by
+  let stLoop := c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig
+  rw [C12SegmentWotsSetup.c12WotsMessageFold_preserves_memory_zero_bound
+    stLoop j (by omega)]
+  have hStart :
+      (stLoop.world.memory 0x00).val =
+        ((c12Layer4PreBodyState pkSeed pkRoot message sig).world.memory 0x00).val := by
+    simpa [stLoop, c12Layer4BeforePkAdrsMessageLoopState,
+      c12Layer4BeforePkAdrsMessageStartState, c12Layer4InputState,
+      c12Layer4PreBodyState] using
+      C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageLoopStart_preserves_memory_zero
+        (c12Layer4InputState pkSeed pkRoot message sig)
+  rw [hStart]
+  exact c12Layer4PreBodyState_preserves_memory_zero pkSeed pkRoot message sig
+
+/-- The layer-4 message-loop prefix preserves the runtime current-node binding. -/
+theorem c12Layer4BeforePkAdrsMessageLoop_currentNode_prefix
+    (pkSeed pkRoot message sig : ByteArray) (j : Nat) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "i"
+          C12SegmentWotsSetup.c12WotsMessageStep
+          (c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig)
+          0 j).bindings
+        "currentNode" =
+      lookupValue (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+        "currentNode" := by
+  let stLoop := c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig
+  rw [C12SegmentWotsSetup.c12WotsMessageFold_preserves_currentNode]
+  have hStart :=
+    C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageLoopStart_currentNode_eq
+      (c12Layer4InputState pkSeed pkRoot message sig)
+  simpa [stLoop, c12Layer4BeforePkAdrsMessageLoopState,
+    c12Layer4BeforePkAdrsMessageStartState, c12Layer4InputState,
+    c12Layer4PreBodyState] using hStart
+
+/-- The layer-4 message-loop prefix preserves the parsed WOTS-base binding. -/
+theorem c12Layer4BeforePkAdrsMessageLoop_wotsBase_prefix
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hParse : C12Concrete.parseSignatureC12 c12 sig = some sigParsed)
+    (j : Nat) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "i"
+          C12SegmentWotsSetup.c12WotsMessageStep
+          (c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig)
+          0 j).bindings
+        "wotsBase" =
+      C12Concrete.wotsBaseC12 4
+        (c12Layer4NextTree
+          (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+        (c12Layer4Leaf
+          (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex) := by
+  let stLoop := c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig
+  rw [C12SegmentWotsSetup.c12WotsMessageFold_preserves_wotsBase]
+  have hEval :=
+    c12Layer4PreBodyState_wotsBase_eval pkSeed pkRoot message sig sigParsed hParse
+  have hStart :=
+    C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageLoopStart_wotsBase_eq_of_eval
+      (c12Layer4PreBodyState pkSeed pkRoot message sig)
+      (C12Concrete.wotsBaseC12 4
+        (c12Layer4NextTree
+          (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+        (c12Layer4Leaf
+          (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex))
+      hEval
+  simpa [stLoop, c12Layer4BeforePkAdrsMessageLoopState,
+    c12Layer4BeforePkAdrsMessageStartState, c12Layer4InputState,
+    c12Layer4PreBodyState] using hStart
+
+/-- The layer-4 message-loop prefix preserves the layer-4 WOTS signature
+pointer binding. -/
+theorem c12Layer4BeforePkAdrsMessageLoop_wotsPtr_prefix
+    (pkSeed pkRoot message sig : ByteArray) (j : Nat) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "i"
+          C12SegmentWotsSetup.c12WotsMessageStep
+          (c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig)
+          0 j).bindings
+        "wotsPtr" =
+      MkC13State.sigDataOffset + (2592 + 784 * 4) := by
+  let stLoop := c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig
+  rw [C12SegmentWotsSetup.c12WotsMessageFold_preserves_wotsPtr]
+  have hEval :=
+    c12Layer4PreBodyState_wotsPtr_eval_after_wotsBase_bind
+      pkSeed pkRoot message sig 0
+  have hStart :=
+    C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageLoopStart_wotsPtr_eq_of_eval
+      (c12Layer4PreBodyState pkSeed pkRoot message sig)
+      (MkC13State.sigDataOffset + (2592 + 784 * 4))
+      (by simpa using hEval)
+  simpa [stLoop, c12Layer4BeforePkAdrsMessageLoopState,
+    c12Layer4BeforePkAdrsMessageStartState, c12Layer4InputState,
+    c12Layer4PreBodyState] using hStart
 
 def c12Layer4BeforeAuthOffState
     (pkSeed pkRoot message sig : ByteArray) : RuntimeState :=
@@ -7824,6 +8347,1023 @@ def C12Layer4WotsPkBeforeWotsPkCopyCellsPremise : Prop :=
               (SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
                 (c12Layer4Node pkSeed pkRoot message sigParsed))
               (c12Layer4Sig sigParsed).wots)[j]
+
+/-- Smaller layer-4 WOTS-PK cell premise at the cutpoint immediately before the
+WOTS-PK address binding/store.  The suffix from this state to
+`beforeWotsPkCopy` only writes `0x20`, so the 45 generated chain-end cells are
+preserved by `c12Layer4BeforeWotsPkCopy_chain_cell_eq_beforePkAdrs`. -/
+def C12Layer4WotsPkBeforePkAdrsCellsPremise : Prop :=
+      ∀ pkSeed pkRoot message sig sigParsed,
+        C12Concrete.parseSignatureC12 c12 sig = some sigParsed →
+        ∀ j, (h : j < 45) →
+          ((c12Layer4BeforePkAdrsState pkSeed pkRoot message sig).world.memory
+              (0x80 + 32 * j)).val =
+          (c12WotsChainsEnd
+              (c12Layer4ParsedSeed pkSeed) 4
+              (c12Layer4NextTree
+                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+              (c12Layer4Leaf
+                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+              (SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
+                (c12Layer4Node pkSeed pkRoot message sigParsed))
+              (c12Layer4Sig sigParsed).wots)[j]
+
+/-- Message-loop part of the smaller layer-4 `beforePkAdrs` generated-cell
+premise.  These are the first 42 WOTS chain cells. -/
+def C12Layer4WotsPkBeforePkAdrsMessageCellsPremise : Prop :=
+      ∀ pkSeed pkRoot message sig sigParsed,
+        C12Concrete.parseSignatureC12 c12 sig = some sigParsed →
+        ∀ j, (h : j < 42) →
+          ((c12Layer4BeforePkAdrsState pkSeed pkRoot message sig).world.memory
+              (0x80 + 32 * j)).val =
+          (c12WotsChainsEnd
+              (c12Layer4ParsedSeed pkSeed) 4
+              (c12Layer4NextTree
+                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+              (c12Layer4Leaf
+                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+              (SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
+                (c12Layer4Node pkSeed pkRoot message sigParsed))
+              (c12Layer4Sig sigParsed).wots)[j]'(by
+                rw [c12WotsChainsEnd_length]
+                omega)
+
+/-- Checksum-loop part of the smaller layer-4 `beforePkAdrs` generated-cell
+premise.  These are the final 3 WOTS chain cells, indexed globally as
+`42 + j`. -/
+def C12Layer4WotsPkBeforePkAdrsChecksumCellsPremise : Prop :=
+      ∀ pkSeed pkRoot message sig sigParsed,
+        C12Concrete.parseSignatureC12 c12 sig = some sigParsed →
+        ∀ j, (h : j < 3) →
+          ((c12Layer4BeforePkAdrsState pkSeed pkRoot message sig).world.memory
+              (0x80 + 32 * (42 + j))).val =
+          (c12WotsChainsEnd
+              (c12Layer4ParsedSeed pkSeed) 4
+              (c12Layer4NextTree
+                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+              (c12Layer4Leaf
+                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+              (SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
+                (c12Layer4Node pkSeed pkRoot message sigParsed))
+              (c12Layer4Sig sigParsed).wots)[42 + j]'(by
+                rw [c12WotsChainsEnd_length]
+                omega)
+
+/-- Runtime-current-node form of the smaller layer-4 `beforePkAdrs`
+message-cell premise.  This matches the executable WOTS message loop before
+rewriting the pre-body `"currentNode"` through the layer-3 handoff. -/
+def C12Layer4WotsPkBeforePkAdrsMessageCellsRuntimeNodePremise : Prop :=
+      ∀ pkSeed pkRoot message sig sigParsed,
+        C12Concrete.parseSignatureC12 c12 sig = some sigParsed →
+        ∀ j, (h : j < 42) →
+          ((c12Layer4BeforePkAdrsState pkSeed pkRoot message sig).world.memory
+              (0x80 + 32 * j)).val =
+          (c12WotsChainsEnd
+              (c12Layer4ParsedSeed pkSeed) 4
+              (c12Layer4NextTree
+                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+              (c12Layer4Leaf
+                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+              (lookupValue
+                (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+                "currentNode")
+              (c12Layer4Sig sigParsed).wots)[j]'(by
+                rw [c12WotsChainsEnd_length]
+                omega)
+
+/-- Runtime-current-node form of the smaller layer-4 `beforePkAdrs`
+checksum-cell premise. -/
+def C12Layer4WotsPkBeforePkAdrsChecksumCellsRuntimeNodePremise : Prop :=
+      ∀ pkSeed pkRoot message sig sigParsed,
+        C12Concrete.parseSignatureC12 c12 sig = some sigParsed →
+        ∀ j, (h : j < 3) →
+          ((c12Layer4BeforePkAdrsState pkSeed pkRoot message sig).world.memory
+              (0x80 + 32 * (42 + j))).val =
+          (c12WotsChainsEnd
+              (c12Layer4ParsedSeed pkSeed) 4
+              (c12Layer4NextTree
+                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+              (c12Layer4Leaf
+                (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+              (lookupValue
+                (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+                "currentNode")
+              (c12Layer4Sig sigParsed).wots)[42 + j]'(by
+                rw [c12WotsChainsEnd_length]
+                omega)
+
+/-- Layer-4 pre-body current-node handoff needed to rewrite runtime-node WOTS
+cell facts to the semantic layer-4 node used by `c12WotsChainsEnd`. -/
+def C12Layer4PreBodyCurrentNodePremise : Prop :=
+      ∀ pkSeed pkRoot message sig sigParsed,
+        C12Concrete.parseSignatureC12 c12 sig = some sigParsed →
+        lookupValue
+          (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+          "currentNode" =
+        SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
+          (c12Layer4Node pkSeed pkRoot message sigParsed)
+
+/-- Exact post-layer-3 current-node handoff that feeds the layer-4 WOTS setup. -/
+def C12Layer3After3CurrentNodePremise : Prop :=
+      ∀ pkSeed pkRoot message sig sigParsed,
+        C12Concrete.parseSignatureC12 c12 sig = some sigParsed →
+        lookupValue
+          (c12LayerStateAfter3
+            (C12SegmentForsCompress.c12StepForsCompress
+              (C12SegmentFors.c12StepFors
+                (C12SegmentSeed.c12StepSeed
+                  (MkC13State.mkC13State pkSeed pkRoot message sig))))).bindings
+          "currentNode" =
+        SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
+          (c12Layer4Node pkSeed pkRoot message sigParsed)
+
+/-- The layer-4 pre-body current-node premise follows from the exact post-layer-3
+current-node handoff.  This packages the existing handoff reducer in the same
+shape consumed by the runtime-node WOTS cell reducers below. -/
+theorem c12Layer4PreBodyCurrentNode_of_after3_current_node
+    (hAfter3 : C12Layer3After3CurrentNodePremise) :
+    C12Layer4PreBodyCurrentNodePremise := by
+  intro pkSeed pkRoot message sig sigParsed hParse
+  exact
+    c12Layer4PreBodyState_currentNode_eq_unrolledLayerRoot3_of_after3_currentNode
+      hAfter3 pkSeed pkRoot message sig sigParsed hParse
+
+/-- The runtime current-node at the layer-4 WOTS setup is EVM-word bounded once
+the post-layer-3 handoff has been established. -/
+theorem c12Layer4PreBodyState_currentNode_lt_of_after3_current_node
+    (hAfter3 : C12Layer3After3CurrentNodePremise)
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hParse : C12Concrete.parseSignatureC12 c12 sig = some sigParsed) :
+    lookupValue
+        (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+        "currentNode" < 2 ^ 256 := by
+  rw [c12Layer4PreBodyState_currentNode_eq_unrolledLayerRoot3_of_after3_currentNode
+    hAfter3 pkSeed pkRoot message sig sigParsed hParse]
+  exact SphincsMinusVerifiers.SegmentS2.wordOfHash16_lt _
+
+/-- The layer-4 message-loop prefix has a bounded checksum accumulator once the
+runtime current-node is known to be the layer-3 handoff word. -/
+theorem c12Layer4BeforePkAdrsMessageLoop_csum_add7_lt_of_after3_current_node
+    (hAfter3 : C12Layer3After3CurrentNodePremise)
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hParse : C12Concrete.parseSignatureC12 c12 sig = some sigParsed)
+    (j : Nat) (hj : j < 42) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "i"
+          C12SegmentWotsSetup.c12WotsMessageStep
+          (c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig)
+          0 j).bindings
+        "csum" + 7 < 2 ^ 256 := by
+  let currentNode :=
+    lookupValue (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+      "currentNode"
+  have hCNLt : currentNode < 2 ^ 256 := by
+    simpa [currentNode] using
+      c12Layer4PreBodyState_currentNode_lt_of_after3_current_node
+        hAfter3 pkSeed pkRoot message sig sigParsed hParse
+  simpa [c12Layer4BeforePkAdrsMessageLoopState,
+    c12Layer4BeforePkAdrsMessageStartState, c12Layer4InputState,
+    c12Layer4PreBodyState, currentNode] using
+    C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageLoop_csum_add7_lt
+      (c12Layer4InputState pkSeed pkRoot message sig) j currentNode hj hCNLt
+      (by rfl)
+
+theorem c12Layer4BeforePkAdrsMessageEnd_csum_eq_wotsCsum
+    (hAfter3 : C12Layer3After3CurrentNodePremise)
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hParse : C12Concrete.parseSignatureC12 c12 sig = some sigParsed) :
+    lookupValue
+        (C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageEnd
+          (c12Layer4InputState pkSeed pkRoot message sig)).bindings
+        "csum" =
+      C12Concrete.wotsCsumC12
+        (lookupValue (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+          "currentNode") := by
+  let stInput := c12Layer4InputState pkSeed pkRoot message sig
+  let stLoop := c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig
+  let currentNode :=
+    lookupValue (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+      "currentNode"
+  have hCNLt : currentNode < 2 ^ 256 := by
+    simpa [currentNode] using
+      c12Layer4PreBodyState_currentNode_lt_of_after3_current_node
+        hAfter3 pkSeed pkRoot message sig sigParsed hParse
+  have hCN :
+      lookupValue stLoop.bindings "currentNode" = currentNode := by
+    simpa [stLoop, currentNode] using
+      c12Layer4BeforePkAdrsMessageLoop_currentNode_prefix
+        pkSeed pkRoot message sig 0
+  have hCsum0 : lookupValue stLoop.bindings "csum" = 0 := by
+    simpa [stLoop, c12Layer4BeforePkAdrsMessageLoopState,
+      c12Layer4BeforePkAdrsMessageStartState, c12Layer4InputState,
+      c12Layer4PreBodyState] using
+      C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageLoopStart_csum_eq
+        (c12Layer4InputState pkSeed pkRoot message sig)
+  have hFold :=
+    C12SegmentWotsSetup.c12WotsMessageFold_csum_eq_wotsCsum
+      stLoop currentNode hCNLt hCN hCsum0
+  have hState :=
+    congrArg (fun s : RuntimeState => lookupValue s.bindings "csum")
+      (C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageEnd_eq_foldLoop42
+        stInput)
+  simpa [stInput, stLoop, c12Layer4BeforePkAdrsMessageLoopState,
+    c12Layer4BeforePkAdrsMessageStartState, currentNode] using hState.trans hFold
+
+theorem c12Layer4BeforePkAdrsChecksumLoop_csumShifted_prefix
+    (hAfter3 : C12Layer3After3CurrentNodePremise)
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hParse : C12Concrete.parseSignatureC12 c12 sig = some sigParsed) :
+    lookupValue
+        (c12Layer4BeforePkAdrsChecksumLoopState pkSeed pkRoot message sig).bindings
+        "csumShifted" =
+      C12Concrete.wotsCsumC12
+        (lookupValue (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+          "currentNode") <<< 7 := by
+  let stInput := c12Layer4InputState pkSeed pkRoot message sig
+  let stMessage :=
+    C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageEnd stInput
+  let csum :=
+    C12Concrete.wotsCsumC12
+      (lookupValue (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+        "currentNode")
+  have hCsum :
+      lookupValue stMessage.bindings "csum" = csum := by
+    simpa [stInput, stMessage, csum] using
+      c12Layer4BeforePkAdrsMessageEnd_csum_eq_wotsCsum
+        hAfter3 pkSeed pkRoot message sig sigParsed hParse
+  have hCsumBound : csum ≤ 7 * 42 := by
+    let stLoop := c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig
+    let currentNode :=
+      lookupValue (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+        "currentNode"
+    have hCNLt : currentNode < 2 ^ 256 := by
+      simpa [currentNode] using
+        c12Layer4PreBodyState_currentNode_lt_of_after3_current_node
+          hAfter3 pkSeed pkRoot message sig sigParsed hParse
+    have hCN :
+        lookupValue stLoop.bindings "currentNode" = currentNode := by
+      simpa [stLoop, currentNode] using
+        c12Layer4BeforePkAdrsMessageLoop_currentNode_prefix
+          pkSeed pkRoot message sig 0
+    have hCsum0 : lookupValue stLoop.bindings "csum" = 0 := by
+      simpa [stLoop, c12Layer4BeforePkAdrsMessageLoopState,
+        c12Layer4BeforePkAdrsMessageStartState, c12Layer4InputState,
+        c12Layer4PreBodyState] using
+        C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageLoopStart_csum_eq
+          (c12Layer4InputState pkSeed pkRoot message sig)
+    have hBound :=
+      C12SegmentWotsSetup.c12WotsMessageFold_csum_bound
+        stLoop 42 currentNode (by omega) hCNLt hCN hCsum0
+    have hState :=
+      congrArg (fun s : RuntimeState => lookupValue s.bindings "csum")
+        (C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageEnd_eq_foldLoop42
+          stInput)
+    have hMessageBound : lookupValue stMessage.bindings "csum" ≤ 7 * 42 := by
+      dsimp [stMessage]
+      change
+        (fun s : RuntimeState => lookupValue s.bindings "csum")
+          (C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageEnd stInput) ≤ 7 * 42
+      rw [hState]
+      simpa [stInput, stMessage, stLoop, c12Layer4BeforePkAdrsMessageLoopState,
+        c12Layer4BeforePkAdrsMessageStartState] using hBound
+    rw [← hCsum]
+    exact hMessageBound
+  have hShiftEval :
+      evalExpr [] stMessage (C12SegmentWotsSetup.shlE (C12SegmentWotsSetup.u 7)
+        (C12SegmentWotsSetup.v "csum")) = some (csum <<< 7) := by
+    have h7 : evalExpr [] stMessage (C12SegmentWotsSetup.u 7) = some 7 := by
+      rfl
+    have hCsumEval : evalExpr [] stMessage (C12SegmentWotsSetup.v "csum") =
+        some csum := by
+      show some (lookupValue stMessage.bindings "csum") = some csum
+      rw [hCsum]
+    have hShiftLt : csum <<< 7 < 2 ^ 256 := by
+      rw [Nat.shiftLeft_eq]
+      have hSmall : csum * 2 ^ 7 ≤ (7 * 42) * 2 ^ 7 :=
+        Nat.mul_le_mul_right _ hCsumBound
+      have hBoundSmall : (7 * 42) * 2 ^ 7 < 2 ^ 256 := by decide
+      omega
+    exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shl_bounded
+      stMessage (C12SegmentWotsSetup.u 7) (C12SegmentWotsSetup.v "csum")
+      7 csum h7 hCsumEval (by decide) (lt_of_le_of_lt hCsumBound (by decide))
+      hShiftLt
+  unfold c12Layer4BeforePkAdrsChecksumLoopState
+    c12Layer4BeforePkAdrsChecksumStartState
+    C12SegmentWotsSetup.c12LayerBeforePkAdrsChecksumStart
+  rw [MemoryKit.lookupValue_bindValue_ne _ "j" "csumShifted" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_self]
+  rw [hShiftEval]
+  simp [csum]
+
+/-- The layer-4 checksum-loop prefix preserves the public-seed scratch word. -/
+theorem c12Layer4BeforePkAdrsChecksumLoop_seed_prefix
+    (pkSeed pkRoot message sig : ByteArray) (j : Nat) (hj : j < 3) :
+    ((SphincsMinusVerifiers.ClimbLoop.foldLoop "j"
+        C12SegmentWotsSetup.c12WotsChecksumStep
+        (c12Layer4BeforePkAdrsChecksumLoopState pkSeed pkRoot message sig)
+        0 j).world.memory 0x00).val =
+      c12Layer4ParsedSeed pkSeed := by
+  let stChecksumLoop := c12Layer4BeforePkAdrsChecksumLoopState pkSeed pkRoot message sig
+  rw [C12SegmentWotsSetup.c12WotsChecksumFold_preserves_memory_zero_bound
+    stChecksumLoop j (by omega)]
+  have hStart :=
+    C12SegmentWotsSetup.c12LayerBeforePkAdrsChecksumLoopStart_preserves_memory_zero
+      (c12Layer4InputState pkSeed pkRoot message sig)
+  rw [show (stChecksumLoop.world.memory 0x00).val =
+      ((c12Layer4InputState pkSeed pkRoot message sig).world.memory 0x00).val by
+    simpa [stChecksumLoop, c12Layer4BeforePkAdrsChecksumLoopState,
+      c12Layer4BeforePkAdrsChecksumStartState] using hStart]
+  rw [c12Layer4InputState_eq_preBodyState]
+  exact c12Layer4PreBodyState_preserves_memory_zero pkSeed pkRoot message sig
+
+theorem c12Layer4BeforePkAdrsChecksumLoop_wotsBase_prefix
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hParse : C12Concrete.parseSignatureC12 c12 sig = some sigParsed)
+    (j : Nat) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "j"
+          C12SegmentWotsSetup.c12WotsChecksumStep
+          (c12Layer4BeforePkAdrsChecksumLoopState pkSeed pkRoot message sig)
+          0 j).bindings
+        "wotsBase" =
+      C12Concrete.wotsBaseC12 4
+        (c12Layer4NextTree
+          (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+        (c12Layer4Leaf
+          (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex) := by
+  let stChecksumLoop := c12Layer4BeforePkAdrsChecksumLoopState pkSeed pkRoot message sig
+  rw [C12SegmentWotsSetup.c12WotsChecksumFold_preserves_wotsBase]
+  rw [show lookupValue stChecksumLoop.bindings "wotsBase" =
+      lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "i"
+          C12SegmentWotsSetup.c12WotsMessageStep
+          (c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig)
+          0 42).bindings
+        "wotsBase" by
+    simpa [stChecksumLoop, c12Layer4BeforePkAdrsChecksumLoopState,
+      c12Layer4BeforePkAdrsChecksumStartState,
+      c12Layer4BeforePkAdrsMessageLoopState,
+      c12Layer4BeforePkAdrsMessageStartState] using
+      C12SegmentWotsSetup.c12LayerBeforePkAdrsChecksumLoopStart_wotsBase_eq_foldLoop42
+        (c12Layer4InputState pkSeed pkRoot message sig)]
+  exact c12Layer4BeforePkAdrsMessageLoop_wotsBase_prefix
+    pkSeed pkRoot message sig sigParsed hParse 42
+
+theorem c12Layer4BeforePkAdrsChecksumLoop_wotsPtr_prefix
+    (pkSeed pkRoot message sig : ByteArray) (j : Nat) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "j"
+          C12SegmentWotsSetup.c12WotsChecksumStep
+          (c12Layer4BeforePkAdrsChecksumLoopState pkSeed pkRoot message sig)
+          0 j).bindings
+        "wotsPtr" =
+      MkC13State.sigDataOffset + (2592 + 784 * 4) := by
+  let stChecksumLoop := c12Layer4BeforePkAdrsChecksumLoopState pkSeed pkRoot message sig
+  rw [C12SegmentWotsSetup.c12WotsChecksumFold_preserves_wotsPtr]
+  rw [show lookupValue stChecksumLoop.bindings "wotsPtr" =
+      lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "i"
+          C12SegmentWotsSetup.c12WotsMessageStep
+          (c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig)
+          0 42).bindings
+        "wotsPtr" by
+    simpa [stChecksumLoop, c12Layer4BeforePkAdrsChecksumLoopState,
+      c12Layer4BeforePkAdrsChecksumStartState,
+      c12Layer4BeforePkAdrsMessageLoopState,
+      c12Layer4BeforePkAdrsMessageStartState] using
+      C12SegmentWotsSetup.c12LayerBeforePkAdrsChecksumLoopStart_wotsPtr_eq_foldLoop42
+        (c12Layer4InputState pkSeed pkRoot message sig)]
+  exact c12Layer4BeforePkAdrsMessageLoop_wotsPtr_prefix
+    pkSeed pkRoot message sig 42
+
+theorem c12Layer4BeforePkAdrsChecksumLoop_csumShifted_fold_prefix
+    (hAfter3 : C12Layer3After3CurrentNodePremise)
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hParse : C12Concrete.parseSignatureC12 c12 sig = some sigParsed)
+    (j : Nat) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "j"
+          C12SegmentWotsSetup.c12WotsChecksumStep
+          (c12Layer4BeforePkAdrsChecksumLoopState pkSeed pkRoot message sig)
+          0 j).bindings
+        "csumShifted" =
+      C12Concrete.wotsCsumC12
+        (lookupValue (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+          "currentNode") <<< 7 := by
+  let stChecksumLoop := c12Layer4BeforePkAdrsChecksumLoopState pkSeed pkRoot message sig
+  rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_preserves_lookup
+    "j" "csumShifted" C12SegmentWotsSetup.c12WotsChecksumStep (by decide)
+    (fun s => C12SegmentWotsSetup.c12WotsChecksumStep_preserves_lookup_of_fresh
+      "csumShifted" (by decide) (by decide) (by decide)
+      (by decide) (by decide) (by decide) s)]
+  exact c12Layer4BeforePkAdrsChecksumLoop_csumShifted_prefix
+    hAfter3 pkSeed pkRoot message sig sigParsed hParse
+
+/-- The raw layer-4 WOTS calldata word at message index `j`, once masked by the
+message loop, is exactly the parsed WOTS chain word used by `c12WotsChainsEnd`. -/
+theorem c12Layer4_message_raw_mask_eq_wots_chain
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hParse : C12Concrete.parseSignatureC12 c12 sig = some sigParsed)
+    (j : Nat) (hj : j < 42) :
+    SphincsMinusVerifierSpec.C13Concrete.maskN
+      (Compiler.Proofs.YulGeneration.calldataloadWord 0
+        (MkC13State.headWords pkSeed pkRoot message sig.size ++
+          MkC13State.bytesToWords sig)
+        (MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * j))) =
+      SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
+        (((c12Layer4Sig sigParsed).wots.chains[j]?).getD ⟨#[]⟩) := by
+  have hgen :=
+    SphincsMinusVerifiers.SiblingCalldata.masked_sig_read_eq_wordOfHash16_gen
+      pkSeed pkRoot message sig (2592 + 784 * 4 + 16 * j)
+  have hRead :=
+    c12_layer4_wotsChain_read16_of_parse sig sigParsed hParse j (by omega : j < 45)
+  change
+    (Compiler.Proofs.YulGeneration.calldataloadWord 0
+        (MkC13State.headWords pkSeed pkRoot message sig.size ++
+          MkC13State.bytesToWords sig)
+        (MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * j))).land
+      N_MASK =
+        SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
+          (((c12Layer4ParsedWotsChains sigParsed)[j]?).getD ⟨#[]⟩)
+  rw [hgen]
+  rw [← hRead]
+
+/-- The raw layer-4 WOTS calldata word at checksum index `42 + j`, once masked,
+is exactly the parsed WOTS chain word used by `c12WotsChainsEnd`. -/
+theorem c12Layer4_checksum_raw_mask_eq_wots_chain
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hParse : C12Concrete.parseSignatureC12 c12 sig = some sigParsed)
+    (j : Nat) (hj : j < 3) :
+    SphincsMinusVerifierSpec.C13Concrete.maskN
+      (Compiler.Proofs.YulGeneration.calldataloadWord 0
+        (MkC13State.headWords pkSeed pkRoot message sig.size ++
+          MkC13State.bytesToWords sig)
+        (MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * (42 + j)))) =
+      SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
+        (((c12Layer4Sig sigParsed).wots.chains[42 + j]?).getD ⟨#[]⟩) := by
+  have hgen :=
+    SphincsMinusVerifiers.SiblingCalldata.masked_sig_read_eq_wordOfHash16_gen
+      pkSeed pkRoot message sig (2592 + 784 * 4 + 16 * (42 + j))
+  have hRead :=
+    c12_layer4_wotsChain_read16_of_parse sig sigParsed hParse (42 + j)
+      (by omega : 42 + j < 45)
+  change
+    (Compiler.Proofs.YulGeneration.calldataloadWord 0
+        (MkC13State.headWords pkSeed pkRoot message sig.size ++
+          MkC13State.bytesToWords sig)
+        (MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * (42 + j)))).land
+      N_MASK =
+        SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
+          (((c12Layer4ParsedWotsChains sigParsed)[42 + j]?).getD ⟨#[]⟩)
+  rw [hgen]
+  rw [← hRead]
+
+set_option maxHeartbeats 700000 in
+/-- The executable layer-4 WOTS checksum loop writes the expected chain-hash
+word at checksum index `42 + j`, in runtime-current-node form. -/
+theorem c12Layer4BeforePkAdrsChecksumLoop_cell_chainHash_of_after3_current_node
+    (hAfter3 : C12Layer3After3CurrentNodePremise)
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hParse : C12Concrete.parseSignatureC12 c12 sig = some sigParsed)
+    (j : Nat) (hj : j < 3) :
+    ((SphincsMinusVerifiers.ClimbLoop.foldLoop "j"
+        C12SegmentWotsSetup.c12WotsChecksumStep
+        (c12Layer4BeforePkAdrsChecksumLoopState pkSeed pkRoot message sig)
+        0 3).world.memory (0x80 + 32 * (42 + j))).val =
+      SphincsMinusVerifierSpec.C12Concrete.chainHashC12
+        (c12Layer4ParsedSeed pkSeed)
+        (C12Concrete.wotsBaseC12 4
+          (c12Layer4NextTree
+            (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+          (c12Layer4Leaf
+            (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+          ||| ((42 + j) <<< 64))
+        (((C12Concrete.wotsCsumC12
+            (lookupValue
+              (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+              "currentNode") <<< 7) >>> (13 - 3 * j)) &&& 7)
+        (7 - (((C12Concrete.wotsCsumC12
+            (lookupValue
+              (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+              "currentNode") <<< 7) >>> (13 - 3 * j)) &&& 7)) 0
+        (SphincsMinusVerifierSpec.C13Concrete.maskN
+          (Compiler.Proofs.YulGeneration.calldataloadWord 0
+            (MkC13State.headWords pkSeed pkRoot message sig.size ++
+              MkC13State.bytesToWords sig)
+            (MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * (42 + j))))) := by
+  let stLoop := c12Layer4BeforePkAdrsChecksumLoopState pkSeed pkRoot message sig
+  let currentNode :=
+    lookupValue (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+      "currentNode"
+  let wotsBase :=
+    C12Concrete.wotsBaseC12 4
+      (c12Layer4NextTree
+        (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+      (c12Layer4Leaf
+        (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+  let wotsPtr := MkC13State.sigDataOffset + (2592 + 784 * 4)
+  let csumShifted := C12Concrete.wotsCsumC12 currentNode <<< 7
+  let digit := ((csumShifted >>> (13 - 3 * j)) &&& 7)
+  let raw :=
+    Compiler.Proofs.YulGeneration.calldataloadWord 0
+      (MkC13State.headWords pkSeed pkRoot message sig.size ++
+        MkC13State.bytesToWords sig)
+      (MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * (42 + j)))
+  have hCNLt : currentNode < 2 ^ 256 := by
+    simpa [currentNode] using
+      c12Layer4PreBodyState_currentNode_lt_of_after3_current_node
+        hAfter3 pkSeed pkRoot message sig sigParsed hParse
+  have hWBaseLt : wotsBase < 2 ^ 256 := by
+    let idx := (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex
+    let tree := c12Layer4NextTree idx
+    let leaf := c12Layer4Leaf idx
+    have hTree : tree < 2 ^ 64 := by
+      simpa [tree, idx] using
+        (by
+          rw [c12Layer4NextTree_of_parsed_eq_zero]
+          decide : c12Layer4NextTree idx < 2 ^ 64)
+    have hLeaf : leaf < 2 ^ 64 := by
+      exact lt_trans (c12Layer4Leaf_lt_16 idx) (by decide)
+    simpa [wotsBase, tree, leaf, idx] using
+      c12_wotsBaseC12_layer4_lt_two_pow_256 tree leaf hTree hLeaf
+  have hRawLt : raw < 2 ^ 256 := by
+    unfold raw
+    have hoff4 :
+        4 ≤ MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * (42 + j)) := by
+      norm_num [MkC13State.sigDataOffset]
+      omega
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.calldataloadWord_lt_of_ge4
+      0
+      (MkC13State.headWords pkSeed pkRoot message sig.size ++
+        MkC13State.bytesToWords sig)
+      (MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * (42 + j))) hoff4
+  have hCsumShiftedLt : csumShifted < 2 ^ 256 := by
+    have hBound : C12Concrete.wotsCsumC12 currentNode ≤ 7 * 42 := by
+      let stMessageLoop := c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig
+      have hCN :
+          lookupValue stMessageLoop.bindings "currentNode" = currentNode := by
+        simpa [stMessageLoop, currentNode] using
+          c12Layer4BeforePkAdrsMessageLoop_currentNode_prefix
+            pkSeed pkRoot message sig 0
+      have hCsum0 : lookupValue stMessageLoop.bindings "csum" = 0 := by
+        simpa [stMessageLoop, c12Layer4BeforePkAdrsMessageLoopState,
+          c12Layer4BeforePkAdrsMessageStartState, c12Layer4InputState,
+          c12Layer4PreBodyState] using
+          C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageLoopStart_csum_eq
+            (c12Layer4InputState pkSeed pkRoot message sig)
+      have hFoldBound :=
+        C12SegmentWotsSetup.c12WotsMessageFold_csum_bound
+          stMessageLoop 42 currentNode (by omega) hCNLt hCN hCsum0
+      have hFoldEq :=
+        C12SegmentWotsSetup.c12WotsMessageFold_csum_eq_wotsCsum
+          stMessageLoop currentNode hCNLt hCN hCsum0
+      omega
+    unfold csumShifted
+    rw [Nat.shiftLeft_eq]
+    have hSmall : C12Concrete.wotsCsumC12 currentNode * 2 ^ 7 ≤
+        (7 * 42) * 2 ^ 7 := Nat.mul_le_mul_right _ hBound
+    have hBoundSmall : (7 * 42) * 2 ^ 7 < 2 ^ 256 := by decide
+    omega
+  have hDigitEval :
+      evalExpr []
+        { (SphincsMinusVerifiers.ClimbLoop.foldLoop "j"
+            C12SegmentWotsSetup.c12WotsChecksumStep stLoop 0 j) with
+          bindings :=
+            bindValue
+              (SphincsMinusVerifiers.ClimbLoop.foldLoop "j"
+                C12SegmentWotsSetup.c12WotsChecksumStep stLoop 0 j).bindings
+              "j" (wordNormalize j) }
+        (C12SegmentWotsSetup.andE
+          (C12SegmentWotsSetup.shrE
+            (C12SegmentWotsSetup.subE (C12SegmentWotsSetup.u 13)
+              (C12SegmentWotsSetup.mulE (C12SegmentWotsSetup.u 3)
+                (C12SegmentWotsSetup.v "j")))
+            (C12SegmentWotsSetup.v "csumShifted"))
+          (C12SegmentWotsSetup.u 7)) =
+        some digit := by
+    let beforeJ :=
+      SphincsMinusVerifiers.ClimbLoop.foldLoop "j"
+        C12SegmentWotsSetup.c12WotsChecksumStep stLoop 0 j
+    let atJ : RuntimeState :=
+      { beforeJ with bindings := bindValue beforeJ.bindings "j" (wordNormalize j) }
+    have hJ : lookupValue atJ.bindings "j" = j := by
+      dsimp [atJ]
+      rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self,
+        C12SegmentWotsSetup.c12_wots_idxNorm67 j (by omega)]
+    have hCsum :
+        lookupValue atJ.bindings "csumShifted" = csumShifted := by
+      dsimp [atJ, beforeJ]
+      rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+        _ "j" "csumShifted" _ (by decide)]
+      simpa [stLoop, currentNode, csumShifted] using
+        c12Layer4BeforePkAdrsChecksumLoop_csumShifted_fold_prefix
+          hAfter3 pkSeed pkRoot message sig sigParsed hParse j
+    simpa [atJ, beforeJ, stLoop, csumShifted, digit] using
+      C12SegmentWotsSetup.evalExpr_checksum_digit_eq
+        atJ j csumShifted hj hJ hCsum hCsumShiftedLt
+  have hCdLoad : ∀ (s : RuntimeState),
+      lookupValue s.bindings "wotsPtr" = wotsPtr →
+      lookupValue s.bindings "i" = 42 + j →
+      s.world =
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "j"
+          C12SegmentWotsSetup.c12WotsChecksumStep stLoop 0 j).world →
+      evalExpr [] s
+          (.calldataload
+            (.add (.localVar "wotsPtr")
+              (.shl (.literal 4) (.localVar "i")))) = some raw := by
+    intro s hW hI hWorld
+    simpa [raw, wotsPtr, stLoop] using
+      c12Layer4BeforePkAdrsChecksumLoop_cdload_raw
+        pkSeed pkRoot message sig j hj s
+        (by simpa [wotsPtr] using hW) hI
+        (by simpa [stLoop] using hWorld)
+  simpa [stLoop, currentNode, wotsBase, wotsPtr, csumShifted, digit, raw] using
+    C12SegmentWotsSetup.c12WotsChecksumLoop_mem_at_j_eq_at
+      stLoop j (c12Layer4ParsedSeed pkSeed) digit wotsBase wotsPtr raw hj
+      hWBaseLt (C12SegmentWotsSetup.and_seven_le_seven _)
+      hRawLt
+      (by
+        simpa [stLoop] using
+          c12Layer4BeforePkAdrsChecksumLoop_seed_prefix
+            pkSeed pkRoot message sig j hj)
+      (by
+        simpa [stLoop, wotsBase] using
+          c12Layer4BeforePkAdrsChecksumLoop_wotsBase_prefix
+            pkSeed pkRoot message sig sigParsed hParse j)
+      (by
+        simpa [stLoop, wotsPtr] using
+          c12Layer4BeforePkAdrsChecksumLoop_wotsPtr_prefix
+            pkSeed pkRoot message sig j)
+      hDigitEval hCdLoad
+
+set_option maxHeartbeats 700000 in
+/-- The executable layer-4 WOTS message loop writes the expected chain-hash
+word at message index `j`, still in the runtime-current-node form and before
+the checksum suffix is considered. -/
+theorem c12Layer4BeforePkAdrsMessageLoop_cell_chainHash_of_after3_current_node
+    (hAfter3 : C12Layer3After3CurrentNodePremise)
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hParse : C12Concrete.parseSignatureC12 c12 sig = some sigParsed)
+    (j : Nat) (hj : j < 42) :
+    ((SphincsMinusVerifiers.ClimbLoop.foldLoop "i"
+        C12SegmentWotsSetup.c12WotsMessageStep
+        (c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig)
+        0 42).world.memory (0x80 + 32 * j)).val =
+      SphincsMinusVerifierSpec.C12Concrete.chainHashC12
+        (c12Layer4ParsedSeed pkSeed)
+        (C12Concrete.wotsBaseC12 4
+          (c12Layer4NextTree
+            (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+          (c12Layer4Leaf
+            (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+          ||| (j <<< 64))
+        ((lookupValue
+            (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+            "currentNode" >>> (128 + 3 * j)) &&& 7)
+        (7 - ((lookupValue
+            (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+            "currentNode" >>> (128 + 3 * j)) &&& 7)) 0
+        (SphincsMinusVerifierSpec.C13Concrete.maskN
+          (Compiler.Proofs.YulGeneration.calldataloadWord 0
+            (MkC13State.headWords pkSeed pkRoot message sig.size ++
+              MkC13State.bytesToWords sig)
+            (MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * j)))) := by
+  let stLoop := c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig
+  let currentNode :=
+    lookupValue (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+      "currentNode"
+  let wotsBase :=
+    C12Concrete.wotsBaseC12 4
+      (c12Layer4NextTree
+        (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+      (c12Layer4Leaf
+        (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+  let wotsPtr := MkC13State.sigDataOffset + (2592 + 784 * 4)
+  let raw :=
+    Compiler.Proofs.YulGeneration.calldataloadWord 0
+      (MkC13State.headWords pkSeed pkRoot message sig.size ++
+        MkC13State.bytesToWords sig)
+      (MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * j))
+  have hCNLt : currentNode < 2 ^ 256 := by
+    simpa [currentNode] using
+      c12Layer4PreBodyState_currentNode_lt_of_after3_current_node
+        hAfter3 pkSeed pkRoot message sig sigParsed hParse
+  have hWBaseLt : wotsBase < 2 ^ 256 := by
+    let idx := (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex
+    let tree := c12Layer4NextTree idx
+    let leaf := c12Layer4Leaf idx
+    have hTree : tree < 2 ^ 64 := by
+      simpa [tree, idx] using
+        (by
+          rw [c12Layer4NextTree_of_parsed_eq_zero]
+          decide : c12Layer4NextTree idx < 2 ^ 64)
+    have hLeaf : leaf < 2 ^ 64 := by
+      exact lt_trans (c12Layer4Leaf_lt_16 idx) (by decide)
+    simpa [wotsBase, tree, leaf, idx] using
+      c12_wotsBaseC12_layer4_lt_two_pow_256 tree leaf hTree hLeaf
+  have hRawLt : raw < 2 ^ 256 := by
+    unfold raw
+    have hoff4 :
+        4 ≤ MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * j) := by
+      norm_num [MkC13State.sigDataOffset]
+      omega
+    exact SphincsMinusVerifiers.ClimbMemFrameMerkle.calldataloadWord_lt_of_ge4
+      0
+      (MkC13State.headWords pkSeed pkRoot message sig.size ++
+        MkC13State.bytesToWords sig)
+      (MkC13State.sigDataOffset + (2592 + 784 * 4 + 16 * j)) hoff4
+  have hCdLoad : ∀ (s : RuntimeState),
+      lookupValue s.bindings "wotsPtr" = wotsPtr →
+      lookupValue s.bindings "i" = j →
+      s.world =
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "i"
+          C12SegmentWotsSetup.c12WotsMessageStep stLoop 0 j).world →
+      evalExpr [] s
+          (.calldataload
+            (.add (.localVar "wotsPtr")
+              (.shl (.literal 4) (.localVar "i")))) = some raw := by
+    intro s hW hI hWorld
+    simpa [raw, wotsPtr, stLoop] using
+      c12Layer4BeforePkAdrsMessageLoop_cdload_raw
+        pkSeed pkRoot message sig j hj s
+        (by simpa [wotsPtr] using hW) hI
+        (by simpa [stLoop] using hWorld)
+  simpa [stLoop, currentNode, wotsBase, wotsPtr, raw] using
+    C12SegmentWotsSetup.c12WotsMessageLoop_mem_at_j_eq
+      stLoop j (c12Layer4ParsedSeed pkSeed) currentNode
+      (lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "i"
+          C12SegmentWotsSetup.c12WotsMessageStep stLoop 0 j).bindings
+        "csum")
+      wotsBase wotsPtr raw hj hCNLt hWBaseLt
+      (by
+        simpa [stLoop, currentNode] using
+          c12Layer4BeforePkAdrsMessageLoop_csum_add7_lt_of_after3_current_node
+            hAfter3 pkSeed pkRoot message sig sigParsed hParse j hj)
+      hRawLt
+      (by
+        simpa [stLoop] using
+          c12Layer4BeforePkAdrsMessageLoop_seed_prefix
+            pkSeed pkRoot message sig j hj)
+      (by
+        simpa [stLoop, currentNode] using
+          c12Layer4BeforePkAdrsMessageLoop_currentNode_prefix
+            pkSeed pkRoot message sig j)
+      rfl
+      (by
+        simpa [stLoop, wotsBase] using
+          c12Layer4BeforePkAdrsMessageLoop_wotsBase_prefix
+            pkSeed pkRoot message sig sigParsed hParse j)
+      (by
+        simpa [stLoop, wotsPtr] using
+          c12Layer4BeforePkAdrsMessageLoop_wotsPtr_prefix
+            pkSeed pkRoot message sig j)
+      hCdLoad
+
+/-- Package the executable layer-4 WOTS message-loop cell theorem into the
+runtime-current-node premise used by the final C12 WOTS-PK memory bridge. -/
+theorem c12Layer4BeforePkAdrs_message_cells_runtime_node_of_after3_current_node
+    (hAfter3 : C12Layer3After3CurrentNodePremise) :
+    C12Layer4WotsPkBeforePkAdrsMessageCellsRuntimeNodePremise := by
+  intro pkSeed pkRoot message sig sigParsed hParse j hj
+  let stInput := c12Layer4InputState pkSeed pkRoot message sig
+  let addr := 0x80 + 32 * j
+  have hLoop :=
+    c12Layer4BeforePkAdrsMessageLoop_cell_chainHash_of_after3_current_node
+      hAfter3 pkSeed pkRoot message sig sigParsed hParse j hj
+  have hRaw :=
+    c12Layer4_message_raw_mask_eq_wots_chain
+      pkSeed pkRoot message sig sigParsed hParse j hj
+  have hLoop' :
+      ((SphincsMinusVerifiers.ClimbLoop.foldLoop "i"
+          C12SegmentWotsSetup.c12WotsMessageStep
+          (c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig)
+          0 42).world.memory addr).val =
+        SphincsMinusVerifierSpec.C12Concrete.chainHashC12
+          (c12Layer4ParsedSeed pkSeed)
+          (C12Concrete.wotsBaseC12 4
+            (c12Layer4NextTree
+              (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+            (c12Layer4Leaf
+              (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+            ||| (j <<< 64))
+          ((lookupValue
+              (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+              "currentNode" >>> (128 + 3 * j)) &&& 7)
+          (7 - ((lookupValue
+              (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+              "currentNode" >>> (128 + 3 * j)) &&& 7)) 0
+          (SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
+            (((c12Layer4Sig sigParsed).wots.chains[j]?).getD ⟨#[]⟩)) := by
+    simpa only [addr, hRaw] using hLoop
+  have hList :=
+    c12WotsChainsEnd_getElem_message
+      (c12Layer4ParsedSeed pkSeed) 4
+      (c12Layer4NextTree
+        (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+      (c12Layer4Leaf
+        (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+      (lookupValue (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+        "currentNode")
+      (c12Layer4Sig sigParsed).wots j hj
+  have hMessageEndEq :
+      ((C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageEnd stInput).world.memory
+          addr).val =
+        ((SphincsMinusVerifiers.ClimbLoop.foldLoop "i"
+            C12SegmentWotsSetup.c12WotsMessageStep
+            (c12Layer4BeforePkAdrsMessageLoopState pkSeed pkRoot message sig)
+            0 42).world.memory addr).val := by
+    have hState :=
+      congrArg
+        (fun s : RuntimeState => ((s.world.memory addr).val))
+        (C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageEnd_eq_foldLoop42
+          stInput)
+    simpa [stInput, c12Layer4BeforePkAdrsMessageLoopState,
+      c12Layer4BeforePkAdrsMessageStartState] using hState
+  have hBeforePkAdrsEq :
+      ((C12SegmentWotsSetup.c12LayerStateBeforePkAdrs stInput).world.memory
+          addr).val =
+        ((C12SegmentWotsSetup.c12LayerBeforePkAdrsMessageEnd stInput).world.memory
+          addr).val := by
+    simpa [addr] using
+      C12SegmentWotsSetup.c12LayerStateBeforePkAdrs_message_cell_eq_message_end
+        stInput j hj
+  have hEnd :
+      ((C12SegmentWotsSetup.c12LayerStateBeforePkAdrs stInput).world.memory
+          addr).val =
+        (c12WotsChainsEnd
+          (c12Layer4ParsedSeed pkSeed) 4
+          (c12Layer4NextTree
+            (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+          (c12Layer4Leaf
+            (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+          (lookupValue (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+            "currentNode")
+          (c12Layer4Sig sigParsed).wots)[j]'(by
+            rw [c12WotsChainsEnd_length]
+            omega) := by
+    exact hBeforePkAdrsEq.trans (hMessageEndEq.trans (hLoop'.trans hList.symm))
+  simpa [c12Layer4BeforePkAdrsState, stInput, addr] using hEnd
+
+set_option maxHeartbeats 900000 in
+/-- Package the executable layer-4 WOTS checksum-loop cell theorem into the
+runtime-current-node premise used by the final C12 WOTS-PK memory bridge. -/
+theorem c12Layer4BeforePkAdrs_checksum_cells_runtime_node_of_after3_current_node
+    (hAfter3 : C12Layer3After3CurrentNodePremise) :
+    C12Layer4WotsPkBeforePkAdrsChecksumCellsRuntimeNodePremise := by
+  intro pkSeed pkRoot message sig sigParsed hParse j hj
+  let stInput := c12Layer4InputState pkSeed pkRoot message sig
+  let addr := 0x80 + 32 * (42 + j)
+  have hLoop :=
+    c12Layer4BeforePkAdrsChecksumLoop_cell_chainHash_of_after3_current_node
+      hAfter3 pkSeed pkRoot message sig sigParsed hParse j hj
+  have hRaw :=
+    c12Layer4_checksum_raw_mask_eq_wots_chain
+      pkSeed pkRoot message sig sigParsed hParse j hj
+  have hLoop' :
+      ((SphincsMinusVerifiers.ClimbLoop.foldLoop "j"
+          C12SegmentWotsSetup.c12WotsChecksumStep
+          (c12Layer4BeforePkAdrsChecksumLoopState pkSeed pkRoot message sig)
+          0 3).world.memory addr).val =
+        SphincsMinusVerifierSpec.C12Concrete.chainHashC12
+          (c12Layer4ParsedSeed pkSeed)
+          (C12Concrete.wotsBaseC12 4
+            (c12Layer4NextTree
+              (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+            (c12Layer4Leaf
+              (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+            ||| ((42 + j) <<< 64))
+          (((C12Concrete.wotsCsumC12
+              (lookupValue
+                (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+                "currentNode") <<< 7) >>> (13 - 3 * j)) &&& 7)
+          (7 - (((C12Concrete.wotsCsumC12
+              (lookupValue
+                (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+                "currentNode") <<< 7) >>> (13 - 3 * j)) &&& 7)) 0
+          (SphincsMinusVerifierSpec.C13Concrete.wordOfHash16
+            (((c12Layer4Sig sigParsed).wots.chains[42 + j]?).getD ⟨#[]⟩)) := by
+    simpa only [addr, hRaw] using hLoop
+  have hList :=
+    c12WotsChainsEnd_getElem_checksum
+      (c12Layer4ParsedSeed pkSeed) 4
+      (c12Layer4NextTree
+        (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+      (c12Layer4Leaf
+        (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+      (lookupValue (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+        "currentNode")
+      (c12Layer4Sig sigParsed).wots j hj
+  have hBeforePkAdrsEq :
+      ((C12SegmentWotsSetup.c12LayerStateBeforePkAdrs stInput).world.memory
+          addr).val =
+        ((SphincsMinusVerifiers.ClimbLoop.foldLoop "j"
+          C12SegmentWotsSetup.c12WotsChecksumStep
+          (c12Layer4BeforePkAdrsChecksumLoopState pkSeed pkRoot message sig)
+          0 3).world.memory addr).val := by
+    have hState :=
+      congrArg
+        (fun s : RuntimeState => ((s.world.memory addr).val))
+        (C12SegmentWotsSetup.c12LayerStateBeforePkAdrs_eq_checksum_fold
+          stInput)
+    have h3 : wordNormalize 3 = 3 := by
+      rw [wordNormalize_eq_mod,
+        show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+        Nat.mod_eq_of_lt (by decide)]
+    simpa [stInput, c12Layer4BeforePkAdrsChecksumLoopState,
+      c12Layer4BeforePkAdrsChecksumStartState, h3] using hState
+  have hEnd :
+      ((C12SegmentWotsSetup.c12LayerStateBeforePkAdrs stInput).world.memory
+          addr).val =
+        (c12WotsChainsEnd
+          (c12Layer4ParsedSeed pkSeed) 4
+          (c12Layer4NextTree
+            (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+          (c12Layer4Leaf
+            (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+          (lookupValue (c12Layer4PreBodyState pkSeed pkRoot message sig).bindings
+            "currentNode")
+          (c12Layer4Sig sigParsed).wots)[42 + j]'(by
+            rw [c12WotsChainsEnd_length]
+            omega) := by
+    exact hBeforePkAdrsEq.trans (hLoop'.trans hList.symm)
+  simpa [c12Layer4BeforePkAdrsState, stInput, addr] using hEnd
+
+/-- The message-cell premise follows from the exact runtime-node WOTS message
+cells plus the layer-4 pre-body current-node handoff. -/
+theorem c12Layer4BeforePkAdrs_message_cells_of_runtime_node_cells
+    (hRuntime : C12Layer4WotsPkBeforePkAdrsMessageCellsRuntimeNodePremise)
+    (hCurrent : C12Layer4PreBodyCurrentNodePremise) :
+    C12Layer4WotsPkBeforePkAdrsMessageCellsPremise := by
+  intro pkSeed pkRoot message sig sigParsed hParse j hj
+  have hCell := hRuntime pkSeed pkRoot message sig sigParsed hParse j hj
+  have hNode := hCurrent pkSeed pkRoot message sig sigParsed hParse
+  simpa only [hNode] using hCell
+
+/-- The checksum-cell premise follows from the exact runtime-node WOTS checksum
+cells plus the layer-4 pre-body current-node handoff. -/
+theorem c12Layer4BeforePkAdrs_checksum_cells_of_runtime_node_cells
+    (hRuntime : C12Layer4WotsPkBeforePkAdrsChecksumCellsRuntimeNodePremise)
+    (hCurrent : C12Layer4PreBodyCurrentNodePremise) :
+    C12Layer4WotsPkBeforePkAdrsChecksumCellsPremise := by
+  intro pkSeed pkRoot message sig sigParsed hParse j hj
+  have hCell := hRuntime pkSeed pkRoot message sig sigParsed hParse j hj
+  have hNode := hCurrent pkSeed pkRoot message sig sigParsed hParse
+  simpa only [hNode] using hCell
+
+/-- Reassemble the 45 generated cells at `beforePkAdrs` from the exact
+message-loop and checksum-loop components. -/
+theorem c12Layer4BeforePkAdrs_cells_of_message_checksum_cells
+    (hMsg : C12Layer4WotsPkBeforePkAdrsMessageCellsPremise)
+    (hChecksum : C12Layer4WotsPkBeforePkAdrsChecksumCellsPremise) :
+    C12Layer4WotsPkBeforePkAdrsCellsPremise := by
+  intro pkSeed pkRoot message sig sigParsed hParse j hj
+  by_cases hj42 : j < 42
+  · have hCell := hMsg pkSeed pkRoot message sig sigParsed hParse j hj42
+    exact hCell
+  · have hjGe : 42 ≤ j := by omega
+    have hjSub : j - 42 < 3 := by omega
+    have hCell :=
+      hChecksum pkSeed pkRoot message sig sigParsed hParse (j - 42) hjSub
+    have hIdx : 42 + (j - 42) = j := by omega
+    simpa [hIdx] using hCell
+
+/-- The suffix from the layer-4 `beforePkAdrs` cutpoint to the pre-copy cutpoint
+only binds/stores the WOTS-PK address at `0x20`, so it preserves every generated
+chain-end cell at `0x80 + 32*j`. -/
+theorem c12Layer4BeforeWotsPkCopy_chain_cell_eq_beforePkAdrs
+    (pkSeed pkRoot message sig : ByteArray) (sigParsed : Signature)
+    (hParse : C12Concrete.parseSignatureC12 c12 sig = some sigParsed) (j : Nat) :
+    ((c12Layer4BeforeWotsPkCopyState pkSeed pkRoot message sig).world.memory
+        (0x80 + 32 * j)).val =
+      ((c12Layer4BeforePkAdrsState pkSeed pkRoot message sig).world.memory
+        (0x80 + 32 * j)).val := by
+  let st0 : RuntimeState :=
+    C12SegmentWotsSetup.c12LayerStateBeforePkAdrs
+      (c12Layer4InputState pkSeed pkRoot message sig)
+  let pkAdrs : Nat :=
+    C12Concrete.wotsPkAdrsC12 4
+      (c12Layer4NextTree
+        (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+      (c12Layer4Leaf
+        (c12Layer4ParsedMessage pkSeed pkRoot message sigParsed).hyperIndex)
+  have hEval : evalExpr [] st0 C12SegmentWotsSetup.c12LayerPkAdrsExpr = some pkAdrs := by
+    simpa [st0, pkAdrs, c12Layer4InputState, c12Layer4PreBodyState] using
+      c12Layer4BeforePkAdrs_wotsPkAdrs_eval
+        pkSeed pkRoot message sig sigParsed hParse
+  simpa [c12Layer4BeforeWotsPkCopyState, c12Layer4BeforePkAdrsState] using
+    C12SegmentWotsSetup.c12LayerStateBeforeWotsPkCopy_chain_cell_eq_beforePkAdrs_of_eval
+      (c12Layer4InputState pkSeed pkRoot message sig) pkAdrs hEval j
+
+/-- The layer-4 pre-copy generated-cell premise reduces to the earlier
+`beforePkAdrs` cutpoint. -/
+theorem c12Layer4BeforeWotsPkCopy_cells_of_beforePkAdrs_cells
+    (hCells : C12Layer4WotsPkBeforePkAdrsCellsPremise) :
+    C12Layer4WotsPkBeforeWotsPkCopyCellsPremise := by
+  intro pkSeed pkRoot message sig sigParsed hParse j hj
+  rw [c12Layer4BeforeWotsPkCopy_chain_cell_eq_beforePkAdrs
+    pkSeed pkRoot message sig sigParsed hParse j]
+  exact hCells pkSeed pkRoot message sig sigParsed hParse j hj
 
 /-- The layer-4 pre-copy WOTS-PK address slot is the concrete parsed C12
 WOTS-PK ADRS word. -/

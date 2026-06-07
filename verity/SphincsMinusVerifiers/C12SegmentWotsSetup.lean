@@ -487,6 +487,54 @@ theorem execC12WotsMessageBody (st : RuntimeState) :
     (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rfl
 
+/-- One C12 WOTS message-loop iteration preserves every binding outside its
+local temporaries and checksum accumulator. -/
+theorem c12WotsMessageStep_preserves_lookup_of_fresh
+    (key : String)
+    (hDigit : "digit" ≠ key)
+    (hCsum : "csum" ≠ key)
+    (hVal : "val" ≠ key)
+    (hChainBase : "chainBase" ≠ key)
+    (hSteps : "steps" ≠ key)
+    (hS : "s" ≠ key)
+    (st : RuntimeState) :
+    lookupValue (c12WotsMessageStep st).bindings key =
+      lookupValue st.bindings key := by
+  exact SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    key c12WotsMessageBody st (c12WotsMessageStep st)
+    (by
+      intro s s'' stmt hmem hexec
+      simp only [c12WotsMessageBody, List.mem_cons, List.not_mem_nil,
+        or_false] at hmem
+      rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          _ _ "digit" key _ hDigit hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+          _ _ "csum" key _ hCsum hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          _ _ "val" key _ hVal hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          _ _ "chainBase" key _ hChainBase hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          _ _ "steps" key _ hSteps hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_forEach_preserves_lookup
+          "s" key _ _ _ _ hS
+          (by
+            intro s s'' stmt hmem hexec
+            simp only [c12WotsChainBody, List.mem_cons, List.not_mem_nil,
+              or_false] at hmem
+            rcases hmem with rfl | rfl | rfl
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+                _ _ key _ _ hexec
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+                _ _ key _ _ hexec
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+                _ _ "val" key _ hVal hexec)
+          hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+          _ _ key _ _ hexec)
+    (execC12WotsMessageBody st)
+
 theorem c12WotsMessagePrefix_preserves_memory_zero
     (st s' : RuntimeState)
     (hExec : execStmtList [] st c12WotsMessagePrefix = .continue s') :
@@ -615,6 +663,54 @@ theorem execC12WotsChecksumBody (st : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _
     (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rfl
+
+/-- One C12 WOTS checksum-loop iteration preserves every binding outside its
+local temporaries. -/
+theorem c12WotsChecksumStep_preserves_lookup_of_fresh
+    (key : String)
+    (hDigit : "digit" ≠ key)
+    (hI : "i" ≠ key)
+    (hVal : "val" ≠ key)
+    (hChainBase : "chainBase" ≠ key)
+    (hSteps : "steps" ≠ key)
+    (hS : "s" ≠ key)
+    (st : RuntimeState) :
+    lookupValue (c12WotsChecksumStep st).bindings key =
+      lookupValue st.bindings key := by
+  exact SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    key c12WotsChecksumBody st (c12WotsChecksumStep st)
+    (by
+      intro s s'' stmt hmem hexec
+      simp only [c12WotsChecksumBody, List.mem_cons, List.not_mem_nil,
+        or_false] at hmem
+      rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          _ _ "digit" key _ hDigit hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          _ _ "i" key _ hI hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          _ _ "val" key _ hVal hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          _ _ "chainBase" key _ hChainBase hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+          _ _ "steps" key _ hSteps hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_forEach_preserves_lookup
+          "s" key _ _ _ _ hS
+          (by
+            intro s s'' stmt hmem hexec
+            simp only [c12WotsChainBody, List.mem_cons, List.not_mem_nil,
+              or_false] at hmem
+            rcases hmem with rfl | rfl | rfl
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+                _ _ key _ _ hexec
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+                _ _ key _ _ hexec
+            · exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+                _ _ "val" key _ hVal hexec)
+          hexec
+      · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+          _ _ key _ _ hexec)
+    (execC12WotsChecksumBody st)
 
 theorem c12WotsChecksumPrefix_preserves_memory_zero
     (st s' : RuntimeState)
@@ -1076,6 +1172,60 @@ theorem execStmt_letVar_digit_eq
     (andE (shrE (addE (u 128) (mulE (u 3) (v "i"))) (v "currentNode")) (u 7))
     ((currentNode >>> (128 + 3 * i)) &&& 7)
     (evalExpr_digit_eq st i currentNode hI hCN hILt hCNLt hMulLt hShiftLt)
+
+/-- The C12 WOTS checksum-loop digit expression evaluates to the low three bits
+of `csumShifted >>> (13 - 3*j)`. -/
+theorem evalExpr_checksum_digit_eq
+    (st : RuntimeState) (j csumShifted : Nat)
+    (hj : j < 3)
+    (hJ : lookupValue st.bindings "j" = j)
+    (hCsumShifted : lookupValue st.bindings "csumShifted" = csumShifted)
+    (hCsumShiftedLt : csumShifted < 2 ^ 256) :
+    evalExpr [] st
+        (andE (shrE (subE (u 13) (mulE (u 3) (v "j"))) (v "csumShifted")) (u 7)) =
+      some ((csumShifted >>> (13 - 3 * j)) &&& 7) := by
+  have h3 : evalExpr [] st (u 3) = some 3 := by
+    show some (wordNormalize 3) = some 3
+    rw [wordNormalize_eq_mod,
+      show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  have h13 : evalExpr [] st (u 13) = some 13 := by
+    show some (wordNormalize 13) = some 13
+    rw [wordNormalize_eq_mod,
+      show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  have hJEval : evalExpr [] st (v "j") = some j := by
+    show some (lookupValue st.bindings "j") = some j
+    rw [hJ]
+  have hCsumEval : evalExpr [] st (v "csumShifted") = some csumShifted := by
+    show some (lookupValue st.bindings "csumShifted") = some csumShifted
+    rw [hCsumShifted]
+  have hJLt : j < 2 ^ 256 := lt_trans hj (by decide)
+  have hMulLt : 3 * j < 2 ^ 256 := by
+    have hle : 3 * j ≤ 3 * 2 := Nat.mul_le_mul_left _ (by omega)
+    have hsmall : (3 : Nat) * 2 < 2 ^ 256 := by decide
+    omega
+  have hMulEval : evalExpr [] st (mulE (u 3) (v "j")) = some (3 * j) :=
+    evalExpr_mul_bounded st (u 3) (v "j") 3 j h3 hJEval
+      (by decide) hJLt hMulLt
+  have hSubEval :
+      evalExpr [] st (subE (u 13) (mulE (u 3) (v "j"))) =
+        some (13 - 3 * j) := by
+    exact evalExpr_sub_le_bounded st (u 13) (mulE (u 3) (v "j"))
+      13 (3 * j) h13 hMulEval (by decide) hMulLt (by omega)
+  have hShiftLt : 13 - 3 * j < 2 ^ 256 := by
+    omega
+  have hShr : evalExpr [] st
+      (shrE (subE (u 13) (mulE (u 3) (v "j"))) (v "csumShifted")) =
+      some (csumShifted >>> (13 - 3 * j)) :=
+    SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_shr_bounded
+      st (subE (u 13) (mulE (u 3) (v "j"))) (v "csumShifted")
+      (13 - 3 * j) csumShifted hSubEval hCsumEval hShiftLt hCsumShiftedLt
+  have hShrLt : csumShifted >>> (13 - 3 * j) < 2 ^ 256 :=
+    lt_of_le_of_lt (Nat.shiftRight_le csumShifted (13 - 3 * j)) hCsumShiftedLt
+  exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitAnd_literal
+    st (shrE (subE (u 13) (mulE (u 3) (v "j"))) (v "csumShifted"))
+    (csumShifted >>> (13 - 3 * j)) 7 hShr hShrLt (by decide)
 
 /-- `chainHashC12` lands in `[0, 2^256)` whenever its input `val` is in the same
 range.  Base case is by definition (the `fuel = 0` branch returns `val`); step
@@ -1829,6 +1979,455 @@ theorem c12WotsMessageLoop_mem_at_j_eq
     (fun s idx hjidx hidx =>
       c12WotsMessageStep_preserves_prior_message_cell s j idx hjidx hidx)
 
+theorem c12WotsMessageFold_preserves_currentNode
+    (st : RuntimeState) (start stop : Nat) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop
+          "i" c12WotsMessageStep st start stop).bindings
+        "currentNode" =
+      lookupValue st.bindings "currentNode" := by
+  rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_preserves_lookup
+    "i" "currentNode" c12WotsMessageStep (by decide)
+    (fun s => c12WotsMessageStep_preserves_lookup_of_fresh
+      "currentNode" (by decide) (by decide) (by decide)
+      (by decide) (by decide) (by decide) s)]
+
+theorem c12WotsMessageFold_preserves_wotsBase
+    (st : RuntimeState) (start stop : Nat) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop
+          "i" c12WotsMessageStep st start stop).bindings
+        "wotsBase" =
+      lookupValue st.bindings "wotsBase" := by
+  rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_preserves_lookup
+    "i" "wotsBase" c12WotsMessageStep (by decide)
+    (fun s => c12WotsMessageStep_preserves_lookup_of_fresh
+      "wotsBase" (by decide) (by decide) (by decide)
+      (by decide) (by decide) (by decide) s)]
+
+theorem c12WotsMessageFold_preserves_wotsPtr
+    (st : RuntimeState) (start stop : Nat) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop
+          "i" c12WotsMessageStep st start stop).bindings
+        "wotsPtr" =
+      lookupValue st.bindings "wotsPtr" := by
+  rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_preserves_lookup
+    "i" "wotsPtr" c12WotsMessageStep (by decide)
+    (fun s => c12WotsMessageStep_preserves_lookup_of_fresh
+      "wotsPtr" (by decide) (by decide) (by decide)
+      (by decide) (by decide) (by decide) s)]
+
+theorem c12WotsMessageFold_preserves_memory_zero_bound
+    (st : RuntimeState) (remaining : Nat) (hrem : remaining ≤ 42) :
+    ((SphincsMinusVerifiers.ClimbLoop.foldLoop
+      "i" c12WotsMessageStep st 0 remaining).world.memory 0x00).val =
+      (st.world.memory 0x00).val := by
+  exact SphincsMinusVerifiers.ClimbLoop.foldLoop_preserves_memory_val_range
+    "i" c12WotsMessageStep 0x00 (fun idx => idx < 42)
+    (fun s idx hidx =>
+      c12WotsMessageBody_preserves_memory_zero_bound
+        s idx hidx
+        (c12WotsMessageStep
+          { s with bindings := bindValue s.bindings "i" (wordNormalize idx) })
+        (execC12WotsMessageBody
+          { s with bindings := bindValue s.bindings "i" (wordNormalize idx) }))
+    st 0 remaining
+    (fun i _ hi => by omega)
+
+set_option maxHeartbeats 600000 in
+/-- One C12 WOTS message-loop step increases the checksum accumulator by at
+most seven, for the concrete message-loop index range. -/
+theorem c12WotsMessageStep_csum_le_add7
+    (st : RuntimeState) (idx csum currentNode : Nat)
+    (hidx : idx < 42)
+    (hCNLt : currentNode < 2 ^ 256)
+    (hCsumLt : csum + 7 < 2 ^ 256)
+    (hI : lookupValue st.bindings "i" = idx)
+    (hCN : lookupValue st.bindings "currentNode" = currentNode)
+    (hCsum : lookupValue st.bindings "csum" = csum) :
+    lookupValue (c12WotsMessageStep st).bindings "csum" ≤ csum + 7 := by
+  have hILt : idx < 2 ^ 256 := lt_trans hidx (by decide)
+  have hMulLt : 3 * idx < 2 ^ 256 := by
+    have h1 : 3 * idx ≤ 3 * 41 := Nat.mul_le_mul_left _ (by omega)
+    have h2 : (3 : Nat) * 41 < 2 ^ 256 := by decide
+    omega
+  have hShiftLt : 128 + 3 * idx < 2 ^ 256 := by
+    have h1 : 128 + 3 * idx ≤ 128 + 3 * 41 := by omega
+    have h2 : (128 : Nat) + 3 * 41 < 2 ^ 256 := by decide
+    omega
+  let digit : Nat := (currentNode >>> (128 + 3 * idx)) &&& 7
+  have hDigitLe : digit ≤ 7 := by
+    dsimp [digit]
+    exact and_seven_le_seven _
+  have hCsumLt' : csum < 2 ^ 256 := by omega
+  have hSumLt : csum + (7 - digit) < 2 ^ 256 := by
+    have hle : 7 - digit ≤ 7 := by omega
+    omega
+  have hStep1 := execStmt_letVar_digit_eq st idx currentNode hI hCN hILt hCNLt
+    hMulLt hShiftLt
+  let state1 : RuntimeState :=
+    { st with bindings := bindValue st.bindings "digit" digit }
+  have hCsum1 : lookupValue state1.bindings "csum" = csum := by
+    dsimp [state1]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      _ "digit" "csum" _ (by decide)]
+    exact hCsum
+  have hDigit1 : lookupValue state1.bindings "digit" = digit := by
+    dsimp [state1]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+  have hStep2 := execStmt_assignVar_csum_eq state1 csum digit hCsum1 hDigit1
+    hDigitLe hCsumLt' hSumLt
+  let state2 : RuntimeState :=
+    { state1 with bindings := bindValue state1.bindings "csum" (csum + (7 - digit)) }
+  have hBody := execC12WotsMessageBody st
+  rw [c12WotsMessageBody] at hBody
+  rw [execStmtList_cons_continue _ _ _ _ hStep1] at hBody
+  rw [execStmtList_cons_continue _ _ _ _ hStep2] at hBody
+  have hTail :
+      lookupValue (c12WotsMessageStep st).bindings "csum" =
+        lookupValue state2.bindings "csum" := by
+    exact SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+      "csum"
+      [ .letVar "val" (andE (cdload (addE (v "wotsPtr") (shlE (u 4) (v "i")))) (u N_MASK)),
+        .letVar "chainBase" (orE (v "wotsBase") (shlE (u 64) (v "i"))),
+        .letVar "steps" (subE (u 7) (v "digit")),
+        .forEach "s" (v "steps") c12WotsChainBody,
+        mstoreE (addE (u 0x80) (shlE (u 5) (v "i"))) (v "val") ]
+      state2 (c12WotsMessageStep st)
+      (by
+        intro s s'' stmt hmem hexec
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+        rcases hmem with rfl | rfl | rfl | rfl | rfl
+        · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+            _ _ "val" "csum" _ (by decide) hexec
+        · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+            _ _ "chainBase" "csum" _ (by decide) hexec
+        · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+            _ _ "steps" "csum" _ (by decide) hexec
+        · exact SphincsMinusVerifiers.BindingFrame.execStmt_forEach_preserves_lookup
+            "s" "csum" _ _ _ _ (by decide)
+            (by
+              intro s s'' stmt hmem hexec
+              simp only [c12WotsChainBody, List.mem_cons, List.not_mem_nil,
+                or_false] at hmem
+              rcases hmem with rfl | rfl | rfl
+              · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+                  _ _ "csum" _ _ hexec
+              · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+                  _ _ "csum" _ _ hexec
+              · exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+                  _ _ "val" "csum" _ (by decide) hexec)
+            hexec
+        · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+            _ _ "csum" _ _ hexec)
+      hBody
+  rw [hTail]
+  dsimp [state2]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+  omega
+
+private theorem c12_nat_land_low3 (x : Nat) : Nat.land x 0x7 = x % 8 := by
+  change (x &&& (2 ^ 3 - 1)) = x % 2 ^ 3
+  apply Nat.eq_of_testBit_eq
+  intro i
+  rw [Nat.testBit_land]
+  by_cases hi : i < 3
+  · have hmask : (2 ^ 3 - 1).testBit i = true := by
+      rw [Nat.testBit_two_pow_sub_one]
+      exact decide_eq_true hi
+    rw [hmask, Bool.and_true]
+    rw [Nat.testBit_mod_two_pow]
+    simp [hi]
+  · have hmask : (2 ^ 3 - 1).testBit i = false := by
+      rw [Nat.testBit_two_pow_sub_one]
+      exact decide_eq_false hi
+    rw [hmask, Bool.and_false]
+    rw [Nat.testBit_mod_two_pow]
+    simp [hi]
+
+set_option maxHeartbeats 700000 in
+/-- Exact checksum-accumulator update for one C12 WOTS message-loop step. -/
+theorem c12WotsMessageStep_csum_eq
+    (st : RuntimeState) (idx csum currentNode : Nat)
+    (hidx : idx < 42)
+    (hCNLt : currentNode < 2 ^ 256)
+    (hCsumLt : csum + 7 < 2 ^ 256)
+    (hI : lookupValue st.bindings "i" = idx)
+    (hCN : lookupValue st.bindings "currentNode" = currentNode)
+    (hCsum : lookupValue st.bindings "csum" = csum) :
+    lookupValue (c12WotsMessageStep st).bindings "csum" =
+      csum + (7 - SphincsMinusVerifierSpec.C12Concrete.wotsDigitC12 currentNode idx) := by
+  have hILt : idx < 2 ^ 256 := lt_trans hidx (by decide)
+  have hMulLt : 3 * idx < 2 ^ 256 := by
+    have h1 : 3 * idx ≤ 3 * 41 := Nat.mul_le_mul_left _ (by omega)
+    have h2 : (3 : Nat) * 41 < 2 ^ 256 := by decide
+    omega
+  have hShiftLt : 128 + 3 * idx < 2 ^ 256 := by
+    have h1 : 128 + 3 * idx ≤ 128 + 3 * 41 := by omega
+    have h2 : (128 : Nat) + 3 * 41 < 2 ^ 256 := by decide
+    omega
+  let digit : Nat := (currentNode >>> (128 + 3 * idx)) &&& 7
+  have hDigitLe : digit ≤ 7 := by
+    dsimp [digit]
+    exact and_seven_le_seven _
+  have hDigitSpec :
+      digit = SphincsMinusVerifierSpec.C12Concrete.wotsDigitC12 currentNode idx := by
+    dsimp [digit, SphincsMinusVerifierSpec.C12Concrete.wotsDigitC12]
+    change Nat.land (currentNode >>> (128 + 3 * idx)) 7 =
+      (currentNode >>> (128 + 3 * idx)) % 8
+    exact c12_nat_land_low3 _
+  have hCsumLt' : csum < 2 ^ 256 := by omega
+  have hSumLt : csum + (7 - digit) < 2 ^ 256 := by
+    have hle : 7 - digit ≤ 7 := by omega
+    omega
+  have hStep1 := execStmt_letVar_digit_eq st idx currentNode hI hCN hILt hCNLt
+    hMulLt hShiftLt
+  let state1 : RuntimeState :=
+    { st with bindings := bindValue st.bindings "digit" digit }
+  have hCsum1 : lookupValue state1.bindings "csum" = csum := by
+    dsimp [state1]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      _ "digit" "csum" _ (by decide)]
+    exact hCsum
+  have hDigit1 : lookupValue state1.bindings "digit" = digit := by
+    dsimp [state1]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+  have hStep2 := execStmt_assignVar_csum_eq state1 csum digit hCsum1 hDigit1
+    hDigitLe hCsumLt' hSumLt
+  let state2 : RuntimeState :=
+    { state1 with bindings := bindValue state1.bindings "csum" (csum + (7 - digit)) }
+  have hBody := execC12WotsMessageBody st
+  rw [c12WotsMessageBody] at hBody
+  rw [execStmtList_cons_continue _ _ _ _ hStep1] at hBody
+  rw [execStmtList_cons_continue _ _ _ _ hStep2] at hBody
+  have hTail :
+      lookupValue (c12WotsMessageStep st).bindings "csum" =
+        lookupValue state2.bindings "csum" := by
+    exact SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+      "csum"
+      [ .letVar "val" (andE (cdload (addE (v "wotsPtr") (shlE (u 4) (v "i")))) (u N_MASK)),
+        .letVar "chainBase" (orE (v "wotsBase") (shlE (u 64) (v "i"))),
+        .letVar "steps" (subE (u 7) (v "digit")),
+        .forEach "s" (v "steps") c12WotsChainBody,
+        mstoreE (addE (u 0x80) (shlE (u 5) (v "i"))) (v "val") ]
+      state2 (c12WotsMessageStep st)
+      (by
+        intro s s'' stmt hmem hexec
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+        rcases hmem with rfl | rfl | rfl | rfl | rfl
+        · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+            _ _ "val" "csum" _ (by decide) hexec
+        · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+            _ _ "chainBase" "csum" _ (by decide) hexec
+        · exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+            _ _ "steps" "csum" _ (by decide) hexec
+        · exact SphincsMinusVerifiers.BindingFrame.execStmt_forEach_preserves_lookup
+            "s" "csum" _ _ _ _ (by decide)
+            (by
+              intro s s'' stmt hmem hexec
+              simp only [c12WotsChainBody, List.mem_cons, List.not_mem_nil,
+                or_false] at hmem
+              rcases hmem with rfl | rfl | rfl
+              · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+                  _ _ "csum" _ _ hexec
+              · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+                  _ _ "csum" _ _ hexec
+              · exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+                  _ _ "val" "csum" _ (by decide) hexec)
+            hexec
+        · exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+            _ _ "csum" _ _ hexec)
+      hBody
+  rw [hTail]
+  dsimp [state2]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+  rw [hDigitSpec]
+
+set_option maxHeartbeats 600000 in
+/-- Range-indexed checksum bound for the C12 WOTS message fold. -/
+theorem c12WotsMessageFold_csum_bound_aux
+    (st : RuntimeState) (start remaining currentNode : Nat)
+    (hrange : start + remaining ≤ 42)
+    (hCNLt : currentNode < 2 ^ 256)
+    (hCN : lookupValue st.bindings "currentNode" = currentNode)
+    (hCsum : lookupValue st.bindings "csum" ≤ 7 * start) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop
+          "i" c12WotsMessageStep st start remaining).bindings
+        "csum" ≤ 7 * (start + remaining) := by
+  induction remaining generalizing st start with
+  | zero =>
+      rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_zero]
+      simpa using hCsum
+  | succ remaining ih =>
+      rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_succ]
+      let sIdx : RuntimeState :=
+        { st with bindings := bindValue st.bindings "i" (wordNormalize start) }
+      have hstart : start < 42 := by omega
+      have hIdxLookup : lookupValue sIdx.bindings "i" = start := by
+        dsimp [sIdx]
+        rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self,
+          c12_wots_idxNorm67 start (by omega)]
+      have hCurIdx : lookupValue sIdx.bindings "currentNode" = currentNode := by
+        dsimp [sIdx]
+        rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+          _ "i" "currentNode" _ (by decide)]
+        exact hCN
+      have hCsumIdxLe : lookupValue sIdx.bindings "csum" ≤ 7 * start := by
+        dsimp [sIdx]
+        rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+          _ "i" "csum" _ (by decide)]
+        exact hCsum
+      let csumNow := lookupValue sIdx.bindings "csum"
+      have hCsumNowLt : csumNow + 7 < 2 ^ 256 := by
+        dsimp [csumNow] at *
+        have hsmall : 7 * start + 7 ≤ 7 * 42 := by nlinarith
+        have hmod : (7 : Nat) * 42 < 2 ^ 256 := by decide
+        omega
+      have hStepBound :=
+        c12WotsMessageStep_csum_le_add7 sIdx start csumNow currentNode hstart hCNLt
+          hCsumNowLt hIdxLookup hCurIdx rfl
+      have hStepCsum :
+          lookupValue (c12WotsMessageStep sIdx).bindings "csum" ≤ 7 * (start + 1) := by
+        dsimp [csumNow] at hStepBound
+        nlinarith
+      have hStepCN :
+          lookupValue (c12WotsMessageStep sIdx).bindings "currentNode" = currentNode := by
+        rw [c12WotsMessageStep_preserves_lookup_of_fresh
+          "currentNode" (by decide) (by decide) (by decide)
+          (by decide) (by decide) (by decide) sIdx]
+        exact hCurIdx
+      have hRec := ih (c12WotsMessageStep sIdx) (start + 1) (by omega)
+        hStepCN hStepCsum
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hRec
+
+/-- The first `j` C12 WOTS message iterations keep the checksum accumulator
+bounded by `7*j`, starting from zero. -/
+theorem c12WotsMessageFold_csum_bound
+    (st : RuntimeState) (j currentNode : Nat)
+    (hj : j ≤ 42)
+    (hCNLt : currentNode < 2 ^ 256)
+    (hCN : lookupValue st.bindings "currentNode" = currentNode)
+    (hCsum0 : lookupValue st.bindings "csum" = 0) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop
+          "i" c12WotsMessageStep st 0 j).bindings
+        "csum" ≤ 7 * j := by
+  simpa using
+    c12WotsMessageFold_csum_bound_aux st 0 j currentNode (by simpa using hj)
+      hCNLt hCN (by omega)
+
+private theorem c12WotsCsum_range'_step
+    (node acc start remaining : Nat) :
+    SphincsMinusVerifiers.ClimbLoop.specFold
+        (fun idx acc => acc + (7 - SphincsMinusVerifierSpec.C12Concrete.wotsDigitC12 node idx))
+        acc start remaining =
+      (List.range' start remaining).foldl
+        (fun acc idx => acc + (7 - SphincsMinusVerifierSpec.C12Concrete.wotsDigitC12 node idx)) acc := by
+  induction remaining generalizing acc start with
+  | zero =>
+      rw [SphincsMinusVerifiers.ClimbLoop.specFold_zero, List.range'_zero]
+      rfl
+  | succ remaining ih =>
+      rw [SphincsMinusVerifiers.ClimbLoop.specFold_succ, List.range'_succ]
+      exact ih
+        (acc + (7 - SphincsMinusVerifierSpec.C12Concrete.wotsDigitC12 node start))
+        (start + 1)
+
+set_option maxHeartbeats 700000 in
+/-- Exact checksum accumulator after a C12 WOTS message-loop prefix. -/
+theorem c12WotsMessageFold_csum_eq_range'
+    (st : RuntimeState) (start remaining currentNode csum : Nat)
+    (hrange : start + remaining ≤ 42)
+    (hCNLt : currentNode < 2 ^ 256)
+    (hCN : lookupValue st.bindings "currentNode" = currentNode)
+    (hCsum : lookupValue st.bindings "csum" = csum)
+    (hCsumLe : csum ≤ 7 * start) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop
+          "i" c12WotsMessageStep st start remaining).bindings
+        "csum" =
+      (List.range' start remaining).foldl
+        (fun acc idx =>
+          acc + (7 - SphincsMinusVerifierSpec.C12Concrete.wotsDigitC12 currentNode idx)) csum := by
+  induction remaining generalizing st start csum with
+  | zero =>
+      rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_zero, List.range'_zero]
+      simpa using hCsum
+  | succ remaining ih =>
+      rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_succ]
+      let sIdx : RuntimeState :=
+        { st with bindings := bindValue st.bindings "i" (wordNormalize start) }
+      have hstart : start < 42 := by omega
+      have hIdxLookup : lookupValue sIdx.bindings "i" = start := by
+        dsimp [sIdx]
+        rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self,
+          c12_wots_idxNorm67 start (by omega)]
+      have hCurIdx : lookupValue sIdx.bindings "currentNode" = currentNode := by
+        dsimp [sIdx]
+        rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+          _ "i" "currentNode" _ (by decide)]
+        exact hCN
+      have hCsumIdx : lookupValue sIdx.bindings "csum" = csum := by
+        dsimp [sIdx]
+        rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+          _ "i" "csum" _ (by decide)]
+        exact hCsum
+      have hCsumLt : csum + 7 < 2 ^ 256 := by
+        have hsmall : 7 * start + 7 ≤ 7 * 42 := by nlinarith
+        have hmod : (7 : Nat) * 42 < 2 ^ 256 := by decide
+        omega
+      have hStep :=
+        c12WotsMessageStep_csum_eq sIdx start csum currentNode hstart hCNLt
+          hCsumLt hIdxLookup hCurIdx hCsumIdx
+      let csumNext :=
+        csum + (7 - SphincsMinusVerifierSpec.C12Concrete.wotsDigitC12 currentNode start)
+      have hStepCN :
+          lookupValue (c12WotsMessageStep sIdx).bindings "currentNode" = currentNode := by
+        rw [c12WotsMessageStep_preserves_lookup_of_fresh
+          "currentNode" (by decide) (by decide) (by decide)
+          (by decide) (by decide) (by decide) sIdx]
+        exact hCurIdx
+      have hNextLe : csumNext ≤ 7 * (start + 1) := by
+        dsimp [csumNext]
+        have hDigitLe :
+            SphincsMinusVerifierSpec.C12Concrete.wotsDigitC12 currentNode start ≤ 7 := by
+          unfold SphincsMinusVerifierSpec.C12Concrete.wotsDigitC12
+          have hlt := Nat.mod_lt (currentNode >>> (128 + 3 * start))
+            (by decide : 0 < 8)
+          omega
+        have hSubLe :
+            7 - SphincsMinusVerifierSpec.C12Concrete.wotsDigitC12 currentNode start ≤ 7 :=
+          Nat.sub_le _ _
+        calc
+          csum + (7 - SphincsMinusVerifierSpec.C12Concrete.wotsDigitC12 currentNode start)
+              ≤ csum + 7 := Nat.add_le_add_left hSubLe csum
+          _ ≤ 7 * start + 7 := Nat.add_le_add_right hCsumLe 7
+          _ = 7 * (start + 1) := by ring
+      have hRec :=
+        ih (c12WotsMessageStep sIdx) (start + 1) csumNext (by omega)
+          hStepCN (by simpa [csumNext] using hStep) hNextLe
+      rw [List.range'_succ]
+      simp only [List.foldl_cons]
+      simpa [sIdx, csumNext] using hRec
+
+/-- Exact final checksum accumulator after the 42 C12 WOTS message iterations. -/
+theorem c12WotsMessageFold_csum_eq_wotsCsum
+    (st : RuntimeState) (currentNode : Nat)
+    (hCNLt : currentNode < 2 ^ 256)
+    (hCN : lookupValue st.bindings "currentNode" = currentNode)
+    (hCsum0 : lookupValue st.bindings "csum" = 0) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop
+          "i" c12WotsMessageStep st 0 42).bindings
+        "csum" =
+      SphincsMinusVerifierSpec.C12Concrete.wotsCsumC12 currentNode := by
+  have h :=
+    c12WotsMessageFold_csum_eq_range' st 0 42 currentNode 0
+      (by omega) hCNLt hCN hCsum0 (by omega)
+  simpa [SphincsMinusVerifierSpec.C12Concrete.wotsCsumC12] using h
+
 set_option maxHeartbeats 1000000 in
 theorem c12WotsChecksumBody_preserves_memory_zero_bound
     (s : RuntimeState) (idx : Nat) (hidx : idx < 3) (s'' : RuntimeState)
@@ -2036,6 +2635,43 @@ theorem c12WotsChecksumStep_preserves_prior_checksum_cell
   exact c12WotsChecksumBody_preserves_memory_addr_of_ne_bound
     s idx (0x80 + 32 * (42 + j)) hidx (by omega) (by omega) (by omega)
     (c12WotsChecksumStep st) (execC12WotsChecksumBody st)
+
+/-- The C12 WOTS checksum loop writes only the final three chain cells, so it
+preserves every earlier message-loop cell. -/
+theorem c12WotsChecksumLoop_preserves_message_cell
+    (s : RuntimeState) (j : Nat) (hj : j < 42) :
+    ((SphincsMinusVerifiers.ClimbLoop.foldLoop "j" c12WotsChecksumStep s 0 3).world.memory
+      (0x80 + 32 * j)).val =
+      (s.world.memory (0x80 + 32 * j)).val :=
+  SphincsMinusVerifiers.ClimbLoop.foldLoop_preserves_memory_val_range
+    "j" c12WotsChecksumStep (0x80 + 32 * j) (fun idx => idx < 3)
+    (fun s idx hidx =>
+      c12WotsChecksumBody_preserves_memory_addr_of_ne_bound
+        s idx (0x80 + 32 * j) hidx (by omega) (by omega) (by omega)
+        (c12WotsChecksumStep
+          { s with bindings := bindValue s.bindings "j" (wordNormalize idx) })
+        (execC12WotsChecksumBody
+          { s with bindings := bindValue s.bindings "j" (wordNormalize idx) }))
+    s 0 3
+    (fun i _ hi => by omega)
+
+/-- The bounded checksum loop preserves the public-seed scratch cell. -/
+theorem c12WotsChecksumFold_preserves_memory_zero_bound
+    (s : RuntimeState) (j : Nat) (hj : j ≤ 3) :
+    ((SphincsMinusVerifiers.ClimbLoop.foldLoop "j" c12WotsChecksumStep s 0 j).world.memory
+      0x00).val =
+      (s.world.memory 0x00).val :=
+  SphincsMinusVerifiers.ClimbLoop.foldLoop_preserves_memory_val_range
+    "j" c12WotsChecksumStep 0x00 (fun idx => idx < 3)
+    (fun s idx hidx =>
+      c12WotsChecksumBody_preserves_memory_zero_bound
+        s idx hidx
+        (c12WotsChecksumStep
+          { s with bindings := bindValue s.bindings "j" (wordNormalize idx) })
+        (execC12WotsChecksumBody
+          { s with bindings := bindValue s.bindings "j" (wordNormalize idx) }))
+    s 0 j
+    (fun i _ hi => by omega)
 
 set_option maxHeartbeats 1000000 in
 /-- One full C12 WOTS checksum-step iteration writes the expected chain hash
@@ -2327,6 +2963,135 @@ theorem c12WotsChecksumLoop_mem_at_j_eq
     _ = SphincsMinusVerifierSpec.C12Concrete.chainHashC12 seed
           (wotsBase ||| ((42 + j) <<< 64)) digit (7 - digit) 0
           (SphincsMinusVerifierSpec.C13Concrete.maskN raw) := hStepMem
+
+set_option maxHeartbeats 600000 in
+/-- Concrete fixed-cell invariant for the 3-step C12 WOTS checksum loop, with
+the checksum digit evaluated only at the actual iteration state.  This is the
+usable bridge form for callers that know `"csumShifted"` only on the executable
+loop prefix. -/
+theorem c12WotsChecksumLoop_mem_at_j_eq_at
+    (st : RuntimeState) (j seed digit wotsBase wotsPtr raw : Nat)
+    (hj : j < 3)
+    (hWBaseLt : wotsBase < 2 ^ 256) (hDigitLe : digit ≤ 7)
+    (hRaw : raw < 2 ^ 256)
+    (hSeed :
+      ((SphincsMinusVerifiers.ClimbLoop.foldLoop "j" c12WotsChecksumStep st 0 j).world.memory
+        0x00).val = seed)
+    (hWBase :
+      lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "j" c12WotsChecksumStep st 0 j).bindings
+        "wotsBase" = wotsBase)
+    (hWPtr :
+      lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "j" c12WotsChecksumStep st 0 j).bindings
+        "wotsPtr" = wotsPtr)
+    (hDigitEval :
+      evalExpr []
+        { (SphincsMinusVerifiers.ClimbLoop.foldLoop "j" c12WotsChecksumStep st 0 j) with
+          bindings :=
+            bindValue
+              (SphincsMinusVerifiers.ClimbLoop.foldLoop "j" c12WotsChecksumStep st 0 j).bindings
+              "j" (wordNormalize j) }
+        (andE (shrE (subE (u 13) (mulE (u 3) (v "j"))) (v "csumShifted")) (u 7)) =
+        some digit)
+    (hCdLoad : ∀ (s : RuntimeState),
+        lookupValue s.bindings "wotsPtr" = wotsPtr →
+        lookupValue s.bindings "i" = 42 + j →
+        s.world =
+          (SphincsMinusVerifiers.ClimbLoop.foldLoop "j" c12WotsChecksumStep st 0 j).world →
+        evalExpr [] s
+            (cdload (addE (v "wotsPtr") (shlE (u 4) (v "i")))) = some raw) :
+    ((SphincsMinusVerifiers.ClimbLoop.foldLoop "j" c12WotsChecksumStep st 0 3).world.memory
+      (0x80 + 32 * (42 + j))).val =
+      SphincsMinusVerifierSpec.C12Concrete.chainHashC12 seed
+        (wotsBase ||| ((42 + j) <<< 64)) digit (7 - digit) 0
+        (SphincsMinusVerifierSpec.C13Concrete.maskN raw) := by
+  let beforeJ : RuntimeState :=
+    SphincsMinusVerifiers.ClimbLoop.foldLoop "j" c12WotsChecksumStep st 0 j
+  let atJ : RuntimeState :=
+    { beforeJ with bindings := bindValue beforeJ.bindings "j" (wordNormalize j) }
+  have hStepAt :=
+    SphincsMinusVerifiers.ClimbLoop.foldLoop_memory_val_eq_step_at_of_suffix_preserves
+      "j" c12WotsChecksumStep (0x80 + 32 * (42 + j)) st 0 3 j hj
+      (fun s idx hgt hlt =>
+        c12WotsChecksumStep_preserves_prior_checksum_cell s j idx (by omega) (by omega))
+  have hJAt : lookupValue atJ.bindings "j" = j := by
+    dsimp [atJ]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self,
+      c12_wots_idxNorm67 j (by omega)]
+  have hWBaseAt : lookupValue atJ.bindings "wotsBase" = wotsBase := by
+    dsimp [atJ, beforeJ]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      _ "j" "wotsBase" _ (by decide)]
+    exact hWBase
+  have hWPtrAt : lookupValue atJ.bindings "wotsPtr" = wotsPtr := by
+    dsimp [atJ, beforeJ]
+    rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      _ "j" "wotsPtr" _ (by decide)]
+    exact hWPtr
+  have hSeedAt : (atJ.world.memory 0x00).val = seed := by
+    dsimp [atJ, beforeJ]
+    exact hSeed
+  have hDigitEvalAt : evalExpr [] atJ
+        (andE (shrE (subE (u 13) (mulE (u 3) (v "j"))) (v "csumShifted")) (u 7)) =
+      some digit := by
+    simpa [atJ, beforeJ] using hDigitEval
+  have hCdLoadAt : ∀ (s : RuntimeState),
+        lookupValue s.bindings "wotsPtr" = wotsPtr →
+        lookupValue s.bindings "i" = 42 + j →
+        s.world = atJ.world →
+        evalExpr [] s
+            (cdload (addE (v "wotsPtr") (shlE (u 4) (v "i")))) = some raw := by
+    intro s hw hi hworld
+    exact hCdLoad s hw hi (by simpa [atJ, beforeJ] using hworld)
+  have hStepMem :
+      ((c12WotsChecksumStep atJ).world.memory (0x80 + 32 * (42 + j))).val =
+        SphincsMinusVerifierSpec.C12Concrete.chainHashC12 seed
+          (wotsBase ||| ((42 + j) <<< 64)) digit (7 - digit) 0
+          (SphincsMinusVerifierSpec.C13Concrete.maskN raw) :=
+    c12WotsChecksumStep_mem_at_j_eq atJ j seed digit wotsBase wotsPtr raw hj
+      hWBaseLt hDigitLe hRaw hSeedAt hJAt hWBaseAt hWPtrAt hDigitEvalAt hCdLoadAt
+  calc
+    ((SphincsMinusVerifiers.ClimbLoop.foldLoop "j" c12WotsChecksumStep st 0 3).world.memory
+        (0x80 + 32 * (42 + j))).val
+        = ((c12WotsChecksumStep
+            { (SphincsMinusVerifiers.ClimbLoop.foldLoop "j" c12WotsChecksumStep st 0 j) with
+              bindings :=
+                bindValue
+                  (SphincsMinusVerifiers.ClimbLoop.foldLoop "j" c12WotsChecksumStep st 0 j).bindings
+                  "j" (wordNormalize (0 + j)) }).world.memory
+            (0x80 + 32 * (42 + j))).val := hStepAt
+    _ = ((c12WotsChecksumStep atJ).world.memory (0x80 + 32 * (42 + j))).val := by
+      simp [atJ, beforeJ]
+    _ = SphincsMinusVerifierSpec.C12Concrete.chainHashC12 seed
+          (wotsBase ||| ((42 + j) <<< 64)) digit (7 - digit) 0
+          (SphincsMinusVerifierSpec.C13Concrete.maskN raw) := hStepMem
+
+theorem c12WotsChecksumFold_preserves_wotsBase
+    (st : RuntimeState) (start stop : Nat) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop
+          "j" c12WotsChecksumStep st start stop).bindings
+        "wotsBase" =
+      lookupValue st.bindings "wotsBase" := by
+  rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_preserves_lookup
+    "j" "wotsBase" c12WotsChecksumStep (by decide)
+    (fun s => c12WotsChecksumStep_preserves_lookup_of_fresh
+      "wotsBase" (by decide) (by decide) (by decide)
+      (by decide) (by decide) (by decide) s)]
+
+theorem c12WotsChecksumFold_preserves_wotsPtr
+    (st : RuntimeState) (start stop : Nat) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop
+          "j" c12WotsChecksumStep st start stop).bindings
+        "wotsPtr" =
+      lookupValue st.bindings "wotsPtr" := by
+  rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_preserves_lookup
+    "j" "wotsPtr" c12WotsChecksumStep (by decide)
+    (fun s => c12WotsChecksumStep_preserves_lookup_of_fresh
+      "wotsPtr" (by decide) (by decide) (by decide)
+      (by decide) (by decide) (by decide) s)]
 
 /-- A bounded WOTS-PK copy-loop iteration preserves the public-seed scratch cell. -/
 theorem c12WotsPkCopyStep_preserves_memory_zero_bound
@@ -2906,6 +3671,311 @@ theorem execC12LayerBodyBeforePkAdrs (st : RuntimeState) :
       c12WotsChecksumStep rfl execC12WotsChecksumBody)]
   rfl
 
+/-- State after the first three WOTS setup bindings in `c12LayerBodyBeforePkAdrs`. -/
+def c12LayerBeforePkAdrsMessageStart (st : RuntimeState) : RuntimeState :=
+  let wotsBaseVal :=
+    (evalExpr [] st
+      (orE (orE (shlE (u 224) (v "layer")) (shlE (u 160) (v "curTree")))
+        (shlE (u 96) (v "curLeaf")))).getD 0
+  let stWotsBase :=
+    { st with bindings := bindValue st.bindings "wotsBase" wotsBaseVal }
+  let wotsPtrVal :=
+    (evalExpr [] stWotsBase (addE (v "sigBase") (v "sigOff"))).getD 0
+  let stWotsPtr :=
+    { stWotsBase with bindings := bindValue stWotsBase.bindings "wotsPtr" wotsPtrVal }
+  { stWotsPtr with bindings := bindValue stWotsPtr.bindings "csum" 0 }
+
+/-- State after the 42 C12 WOTS message-loop iterations in `beforePkAdrs`. -/
+def c12LayerBeforePkAdrsMessageEnd (st : RuntimeState) : RuntimeState :=
+  SphincsMinusVerifiers.ClimbLoop.foldLoop "i" c12WotsMessageStep
+    { (c12LayerBeforePkAdrsMessageStart st) with
+      bindings := bindValue (c12LayerBeforePkAdrsMessageStart st).bindings
+        "i" (wordNormalize 0) }
+    0 (wordNormalize 42)
+
+/-- The named C12 message-loop end is the concrete 42-step fold. -/
+theorem c12LayerBeforePkAdrsMessageEnd_eq_foldLoop42
+    (st : RuntimeState) :
+    c12LayerBeforePkAdrsMessageEnd st =
+      SphincsMinusVerifiers.ClimbLoop.foldLoop "i" c12WotsMessageStep
+        { (c12LayerBeforePkAdrsMessageStart st) with
+          bindings := bindValue (c12LayerBeforePkAdrsMessageStart st).bindings
+            "i" (wordNormalize 0) }
+        0 42 := by
+  unfold c12LayerBeforePkAdrsMessageEnd
+  have h42 : wordNormalize 42 = 42 := by
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  rw [h42]
+
+/-- State after binding `"csumShifted"` immediately before the checksum loop. -/
+def c12LayerBeforePkAdrsChecksumStart (st : RuntimeState) : RuntimeState :=
+  let stMessage := c12LayerBeforePkAdrsMessageEnd st
+  let csumShiftedVal :=
+    (evalExpr [] stMessage (shlE (u 7) (v "csum"))).getD 0
+  { stMessage with bindings := bindValue stMessage.bindings "csumShifted" csumShiftedVal }
+
+theorem c12LayerBeforePkAdrsMessageStart_preserves_memory_zero
+    (st : RuntimeState) :
+    ((c12LayerBeforePkAdrsMessageStart st).world.memory 0x00).val =
+      (st.world.memory 0x00).val := by
+  rfl
+
+theorem c12LayerBeforePkAdrsMessageStart_preserves_calldata
+    (st : RuntimeState) :
+    (c12LayerBeforePkAdrsMessageStart st).world.calldata =
+      st.world.calldata := by
+  rfl
+
+theorem c12LayerBeforePkAdrsMessageLoopStart_preserves_calldata
+    (st : RuntimeState) :
+    ({ c12LayerBeforePkAdrsMessageStart st with
+      bindings := bindValue (c12LayerBeforePkAdrsMessageStart st).bindings
+        "i" (wordNormalize 0) }).world.calldata =
+      st.world.calldata := by
+  exact c12LayerBeforePkAdrsMessageStart_preserves_calldata st
+
+theorem c12LayerBeforePkAdrsMessageLoopStart_preserves_memory_zero
+    (st : RuntimeState) :
+    (({ c12LayerBeforePkAdrsMessageStart st with
+      bindings := bindValue (c12LayerBeforePkAdrsMessageStart st).bindings
+        "i" (wordNormalize 0) }).world.memory 0x00).val =
+      (st.world.memory 0x00).val := by
+  exact c12LayerBeforePkAdrsMessageStart_preserves_memory_zero st
+
+theorem c12LayerBeforePkAdrsChecksumLoopStart_preserves_memory_zero
+    (st : RuntimeState) :
+    (({ c12LayerBeforePkAdrsChecksumStart st with
+      bindings := bindValue (c12LayerBeforePkAdrsChecksumStart st).bindings
+        "j" (wordNormalize 0) }).world.memory 0x00).val =
+      (st.world.memory 0x00).val := by
+  unfold c12LayerBeforePkAdrsChecksumStart
+  rw [c12LayerBeforePkAdrsMessageEnd_eq_foldLoop42]
+  rw [c12WotsMessageFold_preserves_memory_zero_bound
+    ({ c12LayerBeforePkAdrsMessageStart st with
+      bindings := bindValue (c12LayerBeforePkAdrsMessageStart st).bindings
+        "i" (wordNormalize 0) }) 42 (by omega)]
+  exact c12LayerBeforePkAdrsMessageLoopStart_preserves_memory_zero st
+
+theorem c12LayerBeforePkAdrsChecksumLoopStart_wotsBase_eq_foldLoop42
+    (st : RuntimeState) :
+    lookupValue
+        ({ c12LayerBeforePkAdrsChecksumStart st with
+          bindings := bindValue (c12LayerBeforePkAdrsChecksumStart st).bindings
+            "j" (wordNormalize 0) }).bindings
+        "wotsBase" =
+      lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "i" c12WotsMessageStep
+          { c12LayerBeforePkAdrsMessageStart st with
+            bindings := bindValue (c12LayerBeforePkAdrsMessageStart st).bindings
+              "i" (wordNormalize 0) }
+          0 42).bindings
+        "wotsBase" := by
+  unfold c12LayerBeforePkAdrsChecksumStart
+  rw [MemoryKit.lookupValue_bindValue_ne _ "j" "wotsBase" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "csumShifted" "wotsBase" _ (by decide)]
+  rw [c12LayerBeforePkAdrsMessageEnd_eq_foldLoop42]
+
+theorem c12LayerBeforePkAdrsChecksumLoopStart_wotsPtr_eq_foldLoop42
+    (st : RuntimeState) :
+    lookupValue
+        ({ c12LayerBeforePkAdrsChecksumStart st with
+          bindings := bindValue (c12LayerBeforePkAdrsChecksumStart st).bindings
+            "j" (wordNormalize 0) }).bindings
+        "wotsPtr" =
+      lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "i" c12WotsMessageStep
+          { c12LayerBeforePkAdrsMessageStart st with
+            bindings := bindValue (c12LayerBeforePkAdrsMessageStart st).bindings
+              "i" (wordNormalize 0) }
+          0 42).bindings
+        "wotsPtr" := by
+  unfold c12LayerBeforePkAdrsChecksumStart
+  rw [MemoryKit.lookupValue_bindValue_ne _ "j" "wotsPtr" _ (by decide)]
+  rw [MemoryKit.lookupValue_bindValue_ne _ "csumShifted" "wotsPtr" _ (by decide)]
+  rw [c12LayerBeforePkAdrsMessageEnd_eq_foldLoop42]
+
+theorem c12LayerBeforePkAdrsMessageStart_currentNode_eq
+    (st : RuntimeState) :
+    lookupValue (c12LayerBeforePkAdrsMessageStart st).bindings "currentNode" =
+      lookupValue st.bindings "currentNode" := by
+  unfold c12LayerBeforePkAdrsMessageStart
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      _ "csum" "currentNode" _ (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      _ "wotsPtr" "currentNode" _ (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      _ "wotsBase" "currentNode" _ (by decide)]
+
+theorem c12LayerBeforePkAdrsMessageStart_csum_eq
+    (st : RuntimeState) :
+    lookupValue (c12LayerBeforePkAdrsMessageStart st).bindings "csum" = 0 := by
+  unfold c12LayerBeforePkAdrsMessageStart
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+
+theorem c12LayerBeforePkAdrsMessageLoopStart_currentNode_eq
+    (st : RuntimeState) :
+    lookupValue
+      ({ c12LayerBeforePkAdrsMessageStart st with
+        bindings := bindValue (c12LayerBeforePkAdrsMessageStart st).bindings
+          "i" (wordNormalize 0) }).bindings
+      "currentNode" =
+      lookupValue st.bindings "currentNode" := by
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      _ "i" "currentNode" _ (by decide)]
+  exact c12LayerBeforePkAdrsMessageStart_currentNode_eq st
+
+theorem c12LayerBeforePkAdrsMessageLoopStart_csum_eq
+    (st : RuntimeState) :
+    lookupValue
+      ({ c12LayerBeforePkAdrsMessageStart st with
+        bindings := bindValue (c12LayerBeforePkAdrsMessageStart st).bindings
+          "i" (wordNormalize 0) }).bindings
+      "csum" = 0 := by
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      _ "i" "csum" _ (by decide)]
+  exact c12LayerBeforePkAdrsMessageStart_csum_eq st
+
+theorem c12LayerBeforePkAdrsMessageStart_wotsBase_eq_of_eval
+    (st : RuntimeState) (wotsBase : Nat)
+    (hEval : evalExpr [] st
+      (orE (orE (shlE (u 224) (v "layer")) (shlE (u 160) (v "curTree")))
+        (shlE (u 96) (v "curLeaf"))) = some wotsBase) :
+    lookupValue (c12LayerBeforePkAdrsMessageStart st).bindings "wotsBase" =
+      wotsBase := by
+  unfold c12LayerBeforePkAdrsMessageStart
+  rw [hEval]
+  simp only [Option.getD_some]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      _ "csum" "wotsBase" _ (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      _ "wotsPtr" "wotsBase" _ (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+
+theorem c12LayerBeforePkAdrsMessageStart_wotsPtr_eq_of_eval
+    (st : RuntimeState) (wotsPtr : Nat)
+    (hEval : evalExpr []
+      (let wotsBaseVal :=
+        (evalExpr [] st
+          (orE (orE (shlE (u 224) (v "layer")) (shlE (u 160) (v "curTree")))
+            (shlE (u 96) (v "curLeaf")))).getD 0
+       { st with bindings := bindValue st.bindings "wotsBase" wotsBaseVal })
+      (addE (v "sigBase") (v "sigOff")) = some wotsPtr) :
+    lookupValue (c12LayerBeforePkAdrsMessageStart st).bindings "wotsPtr" =
+      wotsPtr := by
+  unfold c12LayerBeforePkAdrsMessageStart
+  simp only [hEval, Option.getD_some]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      _ "csum" "wotsPtr" _ (by decide)]
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
+
+theorem c12LayerBeforePkAdrsMessageLoopStart_wotsBase_eq_of_eval
+    (st : RuntimeState) (wotsBase : Nat)
+    (hEval : evalExpr [] st
+      (orE (orE (shlE (u 224) (v "layer")) (shlE (u 160) (v "curTree")))
+        (shlE (u 96) (v "curLeaf"))) = some wotsBase) :
+    lookupValue
+      ({ c12LayerBeforePkAdrsMessageStart st with
+        bindings := bindValue (c12LayerBeforePkAdrsMessageStart st).bindings
+          "i" (wordNormalize 0) }).bindings
+      "wotsBase" = wotsBase := by
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      _ "i" "wotsBase" _ (by decide)]
+  exact c12LayerBeforePkAdrsMessageStart_wotsBase_eq_of_eval st wotsBase hEval
+
+theorem c12LayerBeforePkAdrsMessageLoopStart_wotsPtr_eq_of_eval
+    (st : RuntimeState) (wotsPtr : Nat)
+    (hEval : evalExpr []
+      (let wotsBaseVal :=
+        (evalExpr [] st
+          (orE (orE (shlE (u 224) (v "layer")) (shlE (u 160) (v "curTree")))
+            (shlE (u 96) (v "curLeaf")))).getD 0
+       { st with bindings := bindValue st.bindings "wotsBase" wotsBaseVal })
+      (addE (v "sigBase") (v "sigOff")) = some wotsPtr) :
+    lookupValue
+      ({ c12LayerBeforePkAdrsMessageStart st with
+        bindings := bindValue (c12LayerBeforePkAdrsMessageStart st).bindings
+          "i" (wordNormalize 0) }).bindings
+      "wotsPtr" = wotsPtr := by
+  rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
+      _ "i" "wotsPtr" _ (by decide)]
+  exact c12LayerBeforePkAdrsMessageStart_wotsPtr_eq_of_eval st wotsPtr hEval
+
+/-- The message-loop checksum accumulator remains small at every prefix from
+the named `beforePkAdrs` message-loop start. -/
+theorem c12LayerBeforePkAdrsMessageLoop_csum_add7_lt
+    (st : RuntimeState) (j currentNode : Nat)
+    (hj : j < 42)
+    (hCNLt : currentNode < 2 ^ 256)
+    (hCN : lookupValue st.bindings "currentNode" = currentNode) :
+    lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "i" c12WotsMessageStep
+          { c12LayerBeforePkAdrsMessageStart st with
+            bindings := bindValue (c12LayerBeforePkAdrsMessageStart st).bindings
+              "i" (wordNormalize 0) }
+          0 j).bindings
+        "csum" + 7 < 2 ^ 256 := by
+  let stLoop : RuntimeState :=
+    { c12LayerBeforePkAdrsMessageStart st with
+      bindings := bindValue (c12LayerBeforePkAdrsMessageStart st).bindings
+        "i" (wordNormalize 0) }
+  have hCNStart : lookupValue stLoop.bindings "currentNode" = currentNode := by
+    rw [show lookupValue stLoop.bindings "currentNode" =
+        lookupValue st.bindings "currentNode" from by
+      simpa [stLoop] using c12LayerBeforePkAdrsMessageLoopStart_currentNode_eq st]
+    exact hCN
+  have hCsumStart : lookupValue stLoop.bindings "csum" = 0 := by
+    simpa [stLoop] using c12LayerBeforePkAdrsMessageLoopStart_csum_eq st
+  have hBound := c12WotsMessageFold_csum_bound stLoop j currentNode (by omega) hCNLt
+    hCNStart hCsumStart
+  simpa [stLoop] using (by omega : lookupValue
+        (SphincsMinusVerifiers.ClimbLoop.foldLoop "i" c12WotsMessageStep stLoop 0 j).bindings
+        "csum" + 7 < 2 ^ 256)
+
+/-- The `beforePkAdrs` prefix is the checksum fold over the state obtained
+after the WOTS message fold and checksum-shift binding. -/
+theorem c12LayerStateBeforePkAdrs_eq_checksum_fold (st : RuntimeState) :
+    c12LayerStateBeforePkAdrs st =
+      let stCsumShifted := c12LayerBeforePkAdrsChecksumStart st
+      let stChecksumStart :=
+        { stCsumShifted with bindings := bindValue stCsumShifted.bindings "j" (wordNormalize 0) }
+      SphincsMinusVerifiers.ClimbLoop.foldLoop "j" c12WotsChecksumStep
+        stChecksumStart 0 (wordNormalize 3) := by
+  unfold c12LayerStateBeforePkAdrs c12LayerBodyBeforePkAdrs
+  rw [execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue st "wotsBase" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue _ "wotsPtr" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue _ "csum" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_forEach_of_step "i" (u 42) c12WotsMessageBody _ (wordNormalize 42)
+      c12WotsMessageStep rfl execC12WotsMessageBody)]
+  rw [execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue _ "csumShifted" _ _ rfl)]
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_forEach_of_step "j" (u 3) c12WotsChecksumBody _ (wordNormalize 3)
+      c12WotsChecksumStep rfl execC12WotsChecksumBody)]
+  unfold c12LayerBeforePkAdrsChecksumStart c12LayerBeforePkAdrsMessageEnd
+    c12LayerBeforePkAdrsMessageStart
+  rfl
+
+/-- The checksum suffix of `beforePkAdrs` preserves each message-loop cell. -/
+theorem c12LayerStateBeforePkAdrs_message_cell_eq_message_end
+    (st : RuntimeState) (j : Nat) (hj : j < 42) :
+    ((c12LayerStateBeforePkAdrs st).world.memory (0x80 + 32 * j)).val =
+      ((c12LayerBeforePkAdrsMessageEnd st).world.memory (0x80 + 32 * j)).val := by
+  rw [c12LayerStateBeforePkAdrs_eq_checksum_fold]
+  have h3 : wordNormalize 3 = 3 := by
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  rw [h3]
+  let s : RuntimeState :=
+    { c12LayerBeforePkAdrsChecksumStart st with
+      bindings := bindValue (c12LayerBeforePkAdrsChecksumStart st).bindings "j" (wordNormalize 0) }
+  have hpres := c12WotsChecksumLoop_preserves_message_cell s j hj
+  simpa [s, c12LayerBeforePkAdrsChecksumStart] using hpres
+
 theorem c12LayerBodyBeforeWotsPkCopy_eq_beforePkAdrs_append :
     c12LayerBodyBeforeWotsPkCopy =
       c12LayerBodyBeforePkAdrs ++
@@ -2987,6 +4057,51 @@ theorem c12LayerStateBeforeWotsPkCopy_pkAdrs_slot_of_eval
   rw [hSuffix]
   exact MemoryKit.mstore_then_mload_same
     (c12LayerStateBeforePkAdrs st).world.memory 0x20 pkAdrs
+
+/-- The suffix from `beforePkAdrs` to `beforeWotsPkCopy` stores only the WOTS-PK
+address at `0x20`, preserving every generated chain-end cell. -/
+theorem c12LayerStateBeforeWotsPkCopy_chain_cell_eq_beforePkAdrs_of_eval
+    (st : RuntimeState) (pkAdrs : Nat)
+    (hPkAdrs : evalExpr [] (c12LayerStateBeforePkAdrs st) c12LayerPkAdrsExpr =
+      some pkAdrs) (j : Nat) :
+    ((c12LayerStateBeforeWotsPkCopy st).world.memory (0x80 + 32 * j)).val =
+      ((c12LayerStateBeforePkAdrs st).world.memory (0x80 + 32 * j)).val := by
+  unfold c12LayerStateBeforeWotsPkCopy
+  rw [c12LayerBodyBeforeWotsPkCopy_eq_beforePkAdrs_append]
+  rw [execStmtList_append_continue _ _ _ _ (execC12LayerBodyBeforePkAdrs st)]
+  rw [execStmtList_cons_continue _ _ _ _
+    (MemoryKit.execStmt_letVar_continue
+      (c12LayerStateBeforePkAdrs st) "pkAdrs" c12LayerPkAdrsExpr pkAdrs hPkAdrs)]
+  let stPk : RuntimeState :=
+    { c12LayerStateBeforePkAdrs st with
+      bindings := bindValue (c12LayerStateBeforePkAdrs st).bindings "pkAdrs" pkAdrs }
+  have hOff : evalExpr [] stPk (u 0x20) = some 0x20 := by
+    show some (wordNormalize 0x20) = some 0x20
+    rw [wordNormalize_eq_mod, show Compiler.Constants.evmModulus = 2 ^ 256 from rfl,
+      Nat.mod_eq_of_lt (by decide)]
+  have hVal : evalExpr [] stPk (v "pkAdrs") = some pkAdrs := by
+    show some (lookupValue
+      (bindValue (c12LayerStateBeforePkAdrs st).bindings "pkAdrs" pkAdrs)
+      "pkAdrs") = some pkAdrs
+    rw [MemoryKit.lookupValue_bindValue_self]
+  have hSuffix : execStmtList [] stPk [mstore 0x20 (v "pkAdrs")] =
+      .continue { stPk with
+        world := { stPk.world with
+          memory := MemoryKit.memUpdate stPk.world.memory 0x20 pkAdrs } } := by
+    change execStmtList [] stPk (Stmt.mstore (u 0x20) (v "pkAdrs") :: []) =
+      .continue { stPk with
+        world := { stPk.world with
+          memory := MemoryKit.memUpdate stPk.world.memory 0x20 pkAdrs } }
+    rw [execStmtList_cons_continue _ _ _ _
+      (MemoryKit.execStmt_mstore_continue stPk (u 0x20) (v "pkAdrs")
+        0x20 pkAdrs hOff hVal)]
+    rfl
+  dsimp [stPk] at hSuffix
+  rw [hSuffix]
+  show (MemoryKit.memUpdate (c12LayerStateBeforePkAdrs st).world.memory 0x20 pkAdrs
+      (0x80 + 32 * j)).val =
+    ((c12LayerStateBeforePkAdrs st).world.memory (0x80 + 32 * j)).val
+  rw [MemoryKit.memUpdate_diff _ _ _ _ (by omega)]
 
 theorem c12LayerBodyBeforeAuthOff_eq_beforeWotsPk_append :
     c12LayerBodyBeforeAuthOff =

@@ -115,6 +115,35 @@ theorem wotsOuterStepLemma (st : RuntimeState) :
   rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   rfl
 
+/-- One WOTS outer-loop step preserves any binding not written by the body or
+its inner chain loop. -/
+theorem wotsOuterStep_preserves_lookup_of_ne
+    (st : RuntimeState) (key : String)
+    (hneDigit : "digit" ≠ key) (hneSteps : "steps" ≠ key)
+    (hneVal : "val" ≠ key) (hneChainBase : "chainBase" ≠ key)
+    (hneStep : "step" ≠ key) :
+    lookupValue (wotsOuterStep st).bindings key =
+      lookupValue st.bindings key := by
+  refine execStmtList_preserves_lookup key wotsOuterBody st (wotsOuterStep st) ?_
+    (wotsOuterStepLemma st)
+  intro s s'' stmt hmem hexec
+  simp [wotsOuterBody, mstoreE] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl
+  · exact execStmt_letVar_preserves_lookup s s'' "digit" key _ hneDigit hexec
+  · exact execStmt_letVar_preserves_lookup s s'' "steps" key _ hneSteps hexec
+  · exact execStmt_letVar_preserves_lookup s s'' "val" key _ hneVal hexec
+  · exact execStmt_letVar_preserves_lookup s s'' "chainBase" key _ hneChainBase hexec
+  · exact execStmt_forEach_preserves_lookup "step" key _ _ _ _ hneStep
+      (by
+        intro t t'' stmt' hmem' hexec'
+        simp [wotsChainBody] at hmem'
+        rcases hmem' with rfl | rfl | rfl
+        · exact execStmt_mstore_preserves_lookup t t'' key _ _ hexec'
+        · exact execStmt_mstore_preserves_lookup t t'' key _ _ hexec'
+        · exact execStmt_assignVar_preserves_lookup t t'' "val" key _ hneVal hexec')
+      hexec
+  · exact execStmt_mstore_preserves_lookup s s'' key _ _ hexec
+
 /-- One WOTS chain step preserves lookups other than its `"val"` assignment. -/
 theorem stepWots_preserves_lookup_of_ne
     (st : RuntimeState) (key : String) (hne : "val" ≠ key) :
@@ -1640,6 +1669,64 @@ theorem copyStep_preserves_future_source_slot
       (s.world.memory (0x80 + 32 * idx)).val (0x80 + 32 * j)).val =
     (s.world.memory (0x80 + 32 * j)).val
   rw [MemoryKit.memUpdate_diff _ _ _ _ (by omega)]
+
+/-- One C13 WOTS-PK copy-loop iteration preserves the WOTS-PK address slot
+`0x20`; copy iterations only write the destination range starting at `0x40`. -/
+theorem copyStep_preserves_memory_0x20
+    (s : RuntimeState) (idx : Nat) (hidx : idx < 43) :
+    ((copyStep { s with bindings := bindValue s.bindings "i" (wordNormalize idx) }).world.memory
+        0x20).val
+      = (s.world.memory 0x20).val := by
+  let st : RuntimeState :=
+    { s with bindings := bindValue s.bindings "i" (wordNormalize idx) }
+  have hoff : evalExpr [] st (addE (u 0x40) (shlE (u 5) (v "i"))) =
+      some (0x40 + 32 * idx) :=
+    copyOffset43 s 0x40 idx (by decide) hidx
+  have hsrc : evalExpr [] st (addE (u 0x80) (shlE (u 5) (v "i"))) =
+      some (0x80 + 32 * idx) :=
+    copyOffset43 s 0x80 idx (by decide) hidx
+  have hval : evalExpr [] st (mloadE (addE (u 0x80) (shlE (u 5) (v "i")))) =
+      some (s.world.memory (0x80 + 32 * idx)).val :=
+    SphincsMinusVerifiers.MemoryKit.evalExpr_mload_eq st
+      (addE (u 0x80) (shlE (u 5) (v "i"))) (0x80 + 32 * idx) hsrc
+  unfold copyStep copyBody mstoreE
+  rw [execStmtList_cons_continue _ _ _ _
+    (execStmt_mstore_continue st (addE (u 0x40) (shlE (u 5) (v "i")))
+      (mloadE (addE (u 0x80) (shlE (u 5) (v "i"))))
+      (0x40 + 32 * idx) (s.world.memory (0x80 + 32 * idx)).val hoff hval)]
+  show (MemoryKit.memUpdate st.world.memory (0x40 + 32 * idx)
+      (s.world.memory (0x80 + 32 * idx)).val 0x20).val =
+    (s.world.memory 0x20).val
+  rw [MemoryKit.memUpdate_diff _ _ _ _ (by omega)]
+
+/-- The actual WOTS-public-key copy statement preserves the WOTS-PK address
+slot `0x20`. -/
+theorem copyForEach_preserves_memory_0x20
+    (s s'' : RuntimeState)
+    (hexec : execStmt [] s (.forEach "i" (u 43) copyBody) = .continue s'') :
+    (s''.world.memory 0x20).val = (s.world.memory 0x20).val := by
+  refine SphincsMinusVerifiers.MemoryFrame.execStmt_forEach_preserves_memory_val_range
+    "i" 0x20 (u 43) copyBody (fun i => i < 43) s s'' ?_ ?_ hexec
+  · intro t i hi t'' hbody
+    rw [copyStepLemma] at hbody
+    cases hbody
+    exact copyStep_preserves_memory_0x20 t i hi
+  · intro bound i hbound _ hi
+    change some (wordNormalize 43) = some bound at hbound
+    injection hbound with hbound'
+    rw [← hbound'] at hi
+    simpa using hi
+
+/-- The folded 43-iteration copy loop preserves the WOTS-PK address slot
+`0x20`. -/
+theorem copyFold43_preserves_memory_0x20 (s : RuntimeState) :
+    ((foldLoop "i" copyStep s 0 43).world.memory 0x20).val =
+      (s.world.memory 0x20).val := by
+  rw [ClimbLoop.foldLoop_preserves_memory_val_range "i" copyStep 0x20
+    (fun i => i < 43)
+    (fun t i hi => copyStep_preserves_memory_0x20 t i hi)
+    s 0 43
+    (fun i _ hi => by simpa using hi)]
 
 /-- Later copy-loop iterations preserve destination slots that have already been
 written. -/
