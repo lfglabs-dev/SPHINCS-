@@ -14,6 +14,7 @@ import SphincsMinusVerifiers.ClimbMemFrame
 import SphincsMinusVerifiers.InitialNodeKeccak
 import SphincsMinusVerifiers.BindingFrame
 import SphincsMinusVerifiers.MemoryFrame
+import SphincsMinusVerifiers.StateFrame
 import SphincsMinusVerifiers.SegmentS2
 import SphincsMinusVerifierSpec.C13Concrete
 
@@ -1163,6 +1164,29 @@ theorem wotsOuterStep_preserves_i_lookup (st : RuntimeState) :
     lookupValue (wotsOuterStep st).bindings "i" =
       lookupValue st.bindings "i" :=
   wotsOuterBody_preserves_i_lookup st (wotsOuterStep st) (wotsOuterStepLemma st)
+
+/-- One WOTS outer-loop step preserves the EVM selector and calldata image: the
+body only reads calldata and writes memory/bindings, never the static frame. -/
+theorem wotsOuterStep_preserves_sc (st : RuntimeState) :
+    StateFrame.PreservesSelectorCalldata st (wotsOuterStep st) := by
+  refine StateFrame.execStmtList_preserves_selector_calldata
+    wotsOuterBody st (wotsOuterStep st) ?_ (wotsOuterStepLemma st)
+  intro s s'' stmt hmem hexec
+  simp [wotsOuterBody, mstoreE] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl
+  · exact StateFrame.execStmt_letVar_preserves_selector_calldata s s'' "digit" _ hexec
+  · exact StateFrame.execStmt_letVar_preserves_selector_calldata s s'' "steps" _ hexec
+  · exact StateFrame.execStmt_letVar_preserves_selector_calldata s s'' "val" _ hexec
+  · exact StateFrame.execStmt_letVar_preserves_selector_calldata s s'' "chainBase" _ hexec
+  · refine StateFrame.execStmt_forEach_preserves_selector_calldata "step" _ wotsChainBody
+      s s'' ?_ hexec
+    intro t t'' stmt' hmem' hexec'
+    simp [wotsChainBody] at hmem'
+    rcases hmem' with rfl | rfl | rfl
+    · exact StateFrame.execStmt_mstore_preserves_selector_calldata t t'' _ _ hexec'
+    · exact StateFrame.execStmt_mstore_preserves_selector_calldata t t'' _ _ hexec'
+    · exact StateFrame.execStmt_assignVar_preserves_selector_calldata t t'' "val" _ hexec'
+  · exact StateFrame.execStmt_mstore_preserves_selector_calldata s s'' _ _ hexec
 
 /-- The 43-step WOTS outer fold preserves seed cell `0x00`. -/
 theorem wotsOuterFold_preserves_memory_zero (st : RuntimeState) :
