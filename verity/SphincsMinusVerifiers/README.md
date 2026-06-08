@@ -153,6 +153,19 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
   `[propext, Classical.choice, Quot.sound]` (no `sorryAx`, no bridge axiom).  This
   is the length-guard fragment of the eventual `define exec... ; prove
   *_refines_byte_spec` programme; the accept path remains the carried axiom.
+- `RESIDUAL-ASSEMBLY-CAP` (status 2026-06-08, accepted — option (b)): beyond the 3
+  MODEL-EXEC-BRIDGE bridge axioms, the C13 WOTS-PK accept path and the C12 layer-3
+  currentNode handoff rest on a small set of **residual assembly axioms** in
+  `Proofs.lean` (4 primary + 3 single-cell bridges + 1 generic mirror). Their generic
+  mathematical content is already proven axiom-clean under the 10 GB cap in
+  `C13WotsPkKeccak.lean` / `C13ChainCells.lean`; each axiom is only the wiring of that
+  verified lemma to a concrete `SegmentLayer3`-derived state. They are **not**
+  dischargeable on the current host: `Proofs.lean` and `SegmentLayer3.lean` each peak
+  ~48 GB RSS as single modules (OOM above the cap), and the on-disk `SegmentLayer3.olean`
+  is genuinely stale (built 06-06, source changed 06-07 by c4f2ae8) so it cannot be
+  soundly reused. Discharge needs one pass on a >~64 GB machine; the per-axiom proofs
+  are then short. Full inventory and lemma cross-references in
+  `SphincsMinusVerifiers/AXIOMS.md` ("Residual Assembly Axioms").
 
   The dual direction — the first **accept**-path step — is also discharged:
   `c13VerifyBody_passes_length_guard`, `c12VerifyBody_passes_length_guard`, and

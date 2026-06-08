@@ -1,6 +1,6 @@
 # Axiom Inventory
 
-Status date: 2026-06-02
+Status date: 2026-06-08
 
 This file records the axiom status relevant to the C13/C12
 MODEL-EXEC-BRIDGE work.  The target state is defined by
@@ -29,6 +29,65 @@ MODEL-EXEC-BRIDGE work.  The target state is defined by
   It is defined as `C13Concrete.c13PrimitivesConcrete`.
 
 - C12 primitives are not certified by this C13 pass.
+
+## Residual Assembly Axioms (C13 WOTS-PK + C12 currentNode)
+
+Status: **accepted as minimal honest assembly obligations** (decision 2026-06-08,
+option (b)). These are distinct from the MODEL-EXEC-BRIDGE bridge axioms above.
+Each is a *concrete-state instantiation* obligation: it pins an already-verified
+generic closure to a specific runtime state that is built on `SegmentLayer3`
+(`afterDigit` / `beforeWotsPk` / `stepLayer`). The generic mathematical content is
+already proven **under the 10 GB build cap**, axiom-clean, in
+`C13WotsPkKeccak.lean` (and `C13ChainCells.lean` / `C13WotsOuterInputs.lean`, which
+import only the light `SegmentLayer3CopyCells`, peak ~1.6 GB). What remains for each
+axiom is solely the wiring of that generic lemma to the concrete state.
+
+**Why these are not discharged here.** Discharging any of them is an edit to
+`Proofs.lean` and/or requires `SegmentLayer3.lean`; both compile as single modules at
+~48 GB RSS on this 62 GB host (OOM above the cap — empirically kernel-OOM-killed at
+~48 GB, and ~21 GB under the 10 GB probe). The on-disk `SegmentLayer3.olean` is also
+genuinely stale (built 2026-06-06, source changed 2026-06-07 by commit c4f2ae8), so it
+cannot be soundly reused — any import forces an over-cap rebuild. Hence no edit to
+these two monoliths is verifiable on this host. Discharge needs a one-time pass on a
+**>~64 GB machine**; the per-axiom proofs are then short (mostly a one-line `exact` of
+the cited verified lemma). Tracked in project memory (`project-sphincs-verity-refinement`).
+
+The 4 primary residual axioms (all in `Proofs.lean`):
+
+- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_inputs_layer0`: the five-field
+  `C13WotsOuterExactInputs` package (seed / `"d"` / `"wotsAdrs"` / `"wotsPtr"` /
+  calldata) holds at the concrete layer-0 WOTS-outer entry state
+  `c13BeforeWotsPkLightState (c13LayerLoopState0 …)`. Generic consumers verified:
+  `c13Layer0_copyFold43_wotsChainsEnd_cells_of_inputs`,
+  `c13Layer0_copyFold43_wotsPk_keccak_of_inputs`.
+
+- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`: the 43 copied
+  chain-end cells equal `InitialNodeKeccak.wotsChainsEnd … d.root0 …` at the concrete
+  layer-1 entry state `beforeWotsPkWotsPtrFrom (afterDigit (c13LayerLoopState1 …))`.
+  Generic: `c13Layer1_copyFold43_wotsChainsEnd_cells_of_inputs` / `_of_entry`.
+
+- `c13_reverted_layer0_beforeAuthOff_wotsPk_lightweight_chain_cells_residual`: the
+  reverted-path twin of the layer-0 chain-cells closure. Generic:
+  `c13RevertedLayer0_copyFold43_wotsChainsEnd_cells_of_inputs`.
+
+- `c12_layer3_after3_current_node_root_residual`: the deep C12 layers-0→3 MODEL-EXEC
+  roundtrip establishing the layer-3 unrolled root as the runtime `"currentNode"`
+  seeding layer 4. All downstream C12 layer-4 residuals are already derived as
+  theorems from this single axiom (`C12BridgePrep`).
+
+Supporting single-cell bridge axioms (also `Proofs.lean`, same blocker — framing
+equalities between two `SegmentLayer3`-derived states):
+
+- `c13_beforeWotsPk_memory_zero_eq_lightweight` (cell `0x00`)
+- `c13_beforeWotsPk_memory_0x20_eq_lightweight` (cell `0x20`)
+- `c13_beforeWotsPk_memory_chain_eq_lightweight` (cells `0x40 + 32*j`)
+
+Mirror axiom (generic content already proven, kept as axiom only because flipping it
+is an uncompilable-here `Proofs.lean` edit — prime first discharge on the big-machine
+pass, proof is a one-line `exact`):
+
+- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_of_inputs_layer0`
+  ← `c13Layer0_copyFold43_wotsChainsEnd_cells_of_inputs` (C13WotsPkKeccak.lean).
 
 ## Current Standalone Lemma Footprints
 

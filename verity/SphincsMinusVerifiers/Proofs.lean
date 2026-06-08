@@ -3737,7 +3737,11 @@ theorem c13FoldRevertedBeforeAuthOffWotsPkAddressChainCellsDataLayer0_of_split
 
 /-- C13 exact seed-cell bridge from the historical `SegmentLayer3.beforeWotsPk`
 cutpoint to the lightweight post-digit prefix cutpoint.  This is intentionally a
-single-cell bridge, not a whole-state equality. -/
+single-cell bridge, not a whole-state equality.
+
+ASSEMBLY OBLIGATION (supporting single-cell bridge — see README "Residual assembly
+axioms"). A 0x00-cell framing equality between two SegmentLayer3-derived states;
+needs SegmentLayer3 reasoning, so undischargeable under the cap on this host. -/
 axiom c13_beforeWotsPk_memory_zero_eq_lightweight
     (ls : RuntimeState) :
     ((SegmentLayer3.beforeWotsPk ls).world.memory 0x00).val =
@@ -10921,7 +10925,11 @@ theorem c13_refines_byte_spec_of_accept_guard_current_node_and_reverted_digest_s
 
 /-- C13 exact address-slot bridge from the historical `SegmentLayer3.beforeWotsPk`
 cutpoint to the lightweight post-digit prefix cutpoint.  This is intentionally a
-single-cell bridge, not a whole-state equality. -/
+single-cell bridge, not a whole-state equality.
+
+ASSEMBLY OBLIGATION (supporting single-cell bridge — see README "Residual assembly
+axioms"). A 0x20-cell framing equality between two SegmentLayer3-derived states;
+needs SegmentLayer3 reasoning, so undischargeable under the cap on this host. -/
 axiom c13_beforeWotsPk_memory_0x20_eq_lightweight
     (ls : RuntimeState) :
     ((SegmentLayer3.beforeWotsPk ls).world.memory 0x20).val =
@@ -10941,7 +10949,12 @@ def c13BeforeWotsPkLightState (ls : RuntimeState) : RuntimeState :=
 
 /-- C13 exact chain-cell bridge from the historical `SegmentLayer3.beforeWotsPk`
 cutpoint to the lightweight WOTS-outer/copy-fold state.  This exposes only the
-destination preimage cell requested by downstream WOTS-PK proofs. -/
+destination preimage cell requested by downstream WOTS-PK proofs.
+
+ASSEMBLY OBLIGATION (supporting single-cell bridge — see README "Residual assembly
+axioms"). A chain-cell (`0x40 + 32*j`) framing equality between two
+SegmentLayer3-derived states; needs SegmentLayer3 reasoning, so undischargeable under
+the cap on this host. -/
 axiom c13_beforeWotsPk_memory_chain_eq_lightweight
     (ls : RuntimeState) (j : Nat) :
     ((SegmentLayer3.beforeWotsPk ls).world.memory (0x40 + 32 * j)).val =
@@ -11054,7 +11067,20 @@ theorem c13_ok_beforeAuthOff_wotsPk_address_cell_residual_layer0 :
 
 /-- Residual exact C13 accept-side layer-0 WOTS-outer facts at the lightweight
 cutpoint.  The downstream chain cells are derived from these facts, not
-axiomatized directly. -/
+axiomatized directly.
+
+ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
+Asserts that the five-field `C13WotsOuterExactInputs` package (seed cell, digest
+`"d"`, `"wotsAdrs"`, `"wotsPtr"`, calldata load) holds at the *concrete* layer-0
+WOTS-outer entry state `c13BeforeWotsPkLightState (c13LayerLoopState0 (mkC13State …))`.
+This is a minimal honest assembly obligation: it pins the generic inputs record to a
+concrete state built on `SegmentLayer3.afterDigit`, so its proof inherently needs
+SegmentLayer3 reasoning. The GENERIC consumers of this record are already verified
+under cap in `C13WotsPkKeccak.lean` (`c13Layer0_copyFold43_wotsChainsEnd_cells_of_inputs`,
+`c13Layer0_copyFold43_wotsPk_keccak_of_inputs`); only this concrete-state instantiation
+remains. Cannot be discharged on the current host: `Proofs.lean`/`SegmentLayer3.lean`
+each peak ~48 GB as single modules (OOM above the 10 GB cap). Discharge needs a
+>~64 GB pass; tracked in project memory. -/
 axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_inputs_layer0 :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
@@ -11086,7 +11112,17 @@ axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_inputs_layer0 :
 
 /-- The layer-0 C13 calldata/loop closure from exact lightweight WOTS-outer
 inputs to copied chain-end cells.  The premise is intentionally the five-field
-`C13WotsOuterExactInputs` package rather than a whole-state relation. -/
+`C13WotsOuterExactInputs` package rather than a whole-state relation.
+
+ASSEMBLY OBLIGATION (mirror of a verified lemma — see README "Residual assembly
+axioms"). Unlike the concrete-state residuals, this is a GENERIC `_of_inputs` closure
+whose exact content is already proven under cap in `C13WotsPkKeccak.lean`
+(`c13Layer0_copyFold43_wotsChainsEnd_cells_of_inputs`, via
+`c13Layer0_copyFold43_wotsChainsEnd_cells_of_wotsOuterFold43` +
+`adrsWotsHashBase_lt_of_bounds`). It is kept as an axiom here only because flipping it to
+a `theorem` is an edit to `Proofs.lean`, which cannot be compiled on this host (~48 GB
+OOM above the 10 GB cap). This is the prime candidate to discharge first on a >~64 GB
+pass: the proof is a one-line `exact` of the verified C13WotsPkKeccak lemma. -/
 axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_of_inputs_layer0 :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
@@ -11317,7 +11353,18 @@ theorem c13_ok_beforeAuthOff_wotsPk_address_cell_residual_layer1 :
       (by decide : 2048 < 2 ^ 32))
 
 /-- Residual C13 accept-side layer-1 copied WOTS chain-end cells at the
-lightweight WOTS-outer/copy-fold cutpoint. -/
+lightweight WOTS-outer/copy-fold cutpoint.
+
+ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
+Asserts the 43 copied chain-end memory cells (`0x40 + 32*j`) equal
+`InitialNodeKeccak.wotsChainsEnd … d.root0 …` at the *concrete* layer-1 entry state
+`beforeWotsPkWotsPtrFrom (SegmentLayer3.afterDigit (c13LayerLoopState1 (mkC13State …)))`.
+Minimal honest assembly obligation: the generic copy-fold/chain-cells closure is already
+verified under cap in `C13WotsPkKeccak.lean`
+(`c13Layer1_copyFold43_wotsChainsEnd_cells_of_inputs` / `_of_entry`); what remains is only
+pinning it to this concrete `afterDigit`-derived state, which needs SegmentLayer3 reasoning.
+Cannot be discharged on the current host (Proofs.lean/SegmentLayer3.lean peak ~48 GB,
+OOM above the 10 GB cap); needs a >~64 GB pass. -/
 axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1 :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
@@ -11732,7 +11779,17 @@ theorem c13_reverted_layer0_beforeAuthOff_wotsPk_address_cell_residual :
       (by decide : 2048 < 2 ^ 32))
 
 /-- Residual C13 reverted-at-layer-1 layer-0 copied WOTS chain-end cells at the
-lightweight WOTS-outer/copy-fold cutpoint. -/
+lightweight WOTS-outer/copy-fold cutpoint.
+
+ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
+The reverted-path twin of the layer-0 chain-cells closure: asserts the 43 copied
+chain-end cells equal `wotsChainsEnd …` at the concrete reverted-layer-0 entry state.
+Minimal honest assembly obligation: the generic reverted closure is already verified
+under cap in `C13WotsPkKeccak.lean`
+(`c13RevertedLayer0_copyFold43_wotsChainsEnd_cells_of_inputs`,
+`c13RevertedLayer0_copyFold43_wotsPk_keccak_of_inputs`); only the concrete-state
+instantiation (built on `SegmentLayer3.afterDigit`) remains. Cannot be discharged on
+the current host (~48 GB OOM above the 10 GB cap); needs a >~64 GB pass. -/
 axiom c13_reverted_layer0_beforeAuthOff_wotsPk_lightweight_chain_cells_residual :
   ∀ pkSeed pkRoot message sig sigParsed forsPk,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
@@ -11981,7 +12038,16 @@ theorem c12_refines_byte_spec_of_layer4_beforeWotsPk_memory_cover
 
 /-- C12 layer-3 fold/root residual: after layer 3, the runtime
 `"currentNode"` is the semantic layer-3 unrolled root, i.e. the node seed used
-to start layer 4. -/
+to start layer 4.
+
+ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
+The single C12-side residual: the deep layers-0→3 MODEL-EXEC roundtrip that establishes
+the layer-3 unrolled root as the runtime `"currentNode"` seeding layer 4. Minimal honest
+assembly obligation at a concrete post-layer-3 state; everything downstream of it
+(`c12_layer4_prebody_current_node_binding_preservation_residual`,
+`c12_layer4_beforePkAdrs_message/checksum_cells_*`) is already derived as theorems from
+this one axiom. Lives in the heavy C12 chain (`C12BridgePrep`/`Proofs.lean`); cannot be
+discharged on the current host (~48 GB OOM above the 10 GB cap); needs a >~64 GB pass. -/
 axiom c12_layer3_after3_current_node_root_residual :
     C12BridgePrep.C12Layer3After3CurrentNodePremise
 
