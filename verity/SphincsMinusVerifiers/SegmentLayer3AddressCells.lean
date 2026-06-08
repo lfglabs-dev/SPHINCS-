@@ -323,13 +323,37 @@ theorem beforeWotsPkAfterWotsCopyFrom_memory_0x20_eq_of_bindings
     afterDigit layer idxTree idxLeaf hLayer hIdxTree hIdxLeaf
     hLayerLt hIdxTreeLt hIdxLeafLt
 
-/-- Narrow bridge: at the lightweight pre-copy WOTS-PK cutpoint, cell `0x20`
-contains the address assembled from the post-digit layer/tree/leaf bindings.
+/-- State bridge: the pre-copy WOTS-PK cutpoint built by running the whole
+`suffixBeforeWotsPkCopyFrom` statement list on `afterDigit` is the *same* state
+reached by folding the WOTS outer loop first (`beforeWotsPkAfterWotsFrom`) and
+then running only the address-store suffix.  Proven by reducing the two leading
+statements (the `wotsPtr` binding and the `forEach`→`foldLoop` step) without
+unfolding the 43 loop iterations, so the heavy prefix never elaborates. -/
+theorem beforeWotsPkCopyFrom_eq_afterWots (afterDigit : RuntimeState) :
+    beforeWotsPkCopyFrom afterDigit = beforeWotsPkCopyAfterWotsFrom afterDigit := by
+  have hbridge :
+      execStmtList [] afterDigit suffixBeforeWotsPkCopyFrom =
+        execStmtList [] (beforeWotsPkAfterWotsFrom afterDigit)
+          suffixWotsPkAddressStoreFrom := by
+    unfold suffixBeforeWotsPkCopyFrom mstore u
+    rw [SphincsMinusVerifiers.ClimbKit.execStmtList_cons_continue _ _ _ _
+      (MemoryKit.execStmt_letVar_continue _ "wotsPtr" _ _ rfl)]
+    rw [SphincsMinusVerifiers.ClimbKit.execStmtList_cons_continue _ _ _ _
+      (ClimbLoop.execStmt_forEach_of_step "i" (.literal 43)
+        SegmentLayer3CopyCells.wotsOuterBody _ _
+        SegmentLayer3CopyCells.wotsOuterStep rfl
+        SegmentLayer3CopyCells.wotsOuterStepLemma)]
+    rfl
+  rw [beforeWotsPkCopyFrom_eq afterDigit,
+    beforeWotsPkCopyAfterWotsFrom_eq afterDigit] at hbridge
+  injection hbridge
 
-The direct executable proof currently crosses the 10 GB cap because it unfolds
-the prefix through the WOTS outer loop.  Keep this as the smallest remaining
-address-store bridge until that prefix is split further. -/
-axiom beforeWotsPkCopyFrom_memory_0x20_eq_of_bindings
+/-- Narrow bridge, now discharged: at the lightweight pre-copy WOTS-PK cutpoint,
+cell `0x20` contains the address assembled from the post-digit
+layer/tree/leaf bindings.  Routed through `beforeWotsPkCopyFrom_eq_afterWots` to
+the already-framed `beforeWotsPkCopyAfterWotsFrom` proof, so no WOTS outer loop
+iteration is ever unfolded. -/
+theorem beforeWotsPkCopyFrom_memory_0x20_eq_of_bindings
     (afterDigit : RuntimeState) (layer idxTree idxLeaf : Nat)
     (hLayer : lookupValue afterDigit.bindings "layer" = layer)
     (hIdxTree : lookupValue afterDigit.bindings "idxTree" = idxTree)
@@ -339,7 +363,11 @@ axiom beforeWotsPkCopyFrom_memory_0x20_eq_of_bindings
     (hIdxLeafLt : idxLeaf < 2 ^ 32) :
     ((beforeWotsPkCopyFrom afterDigit).world.memory 0x20).val =
       SphincsMinusVerifierSpec.C13Concrete.adrsWotsPk
-        layer idxTree idxLeaf
+        layer idxTree idxLeaf := by
+  rw [beforeWotsPkCopyFrom_eq_afterWots]
+  exact beforeWotsPkCopyAfterWotsFrom_memory_0x20_eq_of_bindings
+    afterDigit layer idxTree idxLeaf hLayer hIdxTree hIdxLeaf
+    hLayerLt hIdxTreeLt hIdxLeafLt
 
 theorem beforeWotsPkFrom_memory_0x20_eq_of_bindings
     (afterDigit : RuntimeState) (layer idxTree idxLeaf : Nat)
