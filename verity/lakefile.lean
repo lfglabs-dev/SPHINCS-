@@ -53,6 +53,7 @@ lean_lib SphincsMinusVerifiers where
              `SphincsMinusVerifiers.C13AddressArithmetic,
              `SphincsMinusVerifiers.SegmentLayer3CopyCells,
              `SphincsMinusVerifiers.C13ChainCells,
+             `SphincsMinusVerifiers.C13WotsPkKeccak,
              `SphincsMinusVerifiers.SegmentLayer3AddressCells,
              `SphincsMinusVerifiers.SegmentLayer3,
              `SphincsMinusVerifiers.SegmentLayer3MerkleFrame,
