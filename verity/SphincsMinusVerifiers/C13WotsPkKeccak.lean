@@ -450,6 +450,162 @@ theorem c13RevertedLayer0_copyFold43_wotsPk_keccak_of_inputs
         (by norm_num [sigDataOffset]) hCdSt j hj s hWPtrS hIS hWorldS)
     hMem0 hMem20
 
+/-- Record-driven layer-0 chain-cells closure: the four WOTS-outer prefix loop
+invariants are discharged from a single compact `C13WotsOuterEntry`, leaving only
+the calldata-load residual.  Unlike the keccak assemblies this needs no post-copy
+scratch facts (`hMem0`/`hMem20`) — the chain cells are the raw `wotsChainsEnd`
+values, not the masked keccak digest. -/
+theorem c13Layer0_copyFold43_wotsChainsEnd_cells_of_entry
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (st : RuntimeState) (treeIdx leafIdx node wotsPtr : Nat)
+    (lsig : XmssLayerSig)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hLayer0 : sigParsed.layers[0]? = some lsig)
+    (hDigestLt :
+      C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
+        0 treeIdx leafIdx lsig.wots.count node < 2 ^ 256)
+    (hAdrsLt : C13Concrete.adrsWotsHashBase 0 treeIdx leafIdx < 2 ^ 256)
+    (e : C13WotsOuterEntry pkSeed st
+      (C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
+        0 treeIdx leafIdx lsig.wots.count node)
+      (C13Concrete.adrsWotsHashBase 0 treeIdx leafIdx) wotsPtr)
+    (hCdLoad : ∀ j, j < 43 → ∀ (s : RuntimeState),
+        lookupValue s.bindings "wotsPtr" = wotsPtr →
+        lookupValue s.bindings "i" = j →
+        s.world = (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 j).world →
+        evalExpr [] s
+            (.calldataload
+              (.add (.localVar "wotsPtr")
+                (.shl (.literal 4) (.localVar "i")))) =
+          some (Compiler.Proofs.YulGeneration.calldataloadWord 0
+            (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+            (sigDataOffset + (1952 + 16 * j)))) :
+    ∀ j, (hj : j < 43) →
+      ((ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.copyStep
+          (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 43) 0 43).world.memory
+          (0x40 + 32 * j)).val =
+        (InitialNodeKeccak.wotsChainsEnd
+          (C13Concrete.wordOfHash16 pkSeed) 0 treeIdx leafIdx node
+          lsig.wots)[j]'(by
+            rw [InitialNodeKeccak.wotsChainsEnd_length]
+            omega) :=
+  c13Layer0_copyFold43_wotsChainsEnd_cells_of_wotsOuterFold43
+    pkSeed pkRoot message sig sigParsed st treeIdx leafIdx node wotsPtr lsig
+    hParse hLayer0 hDigestLt hAdrsLt e.hSeed e.hD e.hAdrs e.hWPtr hCdLoad
+
+/-- Record-driven layer-1 chain-cells closure (layer-1 calldata base
+`1952 + 868 + 16*j`). -/
+theorem c13Layer1_copyFold43_wotsChainsEnd_cells_of_entry
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (st : RuntimeState) (treeIdx leafIdx node wotsPtr : Nat)
+    (lsig : XmssLayerSig)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hLayer1 : sigParsed.layers[1]? = some lsig)
+    (hDigestLt :
+      C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
+        1 treeIdx leafIdx lsig.wots.count node < 2 ^ 256)
+    (hAdrsLt : C13Concrete.adrsWotsHashBase 1 treeIdx leafIdx < 2 ^ 256)
+    (e : C13WotsOuterEntry pkSeed st
+      (C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
+        1 treeIdx leafIdx lsig.wots.count node)
+      (C13Concrete.adrsWotsHashBase 1 treeIdx leafIdx) wotsPtr)
+    (hCdLoad : ∀ j, j < 43 → ∀ (s : RuntimeState),
+        lookupValue s.bindings "wotsPtr" = wotsPtr →
+        lookupValue s.bindings "i" = j →
+        s.world = (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 j).world →
+        evalExpr [] s
+            (.calldataload
+              (.add (.localVar "wotsPtr")
+                (.shl (.literal 4) (.localVar "i")))) =
+          some (Compiler.Proofs.YulGeneration.calldataloadWord 0
+            (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+            (sigDataOffset + (1952 + 868 + 16 * j)))) :
+    ∀ j, (hj : j < 43) →
+      ((ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.copyStep
+          (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 43) 0 43).world.memory
+          (0x40 + 32 * j)).val =
+        (InitialNodeKeccak.wotsChainsEnd
+          (C13Concrete.wordOfHash16 pkSeed) 1 treeIdx leafIdx node
+          lsig.wots)[j]'(by
+            rw [InitialNodeKeccak.wotsChainsEnd_length]
+            omega) :=
+  c13Layer1_copyFold43_wotsChainsEnd_cells_of_wotsOuterFold43
+    pkSeed pkRoot message sig sigParsed st treeIdx leafIdx node wotsPtr lsig
+    hParse hLayer1 hDigestLt hAdrsLt e.hSeed e.hD e.hAdrs e.hWPtr hCdLoad
+
+/-- Fully record-driven layer-0 chain-cells closure: the `hCdLoad` residual is
+discharged from the compact entry-state calldata fact `hCdSt` via
+`wotsOuterFold_cdload_raw`, the WOTS pointer pinned to `sigDataOffset + 1952`. -/
+theorem c13Layer0_copyFold43_wotsChainsEnd_cells_of_inputs
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (st : RuntimeState) (treeIdx leafIdx node : Nat)
+    (lsig : XmssLayerSig)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hLayer0 : sigParsed.layers[0]? = some lsig)
+    (hDigestLt :
+      C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
+        0 treeIdx leafIdx lsig.wots.count node < 2 ^ 256)
+    (hAdrsLt : C13Concrete.adrsWotsHashBase 0 treeIdx leafIdx < 2 ^ 256)
+    (e : C13WotsOuterEntry pkSeed st
+      (C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
+        0 treeIdx leafIdx lsig.wots.count node)
+      (C13Concrete.adrsWotsHashBase 0 treeIdx leafIdx) (sigDataOffset + 1952))
+    (hCdSt : st.world.calldata =
+      headWords pkSeed pkRoot message sig.size ++ bytesToWords sig) :
+    ∀ j, (hj : j < 43) →
+      ((ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.copyStep
+          (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 43) 0 43).world.memory
+          (0x40 + 32 * j)).val =
+        (InitialNodeKeccak.wotsChainsEnd
+          (C13Concrete.wordOfHash16 pkSeed) 0 treeIdx leafIdx node
+          lsig.wots)[j]'(by
+            rw [InitialNodeKeccak.wotsChainsEnd_length]
+            omega) :=
+  c13Layer0_copyFold43_wotsChainsEnd_cells_of_entry
+    pkSeed pkRoot message sig sigParsed st treeIdx leafIdx node
+    (sigDataOffset + 1952) lsig hParse hLayer0 hDigestLt hAdrsLt e
+    (fun j hj s hWPtrS hIS hWorldS =>
+      wotsOuterFold_cdload_raw pkSeed pkRoot message sig st 1952
+        (by norm_num [sigDataOffset]) hCdSt j hj s hWPtrS hIS hWorldS)
+
+/-- Fully record-driven layer-1 chain-cells closure (WOTS pointer pinned to the
+layer-1 value `sigDataOffset + (1952 + 868)`). -/
+theorem c13Layer1_copyFold43_wotsChainsEnd_cells_of_inputs
+    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
+    (st : RuntimeState) (treeIdx leafIdx node : Nat)
+    (lsig : XmssLayerSig)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hLayer1 : sigParsed.layers[1]? = some lsig)
+    (hDigestLt :
+      C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
+        1 treeIdx leafIdx lsig.wots.count node < 2 ^ 256)
+    (hAdrsLt : C13Concrete.adrsWotsHashBase 1 treeIdx leafIdx < 2 ^ 256)
+    (e : C13WotsOuterEntry pkSeed st
+      (C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
+        1 treeIdx leafIdx lsig.wots.count node)
+      (C13Concrete.adrsWotsHashBase 1 treeIdx leafIdx) (sigDataOffset + (1952 + 868)))
+    (hCdSt : st.world.calldata =
+      headWords pkSeed pkRoot message sig.size ++ bytesToWords sig) :
+    ∀ j, (hj : j < 43) →
+      ((ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.copyStep
+          (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 43) 0 43).world.memory
+          (0x40 + 32 * j)).val =
+        (InitialNodeKeccak.wotsChainsEnd
+          (C13Concrete.wordOfHash16 pkSeed) 1 treeIdx leafIdx node
+          lsig.wots)[j]'(by
+            rw [InitialNodeKeccak.wotsChainsEnd_length]
+            omega) :=
+  c13Layer1_copyFold43_wotsChainsEnd_cells_of_entry
+    pkSeed pkRoot message sig sigParsed st treeIdx leafIdx node
+    (sigDataOffset + (1952 + 868)) lsig hParse hLayer1 hDigestLt hAdrsLt e
+    (fun j hj s hWPtrS hIS hWorldS =>
+      wotsOuterFold_cdload_raw pkSeed pkRoot message sig st (1952 + 868)
+        (by norm_num [sigDataOffset]) hCdSt j hj s hWPtrS hIS hWorldS)
+
+#print axioms c13Layer0_copyFold43_wotsChainsEnd_cells_of_entry
+#print axioms c13Layer1_copyFold43_wotsChainsEnd_cells_of_entry
+#print axioms c13Layer0_copyFold43_wotsChainsEnd_cells_of_inputs
+#print axioms c13Layer1_copyFold43_wotsChainsEnd_cells_of_inputs
 #print axioms c13Layer0_copyFold43_wotsPk_keccak_eq_of_wotsOuterFold43
 #print axioms c13Layer1_copyFold43_wotsPk_keccak_eq_of_wotsOuterFold43
 #print axioms c13RevertedLayer0_copyFold43_wotsPk_keccak_eq_of_wotsOuterFold43
