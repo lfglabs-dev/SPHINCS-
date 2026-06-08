@@ -22,6 +22,7 @@ namespace SphincsMinusVerifiers
 open SphincsMinusVerifierSpec
 open Compiler.Proofs.IRGeneration.SourceSemantics
 open SphincsMinusVerifiers.ClimbLoop (foldLoop)
+open SphincsMinusVerifiers.MkC13State (headWords bytesToWords sigDataOffset)
 
 /-- Frame lemma: any binding `key` distinct from the WOTS-outer body's writes
 (`digit`/`steps`/`val`/`chainBase`/`step`) and the loop variable `i` keeps its
@@ -51,6 +52,72 @@ theorem wotsOuterFold_preserves_seed_cell
         { s with bindings := bindValue s.bindings "i" (wordNormalize idx) } idx hidx
         (MemoryKit.lookupValue_bindValue_self s.bindings "i" (wordNormalize idx)))
     st 0 j (fun i _ hi => by omega)
+
+/-- Selector-`0` collapse for any byte-region read (`offset ≥ 4`): the selector
+plays no role once the offset is past the 4-byte selector prefix. -/
+private theorem calldataloadWord_sel_zero_ge4
+    (sel : Nat) (cd : List Nat) (off : Nat) (hoff : 4 ≤ off) :
+    Compiler.Proofs.YulGeneration.calldataloadWord sel cd off =
+      Compiler.Proofs.YulGeneration.calldataloadWord 0 cd off := by
+  unfold Compiler.Proofs.YulGeneration.calldataloadWord
+  simp [show off ≠ 0 by omega, show ¬ off < 4 by omega]
+
+/-- Fifth WOTS-outer input lemma (the `calldataload`): any state whose world is
+the `j`-prefix world of the WOTS-outer fold reads the frozen signature word at
+chain index `j` through `calldataload(wotsPtr + (i << 4))`, provided its bindings
+expose `wotsPtr = sigDataOffset + baseOff` and `i = j`.  The entry-state calldata
+is frozen through the loop by `wotsOuterStep_preserves_sc`; the offset arithmetic
+collapses to `sigDataOffset + (baseOff + 16*j)` and the selector to `0`. -/
+theorem wotsOuterFold_cdload_raw
+    (pkSeed pkRoot message sig : Bytes) (st : RuntimeState) (baseOff : Nat)
+    (hBaseLt : sigDataOffset + baseOff + 16 * 42 < 2 ^ 256)
+    (hCdSt : st.world.calldata =
+      headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+    (j : Nat) (hj : j < 43) (s : RuntimeState)
+    (hWPtr : lookupValue s.bindings "wotsPtr" = sigDataOffset + baseOff)
+    (hI : lookupValue s.bindings "i" = j)
+    (hWorld : s.world =
+      (foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 j).world) :
+    evalExpr [] s
+        (.calldataload
+          (.add (.localVar "wotsPtr") (.shl (.literal 4) (.localVar "i")))) =
+      some
+        (Compiler.Proofs.YulGeneration.calldataloadWord 0
+          (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+          (sigDataOffset + (baseOff + 16 * j))) := by
+  have hShiftEq : j <<< 4 = 16 * j := by rw [Nat.shiftLeft_eq]; ring
+  have hCd : s.world.calldata =
+      headWords pkSeed pkRoot message sig.size ++ bytesToWords sig := by
+    rw [hWorld,
+      (StateFrame.foldLoop_preserves_selector_calldata "i"
+        SegmentLayer3CopyCells.wotsOuterStep
+        SegmentLayer3CopyCells.wotsOuterStep_preserves_sc st 0 j).2, hCdSt]
+  have hWotsEval :
+      evalExpr [] s (.localVar "wotsPtr") = some (sigDataOffset + baseOff) := by
+    show some (lookupValue s.bindings "wotsPtr") = _
+    rw [hWPtr]
+  have hIEval : evalExpr [] s (.localVar "i") = some j := by
+    show some (lookupValue s.bindings "i") = _
+    rw [hI]
+  have hShift : j <<< 4 < 2 ^ 256 := by rw [hShiftEq]; omega
+  have haplt : sigDataOffset + baseOff < 2 ^ 256 := by omega
+  have hhlt : j < 2 ^ 256 := by omega
+  have hSum : sigDataOffset + baseOff + j <<< 4 < 2 ^ 256 := by rw [hShiftEq]; omega
+  have hoffset := SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_siblingOffset
+    s (.localVar "wotsPtr") (.localVar "i") (sigDataOffset + baseOff) j
+    hWotsEval hIEval haplt hhlt hShift hSum
+  have hoff : sigDataOffset + baseOff + j <<< 4 =
+      sigDataOffset + (baseOff + 16 * j) := by rw [hShiftEq]; ring
+  show (evalExpr [] s
+        (.add (.localVar "wotsPtr") (.shl (.literal 4) (.localVar "i")))).bind
+        (fun ro => some (Compiler.Proofs.YulGeneration.calldataloadWord
+          s.selector s.world.calldata ro)) = _
+  rw [hoffset]
+  show some _ = _
+  rw [hCd, hoff,
+    calldataloadWord_sel_zero_ge4 s.selector _ _
+      (show 4 ≤ sigDataOffset + (baseOff + 16 * j) by
+        show 4 ≤ 164 + (baseOff + 16 * j); omega)]
 
 /-- Compact entry-state record for the C13 WOTS-outer loop: the seed cell and the
 three loop-invariant bindings at the loop's start state.  These four scalar facts
@@ -101,6 +168,7 @@ end C13WotsOuterEntry
 
 #print axioms wotsOuterFold_preserves_binding
 #print axioms wotsOuterFold_preserves_seed_cell
+#print axioms wotsOuterFold_cdload_raw
 #print axioms C13WotsOuterEntry.hSeed
 
 end SphincsMinusVerifiers
