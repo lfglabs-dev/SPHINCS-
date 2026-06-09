@@ -8571,7 +8571,7 @@ theorem c13_refines_byte_spec_of_current_node_and_reverted_guard_cover
     exact
       C13BridgePrep.runC13BodyObserved_accept_from_fold_ok_current_nodes_wordcmp
         pkSeed pkRoot message sig sigParsed forsPk specRoot
-        hParse hZero hFors hFold hGuard0 hCurrent0 hGuard1 hCurrent1 hWordCmp
+        hParse hZero hFors hFold hWordCmp  -- hGuard*/hCurrent* dropped (derived in callee or via updated path)
   · intro pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors hFold
     have hg3 :
         SegmentS3.s3Guard
