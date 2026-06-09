@@ -166,34 +166,6 @@ theorem runC13BodyObserved_accept_from_fold_ok_current_nodes_wordcmp
         (C13Concrete.c13PrimitivesConcrete.hMsg c13
           { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
         forsPk sigParsed.layers = .ok specRoot)
-    (hGuard0 :
-      SegmentLayer3.layerGuard
-        (CurrentNodeFrame.c13LayerLoopState0
-          (mkC13State pkSeed pkRoot message sig)) = true)
-    (hCurrent0 :
-      lookupValue
-          (SegmentLayer3.stepLayer
-            (CurrentNodeFrame.c13LayerLoopState0
-              (mkC13State pkSeed pkRoot message sig))).bindings
-          "currentNode"
-        =
-          C13Concrete.wordOfHash16
-            (SegmentAcceptSpec.c13HypertreeSpecStepAtLayer
-              { pkSeed := pkSeed, pkRoot := pkRoot }
-              (C13Concrete.c13PrimitivesConcrete.hMsg c13
-                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
-              sigParsed.layers 0 forsPk))
-    (hGuard1 :
-      SegmentLayer3.layerGuard
-        (CurrentNodeFrame.c13LayerLoopState1
-          (mkC13State pkSeed pkRoot message sig)) = true)
-    (hCurrent1 :
-      lookupValue
-          (SegmentLayer3.stepLayer
-            (CurrentNodeFrame.c13LayerLoopState1
-              (mkC13State pkSeed pkRoot message sig))).bindings
-          "currentNode"
-        = C13Concrete.wordOfHash16 specRoot)
     (hWordCmp :
       decide (C13Concrete.wordOfHash16 specRoot = C13Concrete.wordOfHash16 pkRoot)
         = rootMatchesPk c13 specRoot pkRoot) :
@@ -205,6 +177,18 @@ theorem runC13BodyObserved_accept_from_fold_ok_current_nodes_wordcmp
   let specStep := SegmentAcceptSpec.c13HypertreeSpecStepAtLayer pk digest sigParsed.layers
   have hTwo : wordNormalize 2 = 2 := by
     exact SegmentS2.wordNormalize_of_lt (by decide : 2 < 2 ^ 256)
+
+  -- Both halves discharged without executable layer obligation parameters (wordcmp variant).
+  let d := C13Concrete.foldHypertree_c13_ok_two_layer_data pk digest forsPk specRoot sigParsed.layers hFold
+  have hDigitSum0 : lookupValue (SegmentLayer3.afterDigit (CurrentNodeFrame.c13LayerLoopState0 st)).bindings "digitSum" = 208 := by
+    exact C13Concrete.wotsDigitSum_eq_of_wotsGrindingFailsC13AtLayer_false C13Concrete.c13PrimitivesConcrete c13 d.lsig0.wots (by simpa using d.hGrinding0)
+  have hGuard0 := layer0_guard_discharged (CurrentNodeFrame.c13LayerLoopState0 st) hDigitSum0
+  have hCurrent0 := layer0_currentNode_discharged pkSeed pkRoot message sig sigParsed forsPk (CurrentNodeFrame.c13LayerLoopState0 st) hParse
+  have hDigitSum1 : lookupValue (SegmentLayer3.afterDigit (CurrentNodeFrame.c13LayerLoopState1 st)).bindings "digitSum" = 208 := by
+    exact C13Concrete.wotsDigitSum_eq_of_wotsGrindingFailsC13AtLayer_false C13Concrete.c13PrimitivesConcrete c13 d.lsig1.wots (by simpa using d.hGrinding1)
+  have hGuard1 := layer1_guard_discharged (CurrentNodeFrame.c13LayerLoopState1 st) hDigitSum1
+  have hCurrent1 := layer1_currentNode_discharged pkSeed pkRoot message sig sigParsed specRoot (CurrentNodeFrame.c13LayerLoopState1 st) hParse
+
   have hgL : ClimbLoopGuarded.allGuardsPass "layer" SegmentLayer3.stepLayer
       SegmentLayer3.layerGuard
       { (afterSeed st) with
@@ -214,11 +198,11 @@ theorem runC13BodyObserved_accept_from_fold_ok_current_nodes_wordcmp
     unfold ClimbLoopGuarded.allGuardsPass
     refine ⟨?_, ?_⟩
     · simpa [st, CurrentNodeFrame.c13LayerLoopState0,
-        CurrentNodeFrame.c13LayerStartState] using (layer0_guard_discharged (CurrentNodeFrame.c13LayerLoopState0 st) hDigitSum0)
+        CurrentNodeFrame.c13LayerStartState] using hGuard0
     · refine ⟨?_, True.intro⟩
       simpa [st, CurrentNodeFrame.c13LayerLoopState1,
         CurrentNodeFrame.c13LayerAfterStep0, CurrentNodeFrame.c13LayerLoopState0,
-        CurrentNodeFrame.c13LayerStartState, Nat.zero_add] using (layer1_guard_discharged (CurrentNodeFrame.c13LayerLoopState1 st) hDigitSum1)
+        CurrentNodeFrame.c13LayerStartState, Nat.zero_add] using hGuard1
   have hRoots :=
     CurrentNodeFrame.rootCells_eq_forsAllRootsC13_of_hMsg_parse_concrete
       pk message sig hParse
@@ -259,7 +243,7 @@ theorem runC13BodyObserved_accept_from_fold_ok_current_nodes_wordcmp
           (SegmentLayer3.stepLayer
             (CurrentNodeFrame.c13LayerLoopState0 st)).bindings
           "currentNode" = C13Concrete.wordOfHash16 (specStep 0 forsPk)
-    simpa [st, pk, digest, specStep] using (layer0_currentNode_discharged pkSeed pkRoot message sig sigParsed forsPk (CurrentNodeFrame.c13LayerLoopState0 st) hParse)
+    simpa [st, pk, digest, specStep] using hCurrent0
   have hStep1Node : specStep 1 (specStep 0 forsPk) = specRoot := by
     simpa [ClimbLoop.specFold, hTwo] using hSpecFold
   have hStep1 :
@@ -272,7 +256,7 @@ theorem runC13BodyObserved_accept_from_fold_ok_current_nodes_wordcmp
             (CurrentNodeFrame.c13LayerLoopState1 st)).bindings
           "currentNode" = C13Concrete.wordOfHash16 (specStep 1 (specStep 0 forsPk))
     rw [hStep1Node]
-    simpa [st] using (layer1_currentNode_discharged pkSeed pkRoot message sig sigParsed specRoot (CurrentNodeFrame.c13LayerLoopState1 st) hParse)
+    simpa [st] using hCurrent1
   have hCurrent :
       lookupValue (afterLayer st).bindings "currentNode" =
         C13Concrete.wordOfHash16 specRoot :=
@@ -560,6 +544,9 @@ theorem layer1_guard_discharged
 -- CurrentNodeFrame / beforeMerkle_* / SegmentLayer3MerkleFrame cutpoints exist for this.
 
 theorem layer0_currentNode_discharged
+    (pkSeed pkRoot message sig : ByteArray)
+    (sigParsed : Signature)
+    (forsPk : ByteArray)
     (st : RuntimeState)
     (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :  -- hClimbData0 wired inside from hauth + frozen cd reads at layer auth offsets
     lookupValue (SegmentLayer3.stepLayer (CurrentNodeFrame.c13LayerLoopState0 st)).bindings "currentNode"
