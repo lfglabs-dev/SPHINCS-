@@ -370,9 +370,9 @@ then:
 /-- The H_msg trailing domain-separation word
 `0x00FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF`
 as written by `mstore(0x80, 0xFF…FB...)` — the contract literal has a leading
-zero nibble (63 `F`'s). -/
+zero nibble (high nibble 0) followed by 63 `F`'s (i.e. 2^252 - 1). -/
 def hMsgPad : Word :=
-  0x00FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+  0x0FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
 
 def hMsgC13 (v : Variant) (pk : PublicKey) (R message : Bytes) : HMsg :=
   let digest :=
