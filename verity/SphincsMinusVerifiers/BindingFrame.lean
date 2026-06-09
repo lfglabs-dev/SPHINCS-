@@ -19,6 +19,7 @@
 -/
 
 import SphincsMinusVerifiers.ClimbLoop
+import Compiler.Proofs.Frames
 
 namespace SphincsMinusVerifiers.BindingFrame
 
@@ -206,3 +207,6 @@ theorem execStmt_forEach_preserves_lookup
 #print axioms execStmt_forEach_preserves_lookup
 
 end SphincsMinusVerifiers.BindingFrame
+-- NOTE (2026-06 factoring): See Compiler.Proofs.Frames (from Verity PR #1983)
+-- for the generic versions of the preserves_* lemmas above. SPHINCS- supplies
+-- the step spec + range supplier on top of the generic engine.

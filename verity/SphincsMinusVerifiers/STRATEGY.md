@@ -189,3 +189,20 @@ of effort and independently exercises the hand-translation-fidelity gap.
   `AXIOMS.md`/README synced.
 - Honest scope note recorded: source→model fidelity remains a separate, untouched
   assumption.
+## Climb engine factoring (June 2026)
+
+See Verity PR #1983 (minimal `Compiler/Proofs/Frames.lean`) and the
+companion SPHINCS- PR on this repo.
+
+Desired split (least change to Verity):
+- Verity: generic frame preservation (`PreservesBindingsExcept`,
+  `PreservesSelectorCalldata`) and (in future) generic climb loop lift.
+- SPHINCS-: supplies the concrete `stepMerkle` / runBody, the spec steps,
+  the data/range suppliers (from hauth + frozen calldata), and the
+  SPHINCS-specific memory layout / segment characterisations.
+
+The `SphincsMinusVerifierSpec/` (additive concrete C13Concrete etc.)
+and the thin observable top-level claim are unaffected.
+
+This addresses the RAM blowup when agents previously tried to prove
+the remaining bridge axioms with monolithic strategies.
