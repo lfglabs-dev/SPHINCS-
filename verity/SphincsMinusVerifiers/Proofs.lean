@@ -2508,6 +2508,10 @@ discharged by the C13-produced `specRoot` roundtrip rather than `pkRoot.size`. -
 theorem c13FoldOkCurrentNodeWordcmpData_of_digit_merkle_facts
     (pkSeed pkRoot message sig : Bytes)
     (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hZero : forcedZeroOk c13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true)
     (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
         { pkSeed := pkSeed, pkRoot := pkRoot }
         (C13Concrete.c13PrimitivesConcrete.hMsg c13
@@ -2523,6 +2527,9 @@ theorem c13FoldOkCurrentNodeWordcmpData_of_digit_merkle_facts
     C13FoldOkCurrentNodeWordcmpData
       pkSeed pkRoot message sig sigParsed forsPk specRoot := by
   rcases hFacts with ⟨hDigit0, hMerkle0, hDigit1, hMerkle1⟩
+  -- Use the (now deriving) constructor; supply the four facts via the lightweight
+  -- digit+merkle proofs we already have (this path is used when we have the
+  -- afterMerkle/raw step witnesses but want to avoid full observed derivation).
   refine
     c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
       pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold
