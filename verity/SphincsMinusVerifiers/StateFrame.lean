@@ -194,3 +194,6 @@ theorem foldLoop_preserves_selector_calldata
 #print axioms foldLoop_preserves_selector_calldata
 
 end SphincsMinusVerifiers.StateFrame
+-- NOTE (2026-06 factoring): Generic selector/calldata preservation now in
+-- Compiler.Proofs.Frames (Verity PR #1983). This file provides the SPHINCS-
+-- specific frame for the C13 accept path.
