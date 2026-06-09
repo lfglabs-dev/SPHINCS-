@@ -1,0 +1,625 @@
+{
+  "objective": "Finish Verity proofs for both C13 and C12 with no unfinished bridge axioms or proof placeholders, using parallel workers and capped Lean verification.",
+  "repo": "/workspaces/mission-221df1a1/SPHINCS-",
+  "phase": "reduce remaining C12 layer-4 public premises and audit bridge axioms",
+  "tasks": [
+    {
+      "id": "c12-layer4-xmssbase",
+      "status": "blocked-provider-capacity",
+      "worker_id": "5a6a2700-3943-4890-9b4f-22a26bb68a16",
+      "scope": "Read-only route discovery for proving c12 layer-4 xmssBase entry premise from existing executable state lemmas.",
+      "files": [
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12BridgePrep.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12SegmentWotsSetup.lean"
+      ]
+    },
+    {
+      "id": "c12-layer4-curleaf",
+      "status": "partially-implemented",
+      "worker_id": "c43cd39f-17ec-4358-9a3f-51c1bdc75d33",
+      "scope": "Read-only route discovery for proving c12 layer-4 curLeaf-after3 premise from layer fold state facts. Implemented FORS-compress curTree/curLeaf handoffs and layer after0..after3 curTree/curLeaf recurrence facts; remaining work is the seed/parser arithmetic bridge from executable treeIdx to parsed hyperIndex.",
+      "files": [
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12BridgePrep.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12SegmentForsCompress.lean"
+      ]
+    },
+    {
+      "id": "c12-layer4-wotspk",
+      "status": "blocked-provider-capacity",
+      "worker_id": "3ccc55c4-47d3-4664-b891-e95b5b10240e",
+      "scope": "Read-only route discovery for proving c12 layer-4 WOTS public-key before-XMSS-node premise.",
+      "files": [
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12BridgePrep.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12SegmentWotsSetup.lean"
+      ]
+    },
+    {
+      "id": "c12-seed-treeidx-leafidx",
+      "status": "active",
+      "worker_id": "cc4781fe-d720-49ab-8cee-0ae033c6520e",
+      "scope": "Proof route / implementation for executable c12StepSeed treeIdx/leafIdx bindings and parser hMsgC12 hyperIndex bridge.",
+      "files": [
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12SegmentSeed.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifierSpec/C12Concrete.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12BridgePrep.lean"
+      ]
+    },
+    {
+      "id": "c12-layer4-curleaf-current",
+      "status": "active-readonly-worker",
+      "worker_id": "f20044d4-c209-400b-a432-f3c0f2a6add0",
+      "scope": "Exact route for hLayer4CurLeafAfter3 after seed treeIdx/leafIdx facts",
+      "files": [
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12BridgePrep.lean"
+      ]
+    },
+    {
+      "id": "c12-layer4-wotspk-current",
+      "status": "active-readonly-worker",
+      "worker_id": "88cb5814-317d-4e2b-815d-f915cff339a4",
+      "scope": "Route for hLayer4WotsPkBeforeNode",
+      "files": [
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12BridgePrep.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12SegmentWotsSetup.lean"
+      ]
+    },
+    {
+      "id": "bridge-axiom-audit-current",
+      "status": "active-readonly-worker",
+      "worker_id": "a65569c2-5b1d-4d52-af09-1bb0a8611ce2",
+      "scope": "Audit remaining bridge axioms/placeholders",
+      "files": [
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/ProofCore.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/Proofs.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12BridgePrep.lean"
+      ]
+    },
+    {
+      "id": "wots-chain-source-analysis",
+      "worker_id": "fd55a42e-59d1-4a1e-b6c1-8e3e73f37a67",
+      "status": "completed",
+      "scope": "read-only route analysis for C12 WOTS source mem[0x80+32*j] and hLayer4WotsPkBeforeNode",
+      "result": "recommended c12LayerStateBeforeAuthOff_pkAdrs_slot first; source chain words require calldata/chain-loop semantics"
+    },
+    {
+      "id": "b1349172-6c15-4184-85b7-fe47ba77f537",
+      "title": "C12 WOTS boundary proof scout",
+      "status": "active",
+      "notes": "worker investigating smaller WOTS boundary lemmas to discharge C12Layer4WotsPkBeforeAuthOffPremise"
+    },
+    {
+      "id": "13cf1196-9a2e-473b-af2a-c6ffd1f19a7e",
+      "title": "C13 residual premise audit",
+      "status": "active",
+      "notes": "read-only audit of residual premises blocking replacement of c13_refines_byte_spec axiom"
+    },
+    {
+      "id": "105db454-ecae-4667-a68d-ce5620bcc6b0",
+      "title": "C13 bridge axiom replacement path",
+      "status": "active",
+      "scope": "Find or implement shortest bounded path to replace c13_refines_byte_spec; report exact blocker theorem if not possible.",
+      "files": [
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/Proofs.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C13BridgePrep.lean"
+      ]
+    },
+    {
+      "id": "5f8b53f3-bf8a-483f-83ea-422ddc00f39a",
+      "title": "C12 bridge axiom replacement path",
+      "status": "active",
+      "scope": "Find or implement shortest bounded path to replace c12_refines_byte_spec; current visible blocker is C12Layer4WotsPkBeforeAuthOffPremise.",
+      "files": [
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/Proofs.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12BridgePrep.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12SegmentWotsSetup.lean"
+      ]
+    },
+    {
+      "id": "f7b4a3db-f038-48c6-b6ea-ae3b41628adc",
+      "title": "SPHINCS proof placeholder and axiom inventory",
+      "status": "failed-provider-quota",
+      "scope": "Audit actual source axioms/placeholders excluding .lake/packages and classify C13/C12 bridge blockers.",
+      "files": [
+        "/workspaces/mission-221df1a1/SPHINCS-/verity"
+      ]
+    },
+    {
+      "id": "87447098-d949-41f0-885d-fcfa957d45d4",
+      "title": "C12 WOTS beforeAuthOff final keccak premise",
+      "status": "cancelled-after-timeout",
+      "scope": "M3a/M3b/M3c-tail, via-prefix5 composition, and all five prefix5 evaluator helpers completed and verified; worker timed out while attempting to compose hPrefix5 without an explicit prefix hypothesis.",
+      "files": [
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12BridgePrep.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12SegmentWotsSetup.lean"
+      ]
+    },
+    {
+      "id": "f5327ccc-49a7-4fa7-9b17-073c63ec8cc5",
+      "title": "C13 final bridge blocker closure",
+      "status": "cancelled-after-timeout",
+      "scope": "Layer-0/layer-1 C13 beforeAuthOff WOTS-PK binding splits, stepWots masked/spec helpers, and SegmentLayer3.wotsChainFold_val_eq_chainHash completed and verified; worker timed out while attempting a single outer WOTS iteration helper.",
+      "files": [
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/Proofs.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/SegmentLayer3.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/ClimbMemFrame.lean"
+      ]
+    },
+    {
+      "id": "e58b7806-bbbe-4fa5-8a5d-0b326ec0f7be",
+      "title": "C12 message loop memory invariant",
+      "status": "active",
+      "scope": "Landed c12WotsMessageLoop_mem_at_j_eq after concrete suffix preservation; currently proving the analogous checksum-loop memory invariant for the three checksum WOTS words.",
+      "files": [
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12SegmentWotsSetup.lean"
+      ]
+    },
+    {
+      "id": "355ca575-06db-45c6-9382-55072b3171e2",
+      "title": "C13 outer WOTS tail helper",
+      "status": "active",
+      "scope": "Landed wotsOuterTail_mstore_mem_at_i final mstore helper; currently composing one full C13 wotsOuterBody iteration using wotsChainFold_val_eq_chainHash.",
+      "files": [
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/SegmentLayer3.lean"
+      ]
+    },
+    {
+      "id": "03c7aa59-b929-4f02-8b52-3fa7f2375b5e",
+      "title": "C12 WOTS calldata correspondence scout",
+      "status": "completed-readonly",
+      "scope": "Found provable path for layer-4 WOTS chain calldataload correspondence: clone auth-path read16 parser lemma plus small masked calldata glue using existing SiblingCalldata/ClimbKeccakStep helpers.",
+      "files": [
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifierSpec/C12Concrete.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12SegmentSeed.lean",
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12BridgePrep.lean"
+      ]
+    },
+    {
+      "id": "749f36be-e1c8-4a22-b20f-196e2fb192e6",
+      "title": "C12 WOTS calldata correspondence implementation",
+      "status": "completed",
+      "scope": "Implemented parser-side c12_layer4_wotsChain_read16_of_parse and masked calldataload glue c12_layer4_masked_wots_read_eq_wordOfHash16 in C12BridgePrep.",
+      "files": [
+        "/workspaces/mission-221df1a1/SPHINCS-/verity/SphincsMinusVerifiers/C12BridgePrep.lean"
+      ]
+    },
+    {
+      "id": "474076f6-079a-49c3-8332-2966beff7981",
+      "title": "C12 close WOTS-PK memory premise",
+      "status": "active",
+      "worktree": "/workspaces/mission-221df1a1/wt-c12-memory-closure",
+      "scope": "Close or reduce C12Layer4WotsPkBeforeWotsPkMemoryPremise from before-copy pkAdrs/cell facts.",
+      "files": [
+        "/workspaces/mission-221df1a1/wt-c12-memory-closure/verity/SphincsMinusVerifiers/C12BridgePrep.lean",
+        "/workspaces/mission-221df1a1/wt-c12-memory-closure/verity/SphincsMinusVerifiers/C12SegmentWotsSetup.lean"
+      ],
+      "verification": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean"
+    },
+    {
+      "id": "840967db-c1c8-4b62-9711-b09e4b4a59c4",
+      "title": "C13 replace bridge axiom path closure",
+      "status": "cancelled-after-main-proof-check-passed",
+      "worktree": "/workspaces/mission-221df1a1/wt-c13-bridge-closure",
+      "scope": "Close the strongest C13 reducer or prove the next missing premise toward replacing c13_refines_byte_spec.",
+      "files": [
+        "/workspaces/mission-221df1a1/wt-c13-bridge-closure/verity/SphincsMinusVerifiers/Proofs.lean"
+      ],
+      "verification": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean"
+    },
+    {
+      "id": "b8b39436-7a93-4247-9d7d-1064cd0277ca",
+      "title": "C13 migrate FORS-root address to digest-dependent form",
+      "status": "active",
+      "worktree": "/workspaces/mission-221df1a1/wt-c13-adrs-migration",
+      "scope": "Migrate legacy C13 adrsForsRoots assumptions/usages toward adrsForsRootsC13 digest or current hardened forsBase shape.",
+      "files": [
+        "/workspaces/mission-221df1a1/wt-c13-adrs-migration/verity/SphincsMinusVerifierSpec/C13Concrete.lean",
+        "/workspaces/mission-221df1a1/wt-c13-adrs-migration/verity/SphincsMinusVerifiers/CurrentNodeFrame.lean",
+        "/workspaces/mission-221df1a1/wt-c13-adrs-migration/verity/SphincsMinusVerifiers/SegmentAcceptSpec.lean",
+        "/workspaces/mission-221df1a1/wt-c13-adrs-migration/verity/SphincsMinusVerifiers/SegmentS4Finalize.lean"
+      ],
+      "verification": "LEAN_JOBS=1 scripts/lean-capped.sh lake env lean SphincsMinusVerifiers/SegmentAcceptSpec.lean"
+    },
+    {
+      "id": "80c5688c-82ba-4da2-9b62-f9b7514e2ad7",
+      "title": "C13 alternate bridge closure without universal pkRoot size",
+      "status": "cancelled-to-throttle-cold-worktree-build-memory",
+      "worktree": "/workspaces/mission-221df1a1/wt-c13-bridge-alt",
+      "scope": "Close or reduce c13_refines_byte_spec through realistic current-node/reverted-scratch premises, avoiding impossible universal pkRoot.size.",
+      "files": [
+        "/workspaces/mission-221df1a1/wt-c13-bridge-alt/verity/SphincsMinusVerifiers/Proofs.lean",
+        "/workspaces/mission-221df1a1/wt-c13-bridge-alt/verity/SphincsMinusVerifiers/C13BridgePrep.lean",
+        "/workspaces/mission-221df1a1/wt-c13-bridge-alt/verity/SphincsMinusVerifiers/SegmentAcceptSpec.lean"
+      ],
+      "verification": "LEAN_JOBS=1 scripts/lean-capped.sh lake env lean SphincsMinusVerifiers/Proofs.lean"
+    }
+  ],
+  "verification": {
+    "latest_passed": [
+      "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "timeout 300s lake build SphincsMinusVerifiers.C12SegmentWotsSetup",
+      "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean (after before-auth fresh lookup/xmssBase additions)",
+      "timeout 300s lake build SphincsMinusVerifiers.C12SegmentWotsSetup (after before-auth fresh lookup/xmssBase additions)",
+      "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean (after curTree preservation and curLeaf recurrence additions)",
+      "timeout 300s lake build SphincsMinusVerifiers.C12SegmentWotsSetup (after curTree preservation and curLeaf recurrence additions)",
+      "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean (after c12LayerStep_curTree_eq_of_curTree)",
+      "timeout 300s lake build SphincsMinusVerifiers.C12SegmentWotsSetup (after c12LayerStep_curTree_eq_of_curTree)",
+      "timeout 300s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean (after layer4 body-input layer/curTree additions)",
+      "timeout 180s lake env lean SphincsMinusVerifiers/C12SegmentForsCompress.lean (after curTree/curLeaf handoff additions)",
+      "timeout 300s lake build SphincsMinusVerifiers.C12SegmentForsCompress (after curTree/curLeaf handoff additions)",
+      "timeout 300s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean (after after0..after3 curLeaf/curTree recurrence additions)",
+      "timeout 180s lake env lean SphincsMinusVerifierSpec/C12Concrete.lean (after parseSignatureC12_R)",
+      "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentSeed.lean (after read32/calldataload R-word lemmas)",
+      "timeout 300s lake build SphincsMinusVerifierSpec.C12Concrete",
+      "timeout 300s lake build SphincsMinusVerifiers.C12SegmentSeed",
+      "timeout 300s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "timeout 360s lake build SphincsMinusVerifiers.C12BridgePrep",
+      "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean"
+    ],
+    "remaining_axioms": [
+      "SphincsMinusVerifiers/ProofCore.lean: axiom slhDsaSha2_128_24_Primitives",
+      "SphincsMinusVerifiers/ProofCore.lean: opaque execC13",
+      "SphincsMinusVerifiers/ProofCore.lean: opaque execSlhDsaSha2_128_24",
+      "SphincsMinusVerifiers/Proofs.lean: axiom c13_refines_byte_spec",
+      "SphincsMinusVerifiers/Proofs.lean: axiom c12_refines_byte_spec",
+      "SphincsMinusVerifiers/Proofs.lean: axiom slhDsaSha2_128_24_refines_byte_spec"
+    ]
+  },
+  "verifications": [
+    {
+      "command": "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentSeed.lean",
+      "status": "passed",
+      "note": "after c12StepSeed dVal/treeIdx/leafIdx digest extraction lemmas"
+    },
+    {
+      "command": "timeout 300s lake build SphincsMinusVerifiers.C12SegmentSeed",
+      "status": "passed",
+      "note": "after c12StepSeed dVal/treeIdx/leafIdx extraction lemmas"
+    },
+    {
+      "command": "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentFors.lean",
+      "status": "passed",
+      "note": "after c12StepFors_preserves_treeIdx"
+    },
+    {
+      "command": "timeout 300s lake build SphincsMinusVerifiers.C12SegmentFors",
+      "status": "passed",
+      "note": "after c12StepFors_preserves_treeIdx axiom audit"
+    },
+    {
+      "cmd": "timeout 300s lake build SphincsMinusVerifiers.C12SegmentSeed",
+      "status": "passed",
+      "notes": "refreshed C12SegmentSeed olean; parse-facing treeIdx/leafIdx facts print only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "status": "passed",
+      "notes": "c12Layer4CurLeafAfter3 proven and known_authPtr cover narrowed to consume it internally; axiom print only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 300s lake build SphincsMinusVerifiers.C12BridgePrep",
+      "status": "passed",
+      "notes": "BridgePrep olean refreshed after narrowing C12 known_authPtr cover"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "passed",
+      "notes": "top-level Proofs wrapper accepts narrowed C12 known_authPtr cover; c12_refines_byte_spec_of_layer4_known_authPtr_cover prints only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "status": "passed",
+      "notes": "added c12_wots_pk_node_eq: final 47-word C12 WOTS Keccak bridge; remaining WOTS work is scratch chain-end memory frame"
+    },
+    {
+      "cmd": "timeout 300s lake build SphincsMinusVerifiers.C12BridgePrep",
+      "status": "passed",
+      "notes": "refreshed BridgePrep after c12_wots_pk_node_eq; axiom print propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 180s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "status": "passed",
+      "notes": "added WOTS-PK copy-step and full 45-step copy-loop memory-frame facts"
+    },
+    {
+      "cmd": "timeout 300s lake build SphincsMinusVerifiers.C12SegmentWotsSetup",
+      "status": "passed",
+      "notes": "refresh olean after WOTS copy-loop memory facts"
+    },
+    {
+      "cmd": "timeout 180s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "status": "passed",
+      "notes": "direct check after c12WotsPkCopyLoop_preserves_pkAdrs_slot"
+    },
+    {
+      "cmd": "timeout 300s lake build SphincsMinusVerifiers.C12SegmentWotsSetup",
+      "status": "passed",
+      "notes": "build after c12WotsPkCopyLoop_preserves_pkAdrs_slot"
+    },
+    {
+      "cmd": "timeout 180s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "status": "passed",
+      "notes": "direct check after c12LayerStateBeforeXmssNode_wotsPk_eq_beforeAuthOff"
+    },
+    {
+      "cmd": "timeout 180s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "status": "passed",
+      "notes": "direct check after verified c12LayerStateBeforeXmssNode_wotsPk_eq_beforeAuthOff; failed pkAdrs theorem backed out"
+    },
+    {
+      "cmd": "timeout 300s lake build SphincsMinusVerifiers.C12SegmentWotsSetup",
+      "status": "passed",
+      "notes": "build after c12LayerStateBeforeXmssNode_wotsPk_eq_beforeAuthOff; pkAdrs theorem intentionally not kept"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "status": "passed",
+      "notes": "direct check after beforeAuthOff WOTS adapter and known_authPtr cover narrowing"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "failed",
+      "notes": "wrapper narrowed to beforeAuthOff but direct check hit/then exceeded heartbeat performance; process terminated; BridgePrep direct check passed"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "status": "passed",
+      "notes": "direct check after C12 public premise aliases"
+    },
+    {
+      "cmd": "timeout 300s lake build SphincsMinusVerifiers.C12BridgePrep",
+      "status": "passed",
+      "notes": "build after C12 public premise aliases"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "passed",
+      "notes": "direct check after C12BridgePrep premise aliases and top-level beforeAuthOff WOTS wrapper"
+    },
+    {
+      "cmd": "timeout 120s lake env lean SphincsMinusVerifiers/ProofCore.lean",
+      "status": "passed",
+      "notes": "after exposing execC13 as execC13Concrete"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "passed",
+      "notes": "after exposing execC13 as execC13Concrete"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "status": "passed",
+      "notes": "after replacing C12Layer4EntryXmssBase native_decide with decide; C12BridgePrep c12_refines_byte_spec_of_layer4_known_authPtr_cover prints only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "passed",
+      "notes": "after removing expensive top-level C12 alias wrapper; top-level bridge axioms c13_refines_byte_spec and c12_refines_byte_spec remain"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "status": "passed",
+      "notes": "after worker-added M3a theorem c12WotsChainStep_val_eq; theorem prints only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "status": "passed",
+      "notes": "after c12WotsChainStep_val_eq; only warning was preexisting unused hParse at C12BridgePrep.lean:1512"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "passed",
+      "notes": "after c12WotsChainStep_val_eq import; top-level bridge axioms c13_refines_byte_spec and c12_refines_byte_spec still remain"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "status": "passed",
+      "notes": "after worker-added M3b theorem c12WotsChain_foldLoop_val_eq and frame helper; theorem prints only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "status": "passed",
+      "notes": "after c12WotsChain_foldLoop_val_eq; only warning was preexisting unused hParse at C12BridgePrep.lean:1512"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "passed",
+      "notes": "after c12WotsChain_foldLoop_val_eq import; top-level bridge axioms c13_refines_byte_spec and c12_refines_byte_spec still remain"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/SegmentLayer3.lean",
+      "status": "passed",
+      "notes": "after C13 beforeWotsPk cutpoint infrastructure; new helper beforeAuthOff_lookup_wotsPk_eq_beforeWotsPk_keccak prints only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 300s lake build SphincsMinusVerifiers.SegmentLayer3",
+      "status": "passed",
+      "notes": "refreshed SegmentLayer3 olean so Proofs.lean can see beforeWotsPk exports"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "passed",
+      "notes": "after integrating C13 layer-0 prebind-keccak residual and proof fix; bridge axioms c13_refines_byte_spec and c12_refines_byte_spec still remain"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "status": "passed",
+      "notes": "after worker-added M3c-tail theorem c12WotsMessage_chainTail_mem_at_i; theorem prints only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "status": "passed",
+      "notes": "after M3c-tail plus C12 WOTS calldata theorems c12_layer4_wotsChain_read16_of_parse and c12_layer4_masked_wots_read_eq_wordOfHash16; only warning was preexisting unused hParse at C12BridgePrep.lean:1512"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "passed",
+      "notes": "after C12 M3c-tail and WOTS calldata additions; bridge axioms c13_refines_byte_spec and c12_refines_byte_spec still remain"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "passed",
+      "notes": "after C13 layer-1 prebind-keccak residual and consumer theorem; c13FoldOkBeforeAuthOffWotsPkWordDataLayer{0,1}_of_prebind_keccak print only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/SegmentLayer3.lean",
+      "status": "passed",
+      "notes": "after C13 layer-1 Proofs-only analogue; SegmentLayer3 unchanged and still passes"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "status": "passed",
+      "notes": "after worker-added c12WotsMessageStep_mem_at_i_via_prefix5; theorem prints only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "status": "passed",
+      "notes": "after c12WotsMessageStep_mem_at_i_via_prefix5 import; only warning was preexisting unused hParse at C12BridgePrep.lean:1512"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "passed",
+      "notes": "after C12 c12WotsMessageStep_mem_at_i_via_prefix5 and C13 stepWots_val_eq_maskedKeccak imports; bridge axioms c13_refines_byte_spec and c12_refines_byte_spec still remain"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/ClimbMemFrame.lean",
+      "status": "passed",
+      "notes": "after worker-added C13 helper stepWots_val_eq_maskedKeccak; theorem prints only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/SegmentLayer3.lean",
+      "status": "passed",
+      "notes": "after C13 stepWots_val_eq_maskedKeccak import; downstream SegmentLayer3 check remains clean"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "status": "passed",
+      "notes": "after worker-added prefix5 subtraction helpers evalExpr_sub_le_bounded, evalExpr_subE_7_v_digit, and execStmt_letVar_steps_eq; all print only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "status": "passed",
+      "notes": "after C12 prefix5 subtraction helper import; only warning was preexisting unused hParse at C12BridgePrep.lean:1512"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "passed",
+      "notes": "after C12 prefix5 subtraction helpers; bridge axioms c13_refines_byte_spec and c12_refines_byte_spec still remain"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "status": "passed",
+      "notes": "after worker-added prefix5 csum helpers evalExpr_csum_add_subE_eq and execStmt_assignVar_csum_eq; both print only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "status": "passed",
+      "notes": "after C12 prefix5 csum helper import; only warning was preexisting unused hParse at C12BridgePrep.lean:1512"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/ClimbMemFrame.lean",
+      "status": "passed",
+      "notes": "after worker-added C13 helper stepWots_val_eq_wotsSpecStep; theorem prints only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/SegmentLayer3.lean",
+      "status": "passed",
+      "notes": "after C13 stepWots_val_eq_wotsSpecStep import; downstream SegmentLayer3 check remains clean"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "passed",
+      "notes": "after C12 prefix5 csum helpers and C13 stepWots_val_eq_wotsSpecStep; bridge axioms c13_refines_byte_spec and c12_refines_byte_spec still remain"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "status": "passed",
+      "notes": "after worker-added prefix5 chainBase helpers evalExpr_chainBase_eq and execStmt_letVar_chainBase_eq; both print only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "status": "passed",
+      "notes": "after C12 prefix5 chainBase helper import; only warning was preexisting unused hParse at C12BridgePrep.lean:1512"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "passed",
+      "notes": "after C12 prefix5 chainBase helpers; bridge axioms c13_refines_byte_spec and c12_refines_byte_spec still remain"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "status": "passed",
+      "notes": "after worker-added prefix5 val helpers evalExpr_val_calldata_mask_eq and execStmt_letVar_val_eq; both print only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "status": "passed",
+      "notes": "after C12 prefix5 val helper import; only warning was preexisting unused hParse at C12BridgePrep.lean:1512"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "status": "passed",
+      "notes": "after worker-added prefix5 digit helpers evalExpr_mul_bounded, evalExpr_digit_eq, and_seven_le_seven, and execStmt_letVar_digit_eq; prints only expected foundations"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "status": "passed",
+      "notes": "after C12 prefix5 digit helper import; only warning was preexisting unused hParse at C12BridgePrep.lean:1512"
+    },
+    {
+      "cmd": "timeout 300s lake build SphincsMinusVerifiers.ClimbMemFrame",
+      "status": "passed",
+      "notes": "rebuilt dependency so SegmentLayer3 can see stepWots_val_eq_wotsSpecStep"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/SegmentLayer3.lean",
+      "status": "passed",
+      "notes": "after worker-added C13 wotsChainFold_val_eq_chainHash; theorem prints only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "passed",
+      "notes": "after C12 prefix5 digit helpers and C13 inner WOTS chain fold helper; bridge axioms c13_refines_byte_spec and c12_refines_byte_spec still remain"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "status": "passed",
+      "notes": "after c12WotsMessageStep_mem_at_i_eq, which discharges the five-statement prefix and consumes c12WotsMessageStep_mem_at_i_via_prefix5; theorem prints only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "status": "passed",
+      "notes": "after c12WotsMessageStep_mem_at_i_eq import; only warning was preexisting unused hParse at C12BridgePrep.lean:1512"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "passed",
+      "notes": "after c12WotsMessageStep_mem_at_i_eq; bridge axioms c13_refines_byte_spec and c12_refines_byte_spec still remain"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "status": "passed",
+      "notes": "after c12WotsMessageLoop_mem_at_j_eq_of_suffix_preserves; theorem prints only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/SegmentLayer3.lean",
+      "status": "passed",
+      "notes": "after wotsOuterTail_mstore_mem_at_i; theorem prints only propext/Classical.choice/Quot.sound"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12BridgePrep.lean",
+      "status": "passed",
+      "notes": "after c12WotsMessageLoop_mem_at_j_eq_of_suffix_preserves and wotsOuterTail_mstore_mem_at_i; only warning was preexisting unused hParse at C12BridgePrep.lean:1512"
+    },
+    {
+      "cmd": "timeout 360s lake env lean SphincsMinusVerifiers/Proofs.lean",
+      "status": "passed",
+      "notes": "after c12WotsMessageLoop_mem_at_j_eq_of_suffix_preserves and wotsOuterTail_mstore_mem_at_i; bridge axioms c13_refines_byte_spec and c12_refines_byte_spec still remain"
+    },
+    {
+      "cmd": "timeout 240s lake env lean SphincsMinusVerifiers/C12SegmentWotsSetup.lean",
+      "status": "passed",
+      "notes": "after c12WotsMessageStep_preserves_prior_message_cell and direct c12WotsMessageLoop_mem_at_j_eq; both print only propext/Classical.choice/Quot.sound"
+    }
+  ]
+}
