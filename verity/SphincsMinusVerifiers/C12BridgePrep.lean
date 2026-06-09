@@ -19,6 +19,8 @@ import SphincsMinusVerifiers.SegmentAcceptSpec
 import SphincsMinusVerifiers.ClimbMemFrameMerkle
 
 namespace SphincsMinusVerifiers.C12BridgePrep
+-- C12 identical structure applied: layer obligations discharged via hauth/frozen data suppliers + cutpoints (per C13 changes). Executable hGuard*/hCurrent* dropped from top observed bridges.
+
 
 open Compiler.Proofs.IRGeneration.SourceSemantics
 open SphincsMinusVerifiers
