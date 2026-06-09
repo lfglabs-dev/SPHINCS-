@@ -341,3 +341,13 @@ After final integration, additionally inspect:
 
 The final C13 target is no bridge axiom, no `sorryAx`, and no opaque-primitives
 axiom in that output.
+
+## 2026-06 Update: Per-layer obligation reductions (C13BridgePrep + SegmentLayer3)
+
+- Guard obligations (hGuard0/hGuard1) reduced to digitSum data facts via layer0/1_guard_discharged (using the existing layerGuard_of_afterDigit_digitSum_eq from SegmentLayer3).
+- CurrentNode obligations (hCurrent0/hCurrent1) reduced via layer0/1_currentNode_discharged, using stepLayer_currentNode_eq_merkleNode + layer merkle climb data supplier (hauth + frozen calldata + merkleClimbData_of_frozenCalldata pattern).
+- The two-step observed theorems and allGuardsPass construction updated to supply data facts instead of executable guards.
+- This shrinks the C13SeedNamedAcceptConcreteLayerCurrentNodeTwoStepObligations surface.
+- Same pattern to be propagated to Proofs.lean and C12 work.
+- Target: the ..._two_step_obligations theorem no longer takes full executable layer obligations as parameters; higher bridges become thinner.
+- Audit: only foundational + explicitly accepted low-level assembly facts expected in final #print axioms for the observed bridges.
