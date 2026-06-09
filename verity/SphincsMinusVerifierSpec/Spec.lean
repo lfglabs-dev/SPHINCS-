@@ -18,6 +18,21 @@ namespace SphincsMinusVerifierSpec
 
 abbrev Bytes := ByteArray
 
+/-- Big-endian `Nat` value of a byte string, with byte 0 most significant. -/
+def bytesToNatBE (ba : Bytes) : Nat :=
+  ba.foldl (fun acc b => acc * 256 + b.toNat) 0
+
+/-- Big-endian `len`-byte projection of a natural number. -/
+def bytesOfNatBE (len : Nat) (w : Nat) : Bytes :=
+  ⟨((List.range len).map
+    (fun i => UInt8.ofNat ((w / (256 ^ (len - 1 - i))) % 256))).toArray⟩
+
+/-- Keep the low `8 * len` bits of a byte string and render them as exactly
+`len` big-endian bytes.  This is the byte-level counterpart of the Verity
+models' `bytes32` parameter word projection for the Keccak SPHINCS- contracts. -/
+def lowBytesProjection (len : Nat) (x : Bytes) : Bytes :=
+  bytesOfNatBE len (bytesToNatBE x % (2 ^ (8 * len)))
+
 inductive HashAlg where
   | keccak256
   | sha256_MGF1
@@ -59,6 +74,16 @@ structure Variant where
   wotsMode      : WotsMode
   forsMode      : ForsMode
   deriving Repr
+
+/-- Public-key root bytes used by the byte-level final comparison.  Variants
+whose public-key root is modeled as a full `bytes32` contract word compare the
+scheme-sized low-word projection; canonicalized variants keep raw byte equality. -/
+def comparePkRootBytes (v : Variant) (pkRoot : Bytes) : Bytes :=
+  if v.fullPkRoot then lowBytesProjection v.n pkRoot else pkRoot
+
+/-- Final root comparison at the byte-spec boundary. -/
+def rootMatchesPk (v : Variant) (root pkRoot : Bytes) : Bool :=
+  root == comparePkRootBytes v pkRoot
 
 def Variant.paramOk (v : Variant) : Prop :=
   v.h = v.d * v.subtreeH ∧
@@ -178,11 +203,17 @@ structure Primitives where
   hMsg            : (v : Variant) → PublicKey → Bytes → Bytes → HMsg
   forsPkFromSig   : (v : Variant) → PublicKey → HMsg → ForsSig → Option Bytes
   wotsPkFromSig   : (v : Variant) → PublicKey → Nat → Nat → Bytes → WotsSig → Option Bytes
+  wotsPkFromSigAtLayer :
+    (layer : Nat) → (v : Variant) → PublicKey → Nat → Nat → Bytes → WotsSig → Option Bytes
   /-- Whether a layer's WOTS+C signature meets its grinding `targetSum`. Only
       consulted for `WotsMode.grindingTarget` variants; the contract reverts when
       this fails. -/
   wotsGrindingOk  : (v : Variant) → PublicKey → Nat → Nat → Bytes → WotsSig → Bool
+  wotsGrindingOkAtLayer :
+    (layer : Nat) → (v : Variant) → PublicKey → Nat → Nat → Bytes → WotsSig → Bool
   xmssRootFromSig : (v : Variant) → PublicKey → Nat → Nat → Bytes → List Bytes → Option Bytes
+  xmssRootFromSigAtLayer :
+    (layer : Nat) → (v : Variant) → PublicKey → Nat → Nat → Bytes → List Bytes → Option Bytes
 
 def forcedZeroOk (v : Variant) (digest : HMsg) : Bool :=
   match v.forsMode with
@@ -244,6 +275,14 @@ def wotsGrindingFails
   | .standardChecksum => false
   | .grindingTarget _ => ¬ p.wotsGrindingOk v pk treeIdx leafIdx node wots
 
+/-- Layer-aware form used by the hypertree climb. -/
+def wotsGrindingFailsAtLayer
+    (p : Primitives) (layer : Nat) (v : Variant) (pk : PublicKey)
+    (treeIdx leafIdx : Nat) (node : Bytes) (wots : WotsSig) : Bool :=
+  match v.wotsMode with
+  | .standardChecksum => false
+  | .grindingTarget _ => ¬ p.wotsGrindingOkAtLayer layer v pk treeIdx leafIdx node wots
+
 /--
 Hypertree climb, written as a structural recursion on an explicit `fuel`
 argument rather than a `partial def`.
@@ -270,13 +309,13 @@ def foldHypertreeAux
       -- index, and WOTS/XMSS address with the tree index *after* shifting them off.
       let idxLeaf := idxTree % 2 ^ v.subtreeH
       let nextTree := idxTree / 2 ^ v.subtreeH
-      if wotsGrindingFails p v pk nextTree idxLeaf node lsig.wots then
+      if wotsGrindingFailsAtLayer p layer v pk nextTree idxLeaf node lsig.wots then
         .reverted
       else
-        match p.wotsPkFromSig v pk nextTree idxLeaf node lsig.wots with
+        match p.wotsPkFromSigAtLayer layer v pk nextTree idxLeaf node lsig.wots with
         | none => .rejected
         | some wotsPk =>
-            match p.xmssRootFromSig v pk nextTree idxLeaf wotsPk lsig.authPath with
+            match p.xmssRootFromSigAtLayer layer v pk nextTree idxLeaf wotsPk lsig.authPath with
             | none => .rejected
             | some root =>
                 foldHypertreeAux p v pk fuel (layer + 1) nextTree root layers
@@ -311,7 +350,7 @@ def verifyParsed (p : Primitives) (v : Variant)
         match foldHypertree p v pk digest forsPk sig.layers with
         | .reverted => none
         | .rejected => some false
-        | .ok root => some (root == pk.pkRoot)
+        | .ok root => some (rootMatchesPk v root pk.pkRoot)
 
 /--
 Compatibility wrapper for the original abstract target.
@@ -384,9 +423,9 @@ theorem verifyBytes_eq_verifySpec
 Soundness of the algorithmic layer: when `verifyParsed` accepts, a concrete,
 well-formed witness exists. The signature passes its shape check, the forced-zero
 FORS guard holds, FORS reconstruction yields a public key, and the hypertree
-climb terminates in `.ok root` with `root` equal to the public-key root. This is
-the accept-direction stated as an existence claim about the reconstructed data,
-not merely as "did not revert".
+  climb terminates in `.ok root` whose variant-specific byte projection matches
+  the public-key root. This is the accept-direction stated as an existence claim
+  about the reconstructed data, not merely as "did not revert".
 -/
 theorem verifyParsed_accepts_sound
     (p : Primitives) (v : Variant)
@@ -397,7 +436,7 @@ theorem verifyParsed_accepts_sound
     ∃ forsPk root,
       p.forsPkFromSig v pk (p.hMsg v pk sig.R message) sig.fors = some forsPk ∧
       foldHypertree p v pk (p.hMsg v pk sig.R message) forsPk sig.layers = .ok root ∧
-      (root == pk.pkRoot) = true := by
+      rootMatchesPk v root pk.pkRoot = true := by
   by_cases hShape : signatureShapeOk v sig = true
   · by_cases hZero : forcedZeroOk v (p.hMsg v pk sig.R message) = true
     · refine ⟨hShape, hZero, ?_⟩
@@ -442,7 +481,8 @@ Byte-level soundness: an accepting `verifyBytes` run exhibits a canonical public
 key, a parsed signature, and the full well-formed witness from
 `verifyParsed_accepts_sound`. This upgrades
 `verifyBytes_accepts_implies_parsed_accepts` from "the parsed layer also accepts"
-to "a concrete reconstructed root matching `pkRoot` exists".
+to "a concrete reconstructed root whose variant-specific projection matches
+`pkRoot` exists".
 -/
 theorem verifyBytes_accepts_sound
     (p : Primitives) (v : Variant)
@@ -455,7 +495,7 @@ theorem verifyBytes_accepts_sound
       forcedZeroOk v (p.hMsg v pk sig.R message) = true ∧
       p.forsPkFromSig v pk (p.hMsg v pk sig.R message) sig.fors = some forsPk ∧
       foldHypertree p v pk (p.hMsg v pk sig.R message) forsPk sig.layers = .ok root ∧
-      (root == pk.pkRoot) = true := by
+      rootMatchesPk v root pk.pkRoot = true := by
   obtain ⟨pk, sig, hPk, hSig, hParsed⟩ :=
     verifyBytes_accepts_implies_parsed_accepts p v pkSeed pkRoot message sigBytes h
   obtain ⟨hShape, hZero, forsPk, root, hFors, hFold, hRoot⟩ :=
