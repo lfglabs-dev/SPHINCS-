@@ -1731,6 +1731,10 @@ any public-key-root size premise. -/
 theorem c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
     (pkSeed pkRoot message sig : Bytes)
     (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hZero : forcedZeroOk c13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true)
     (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
         { pkSeed := pkSeed, pkRoot := pkRoot }
         (C13Concrete.c13PrimitivesConcrete.hMsg c13
@@ -1740,37 +1744,21 @@ theorem c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
         { pkSeed := pkSeed, pkRoot := pkRoot }
         (C13Concrete.c13PrimitivesConcrete.hMsg c13
           { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
-        forsPk sigParsed.layers = .ok specRoot)
-    (hGuard0 :
-      SegmentLayer3.layerGuard
-        (CurrentNodeFrame.c13LayerLoopState0
-          (mkC13State pkSeed pkRoot message sig)) = true)
-    (hCurrent0 :
-      lookupValue
-          (SegmentLayer3.stepLayer
-            (CurrentNodeFrame.c13LayerLoopState0
-              (mkC13State pkSeed pkRoot message sig))).bindings
-          "currentNode"
-        =
-          C13Concrete.wordOfHash16
-            (SegmentAcceptSpec.c13HypertreeSpecStepAtLayer
-              { pkSeed := pkSeed, pkRoot := pkRoot }
-              (C13Concrete.c13PrimitivesConcrete.hMsg c13
-                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
-              sigParsed.layers 0 forsPk))
-    (hGuard1 :
-      SegmentLayer3.layerGuard
-        (CurrentNodeFrame.c13LayerLoopState1
-          (mkC13State pkSeed pkRoot message sig)) = true)
-    (hCurrent1 :
-      lookupValue
-          (SegmentLayer3.stepLayer
-            (CurrentNodeFrame.c13LayerLoopState1
-              (mkC13State pkSeed pkRoot message sig))).bindings
-          "currentNode"
-        = C13Concrete.wordOfHash16 specRoot) :
+        forsPk sigParsed.layers = .ok specRoot) :
     C13FoldOkCurrentNodeWordcmpData
       pkSeed pkRoot message sig sigParsed forsPk specRoot :=
+  let st := mkC13State pkSeed pkRoot message sig
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  let d := C13Concrete.foldHypertree_c13_ok_two_layer_data pk digest forsPk specRoot sigParsed.layers hFold
+  have hDigitSum0 : lookupValue (SegmentLayer3.afterDigit (CurrentNodeFrame.c13LayerLoopState0 st)).bindings "digitSum" = 208 := by
+    exact C13Concrete.wotsDigitSum_eq_of_wotsGrindingFailsC13AtLayer_false C13Concrete.c13PrimitivesConcrete c13 d.lsig0.wots (by simpa using d.hGrinding0)
+  have hGuard0 := C13BridgePrep.layer0_guard_discharged (CurrentNodeFrame.c13LayerLoopState0 st) hDigitSum0
+  have hCurrent0 := C13BridgePrep.layer0_currentNode_discharged pkSeed pkRoot message sig sigParsed forsPk (CurrentNodeFrame.c13LayerLoopState0 st) hParse
+  have hDigitSum1 : lookupValue (SegmentLayer3.afterDigit (CurrentNodeFrame.c13LayerLoopState1 st)).bindings "digitSum" = 208 := by
+    exact C13Concrete.wotsDigitSum_eq_of_wotsGrindingFailsC13AtLayer_false C13Concrete.c13PrimitivesConcrete c13 d.lsig1.wots (by simpa using d.hGrinding1)
+  have hGuard1 := C13BridgePrep.layer1_guard_discharged (CurrentNodeFrame.c13LayerLoopState1 st) hDigitSum1
+  have hCurrent1 := C13BridgePrep.layer1_currentNode_discharged pkSeed pkRoot message sig sigParsed specRoot (CurrentNodeFrame.c13LayerLoopState1 st) hParse
   ⟨hGuard0, hCurrent0, hGuard1, hCurrent1,
     SegmentAcceptSpec.wordCmp_of_wordOfHash16_rootMatchesPk_c13 specRoot pkRoot
       (SegmentAcceptSpec.specRoot_roundtrip_of_c13_fors_fold hFors hFold)⟩
@@ -2520,6 +2508,10 @@ discharged by the C13-produced `specRoot` roundtrip rather than `pkRoot.size`. -
 theorem c13FoldOkCurrentNodeWordcmpData_of_digit_merkle_facts
     (pkSeed pkRoot message sig : Bytes)
     (sigParsed : Signature) (forsPk specRoot : Bytes)
+    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
+    (hZero : forcedZeroOk c13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true)
     (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
         { pkSeed := pkSeed, pkRoot := pkRoot }
         (C13Concrete.c13PrimitivesConcrete.hMsg c13
@@ -2535,10 +2527,12 @@ theorem c13FoldOkCurrentNodeWordcmpData_of_digit_merkle_facts
     C13FoldOkCurrentNodeWordcmpData
       pkSeed pkRoot message sig sigParsed forsPk specRoot := by
   rcases hFacts with ⟨hDigit0, hMerkle0, hDigit1, hMerkle1⟩
+  -- Use the (now deriving) constructor; supply the four facts via the lightweight
+  -- digit+merkle proofs we already have (this path is used when we have the
+  -- afterMerkle/raw step witnesses but want to avoid full observed derivation).
   refine
     c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
-      pkSeed pkRoot message sig sigParsed forsPk specRoot hFors hFold
-      ?_ ?_ ?_ ?_
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold
   · exact
       SegmentLayer3.layerGuard_of_afterDigit_digitSum_eq
         (CurrentNodeFrame.c13LayerLoopState0
@@ -8024,8 +8018,7 @@ theorem c13FoldOkCurrentNodeWordcmpData_of_two_step_obligations
     simpa [ClimbLoop.specFold, hTwo, hStep0Eq, hStep1Root0] using hSpecFold
   refine
     c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
-      pkSeed pkRoot message sig sigParsed forsPk specRoot hFors hFold
-      hObs.hGuard0 ?_ hObs.hGuard1 ?_
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold
   · change
       lookupValue
           (SegmentLayer3.stepLayer
@@ -8571,7 +8564,7 @@ theorem c13_refines_byte_spec_of_current_node_and_reverted_guard_cover
     exact
       C13BridgePrep.runC13BodyObserved_accept_from_fold_ok_current_nodes_wordcmp
         pkSeed pkRoot message sig sigParsed forsPk specRoot
-        hParse hZero hFors hFold hGuard0 hCurrent0 hGuard1 hCurrent1 hWordCmp
+        hParse hZero hFors hFold hWordCmp  -- hGuard*/hCurrent* dropped (derived in callee or via updated path)
   · intro pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors hFold
     have hg3 :
         SegmentS3.s3Guard
@@ -9024,8 +9017,7 @@ theorem c13_refines_byte_spec_of_current_node_facts_and_reverted_digest_scratch_
     ⟨hGuard0, hCurrent0, hGuard1, hCurrent1⟩
   exact
     c13FoldOkCurrentNodeWordcmpData_of_current_node_facts
-      pkSeed pkRoot message sig sigParsed forsPk specRoot hFors hFold
-      hGuard0 hCurrent0 hGuard1 hCurrent1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold
 
 /-- C13 bridge reducer with both branches at concrete layer facts.  The accept
 branch uses the two guards and two post-step `"currentNode"` facts.  The reverted

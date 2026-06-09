@@ -1128,3 +1128,9 @@ Expected status right now: build succeeds with **no `sorry` warnings**.
 `Proofs.lean` proves `byteVerifier_refines_spec` outright and derives the
 unconditional per-verifier `*_refines_spec` theorems from the three named
 `*_refines_byte_spec` bridge axioms (MODEL-EXEC-BRIDGE).
+
+## 2026-06 Update: Layer obligation reductions for thinner bridges
+
+See AXIOMS.md for details on guard and currentNode reductions in C13BridgePrep.lean and SegmentLayer3*.
+
+The executable layer obligations are now data facts + discharged lemmas, shrinking the surface for the two-step and higher observed bridges.
