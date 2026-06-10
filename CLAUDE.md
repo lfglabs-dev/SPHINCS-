@@ -168,18 +168,22 @@ Lean 4 model via Verity framework: 3 axioms (keccak CR), 20 theorems, 0 sorry. `
 
 The `SphincsMinusVerifiers` workbench (`verity/SphincsMinusVerifiers/`) layers the refinement as: compiled Verity model → `ByteLevel.verifyBytes` (byte-level contract spec) → `verifySpec` (abstract algorithmic spec). The lower→abstract link (`verifyBytes_eq_verifySpec`, `byteVerifier_refines_spec`) is fully proved (`#print axioms` → `propext`). The per-verifier theorems (`c13_refines_spec`, `c12_refines_spec`, `slhDsaSha2_128_24_refines_spec`) are **unconditional**, each resting on one named MODEL-EXEC-BRIDGE bridge axiom (`c13_refines_byte_spec`, `c12_refines_byte_spec`, `slhDsaSha2_128_24_refines_byte_spec`) that asserts the compiled model refines its byte spec — the Lean form of the `proofStatus := .assumed` obligations in `Model.lean`. These 3 bridge axioms are the only model-specific assumptions and sit in the trust surface alongside the keccak-CR axioms; no `sorry` anywhere. Discharging them requires Verity's executable source semantics over the raw `bytes`-calldata surface (`sig.length`/`sig.offset`), tracked as MODEL-EXEC-BRIDGE in `SphincsMinusVerifiers/README.md`.
 
-### R2 WIP — `SegmentForsSetup.lean` (PR #6)
+### FIPS-FORS migration status (PR #6)
 
-The R2 segment file (mini-segment for model statements 13–15: `idxLeaf0`/`idxTree0`/`forsBase`) is committed as a structural WIP. The file builds no `sorry` axiom (the only `sorry` is in the keystone lemma's bound-chain rewrite, marked TODO), but the build currently fails at one `rfl` in the `execForsSetup` proof:
+R2–R4 of the FIPS 205 FORS-address migration are complete and committed:
 
-- **Blocking issue (`execForsSetup`, line 220):** the `letVar_continue … rfl` for the `forsBase` step times out at `whnf`. The interpreter's `evalExpr` of the nested `orE (shlE 128 idxTree0) (orE (shlE 96 3) (shlE 64 idxLeaf0))` returns `(Uint256.or …).val`, but the post-step-14 `RuntimeState` (the `b2` form) has a `let`-block in its `bindings` (the `b1`/`b2`/`b3` from `stepForsSetup`'s `def`), so the `localVar` reads of `"idxTree0"`/`"idxLeaf0"` are not defeq to the eval result. The fix is one of:
-  - (a) inline the `stepForsSetup` let-block in its `def` so the bindings are fully unfolded, or
-  - (b) `dsimp`/`unfold` of `bindValue`/`lookupValue` before the final `rfl`, or
-  - (c) drop `stepForsSetup` in favour of a pure function `forsBaseStep : RuntimeState → RuntimeState` with the bindings already fully inlined.
-- **Known non-blocking issue (`stepForsSetup_forsBase_eq`, line 416):** the bound chain (`h11shr` via `Nat.shiftRight_eq_div_pow` + `omega`, `hshl128` via `Nat.shiftLeft_eq` + `Nat.mul_le_mul_right` + `decide`) is in place. The final `Nat`-form rewrite (closing via `simp [C13Concrete.adrsForsBase, Nat.lor_assoc, Nat.shiftLeft_eq]`) is the second `sorry` in the file. Unblocks once the `execForsSetup` `rfl` is fixed.
-- **Done:** structural skeleton (`forsSetup_eq_slice` = `rfl`); `stepForsSetup` transformer (defeq to the model); `stepForsSetup_idxLeaf0` / `_idxTree0` (the raw-`Uint256` form accessors that match the eval output); `forsSetup_preserves_sigBase` / `_dVal` / `_htIdx` (per-key `BindingFrame` preservation); `stepForsSetup_preserves_*_step` (composed step-form); `#print axioms` audit block; `lakefile.lean` registration.
-- **Structural plan applied (per PR #6 review):** `execForsSetup` has *no* bound hypotheses (the word-normalizing interpreter is total; `letVar_continue … rfl` discharges each step). The tight `htIdx < 2^22` bound needed for spec identification is parametrised in `stepForsSetup_forsBase_eq` as `hht : lookupValue st.bindings "htIdx" = htIdx` + `hhtLt : htIdx < 2^22` and discharged at the call site (`SegmentCompose` etc.) from the S3-segment hypertree-index bound.
-- **Net effect on the FIPS-FORS migration plan:** R3, R4, R5 (the downstream re-targeting in `SegmentS4ForsMerkleFrame.lean` / `CurrentNodeFrame.lean` / `SegmentCompose.lean` / `InitialNodeKeccak.lean`) is blocked until the `rfl` in R2 is fixed, since those rewires depend on `stepForsSetup_forsBase_eq` (and the step-form accessors) being available.
+- **R2 (`SegmentForsSetup.lean`)** — done, 0 sorry: match-pattern `stepForsSetup`, digit accessors (`stepForsSetup_idxTree0/_idxLeaf0/_forsBase_eq`), preservation frames, generic `stepForsSetup_preserves_key`.
+- **Spec generalization** — `C13Concrete.forsClimb` and the `fors*C13` family now carry the FIPS digits (`idxTree0C13/idxLeaf0C13` derived from `digest.hyperIndex`); `ClimbStepSpec.forsClimbStep` and `ClimbMemFrameMerkle.forsSpecStep/ForsClimbRel_step/forsClimb_model_node` are digit-parametric.
+- **R3 (`SegmentS4ForsMerkleFrame.lean`)** — fully rewritten on `forsClimbBody`/`stepForsMerkle`: memory-frame half needs no address value (forsAdrs is total), node-correspondence half threads the outer `"i"` binding via the strengthened `ForsClimbFrameI` invariant; `forsAdrs_eval_eq` identifies the per-level ADRS with `adrsForsNode`.
+- **R4** — `SegmentCompose` threads `stepForsSetup` (`afterForsSetup` state); `CurrentNodeFrame`, `SegmentAcceptSpec` (hR-threaded accept chain, obligation structures at `afterForsSetup`), `RootFrame`, `SegmentRejectSpec`, `SegmentS4ForsDataObligations` all green on the FIPS digits.
+- **`C13BridgePrep.lean`** — restored to the last sorry-free version (8968551); the later "narrowed bridge" commits (2ec3737/e0c48ef) had never compiled (forward references, syntax errors, 5 sorries) and were dropped pending a real re-derivation.
+
+**Remaining:**
+- `Proofs.lean` — the post-8968551 additions reference the dropped narrowed-bridge names and OOM/fail; needs the same restore-or-repair treatment as `C13BridgePrep` before the package builds end-to-end.
+- C12 modules (`C12BridgePrep` etc.) — unaudited against the spec generalization (C12 has its own `C12Concrete`, likely unaffected, but `C12BridgePrep` imports `SegmentS4ForsMerkleFrame`).
+- Cleanup: generalize/delete `InitialNodeKeccak.fors_leaf_node_eq_spec` (hardcodes digits `0 0`), README MODEL-EXEC-BRIDGE notes.
+
+**Build discipline (16 GB machines):** never run a bare `lake build` — use `verity/scripts/build.sh` (caps the Lean task pool at 2 workers via `LEAN_NUM_THREADS`; `lakefile.lean` sets `maxHeartbeats 1000000` so runaway whnf aborts as an error instead of OOMing the machine). Several proof files were authored on large cloud machines and exceed 12 GB per worker if a defeq diverges.
 
 ## Foundry Config
 
