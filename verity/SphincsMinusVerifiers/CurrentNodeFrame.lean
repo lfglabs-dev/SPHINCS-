@@ -679,6 +679,68 @@ theorem afterFors_forsBase_mkC13State
         "i" "forsBase" (wordNormalize 0) (by decide)]
   exact afterForsSetup_forsBase_mkC13State pkSeed pkRoot message sig
 
+/-- The hoisted FIPS tree digit over the byte-facing entry state. -/
+theorem afterForsSetup_idxTree0_mkC13State (pkSeed pkRoot message sig : ByteArray) :
+    lookupValue (afterForsSetup (mkC13State pkSeed pkRoot message sig)).bindings "idxTree0"
+      = C13Concrete.idxTree0C13
+          (C13Concrete.hMsgC13 c13 { pkSeed := pkSeed, pkRoot := pkRoot }
+              (C13Concrete.read16 sig 0) message) := by
+  unfold afterForsSetup
+  rw [SegmentForsSetup.stepForsSetup_idxTree0
+    (afterS3 (mkC13State pkSeed pkRoot message sig))
+    ((C13Concrete.hMsgC13 c13 { pkSeed := pkSeed, pkRoot := pkRoot }
+      (C13Concrete.read16 sig 0) message).hyperIndex)
+    (afterS3_htIdx_mkC13State pkSeed pkRoot message sig)
+    (C13Concrete.hMsgC13_hyperIndex_lt _ _ _)]
+  rfl
+
+/-- The hoisted FIPS leaf digit over the byte-facing entry state. -/
+theorem afterForsSetup_idxLeaf0_mkC13State (pkSeed pkRoot message sig : ByteArray) :
+    lookupValue (afterForsSetup (mkC13State pkSeed pkRoot message sig)).bindings "idxLeaf0"
+      = C13Concrete.idxLeaf0C13
+          (C13Concrete.hMsgC13 c13 { pkSeed := pkSeed, pkRoot := pkRoot }
+              (C13Concrete.read16 sig 0) message) := by
+  unfold afterForsSetup
+  rw [SegmentForsSetup.stepForsSetup_idxLeaf0
+    (afterS3 (mkC13State pkSeed pkRoot message sig))
+    ((C13Concrete.hMsgC13 c13 { pkSeed := pkSeed, pkRoot := pkRoot }
+      (C13Concrete.read16 sig 0) message).hyperIndex)
+    (afterS3_htIdx_mkC13State pkSeed pkRoot message sig)
+    (C13Concrete.hMsgC13_hyperIndex_lt _ _ _)]
+  rfl
+
+/-- The FIPS tree digit survives the FORS outer loop. -/
+theorem afterFors_idxTree0_mkC13State (pkSeed pkRoot message sig : ByteArray) :
+    lookupValue (afterFors (mkC13State pkSeed pkRoot message sig)).bindings "idxTree0"
+      = C13Concrete.idxTree0C13
+          (C13Concrete.hMsgC13 c13 { pkSeed := pkSeed, pkRoot := pkRoot }
+              (C13Concrete.read16 sig 0) message) := by
+  unfold afterFors
+  rw [ClimbLoop.foldLoop_preserves_lookup "i" "idxTree0"
+        SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+        (by decide) SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep_preserves_idxTree0
+        _ 0 (wordNormalize 6)]
+  rw [MemoryKit.lookupValue_bindValue_ne
+        (afterForsSetup (mkC13State pkSeed pkRoot message sig)).bindings
+        "i" "idxTree0" (wordNormalize 0) (by decide)]
+  exact afterForsSetup_idxTree0_mkC13State pkSeed pkRoot message sig
+
+/-- The FIPS leaf digit survives the FORS outer loop. -/
+theorem afterFors_idxLeaf0_mkC13State (pkSeed pkRoot message sig : ByteArray) :
+    lookupValue (afterFors (mkC13State pkSeed pkRoot message sig)).bindings "idxLeaf0"
+      = C13Concrete.idxLeaf0C13
+          (C13Concrete.hMsgC13 c13 { pkSeed := pkSeed, pkRoot := pkRoot }
+              (C13Concrete.read16 sig 0) message) := by
+  unfold afterFors
+  rw [ClimbLoop.foldLoop_preserves_lookup "i" "idxLeaf0"
+        SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
+        (by decide) SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep_preserves_idxLeaf0
+        _ 0 (wordNormalize 6)]
+  rw [MemoryKit.lookupValue_bindValue_ne
+        (afterForsSetup (mkC13State pkSeed pkRoot message sig)).bindings
+        "i" "idxLeaf0" (wordNormalize 0) (by decide)]
+  exact afterForsSetup_idxLeaf0_mkC13State pkSeed pkRoot message sig
+
 /-- The FORS outer loop carries the digest-derived hypertree index unchanged. -/
 theorem afterFors_htIdx_mkC13State
     (pkSeed pkRoot message sig : ByteArray) :
