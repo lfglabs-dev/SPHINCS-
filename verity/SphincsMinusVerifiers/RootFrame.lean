@@ -78,6 +78,29 @@ theorem merkleClimbBody_pres
   · exact execStmt_assignVar_preserves_lookup _ _ nodeVar "root" _ hn hexec
   · exact execStmt_assignVar_preserves_lookup _ _ idxVar "root" _ hi hexec
 
+/-- Address-parametric variant: the climb body shape is independent of the
+ADRS operand, so the same per-statement frame applies to `merkleClimbBodyA`
+(hence to the FIPS `forsClimbBody`). -/
+theorem merkleClimbBodyA_pres
+    (nodeVar idxVar authPtrVar : String) (adrsE : Compiler.CompilationModel.Expr)
+    (hn : nodeVar ≠ "root") (hi : idxVar ≠ "root") :
+    PreservesRoot (ClimbKit.merkleClimbBodyA nodeVar idxVar authPtrVar adrsE) := by
+  intro s s'' stmt hmem hexec
+  simp only [ClimbKit.merkleClimbBodyA, List.mem_cons, List.not_mem_nil, or_false] at hmem
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact execStmt_letVar_preserves_lookup _ _ "sibling" "root" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "parentIdx" "root" _ (by decide) hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "s" "root" _ (by decide) hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
+  · exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
+  · exact execStmt_assignVar_preserves_lookup _ _ nodeVar "root" _ hn hexec
+  · exact execStmt_assignVar_preserves_lookup _ _ idxVar "root" _ hi hexec
+
+theorem forsClimbBody_pres : PreservesRoot ClimbKit.forsClimbBody :=
+  merkleClimbBodyA_pres "node" "pathIdx" "authPtr" ClimbKit.forsAdrs
+    (by decide) (by decide)
+
 /-! ## 2. The WOTS outer-loop body (contains the inner `forEach "step"`). -/
 
 theorem wotsOuterBody_pres : PreservesRoot wotsOuterBody := by
@@ -235,19 +258,17 @@ theorem afterFinalize_preserves_root (st : RuntimeState) :
 theorem forsLeafBody_pres : PreservesRoot SegmentS4Fors.forsLeafBody := by
   intro s s'' stmt hmem hexec
   simp only [SegmentS4Fors.forsLeafBody, List.mem_cons, List.not_mem_nil, or_false] at hmem
-  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
   · exact execStmt_letVar_preserves_lookup _ _ "treeIdx" "root" _ (by decide) hexec
   · exact execStmt_letVar_preserves_lookup _ _ "secretVal" "root" _ (by decide) hexec
   · exact execStmt_letVar_preserves_lookup _ _ "leafAdrs" "root" _ (by decide) hexec
   · exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
   · exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
   · exact execStmt_letVar_preserves_lookup _ _ "node" "root" _ (by decide) hexec
-  · exact execStmt_letVar_preserves_lookup _ _ "forsBase" "root" _ (by decide) hexec
   · exact execStmt_letVar_preserves_lookup _ _ "pathIdx" "root" _ (by decide) hexec
   · exact execStmt_letVar_preserves_lookup _ _ "authPtr" "root" _ (by decide) hexec
   · exact execStmt_forEach_preserves_lookup "h" "root" _ _ _ _ (by decide)
-      (merkleClimbBody_pres "node" "pathIdx" "forsBase" "authPtr"
-        (by decide) (by decide)) hexec
+      forsClimbBody_pres hexec
   · exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
 
 theorem forsLeafStep_preserves_root (st : RuntimeState) :
@@ -256,14 +277,22 @@ theorem forsLeafStep_preserves_root (st : RuntimeState) :
   execStmtList_preserves_lookup "root" SegmentS4Fors.forsLeafBody st
     (SegmentS4Fors.forsLeafStep st) forsLeafBody_pres (SegmentS4Fors.execForsLeaf st)
 
+theorem afterForsSetup_preserves_root (st : RuntimeState) :
+    lookupValue (SegmentCompose.afterForsSetup st).bindings "root"
+      = lookupValue (SegmentCompose.afterS3 st).bindings "root" := by
+  unfold SegmentCompose.afterForsSetup
+  exact SegmentForsSetup.stepForsSetup_preserves_key "root"
+    (by decide) (by decide) (by decide) (SegmentCompose.afterS3 st)
+
 theorem afterFors_preserves_root (st : RuntimeState) :
     lookupValue (SegmentCompose.afterFors st).bindings "root"
       = lookupValue (SegmentCompose.afterS3 st).bindings "root" := by
   unfold SegmentCompose.afterFors
   rw [ClimbLoop.foldLoop_preserves_lookup "i" "root" SegmentS4Fors.forsLeafStep
         (by decide) forsLeafStep_preserves_root _ 0 (wordNormalize 6)]
-  exact MemoryKit.lookupValue_bindValue_ne (SegmentCompose.afterS3 st).bindings
-    "i" "root" (wordNormalize 0) (by decide)
+  rw [MemoryKit.lookupValue_bindValue_ne (SegmentCompose.afterForsSetup st).bindings
+    "i" "root" (wordNormalize 0) (by decide)]
+  exact afterForsSetup_preserves_root st
 
 /-! ## 9. The S3 frame (direct `bindValue` chain) and the full post-S2 chain. -/
 

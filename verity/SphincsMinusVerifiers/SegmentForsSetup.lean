@@ -290,6 +290,15 @@ private theorem forsSetup_preserves_key
     exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
       s s'' "forsBase" key _ h3 hexec
 
+/-- Generic public step-form binding frame for the FORS pre-loop setup: any
+key other than the three fresh binders is preserved. -/
+theorem stepForsSetup_preserves_key
+    (key : String)
+    (h1 : "idxLeaf0" ≠ key) (h2 : "idxTree0" ≠ key) (h3 : "forsBase" ≠ key)
+    (st : RuntimeState) :
+    lookupValue (stepForsSetup st).bindings key = lookupValue st.bindings key :=
+  forsSetup_preserves_key key h1 h2 h3 st (stepForsSetup st) (execForsSetup st)
+
 theorem forsSetup_preserves_sigBase
     (st s' : RuntimeState)
     (h : execStmtList [] st forsSetupBody = .continue s') :
@@ -383,6 +392,7 @@ theorem stepForsSetup_preserves_selector_calldata_step (st : RuntimeState) :
 #print axioms stepForsSetup_idxLeaf0
 #print axioms stepForsSetup_idxTree0
 #print axioms stepForsSetup_forsBase_eq
+#print axioms stepForsSetup_preserves_key
 #print axioms forsSetup_preserves_sigBase
 #print axioms forsSetup_preserves_dVal
 #print axioms forsSetup_preserves_htIdx
