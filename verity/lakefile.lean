@@ -2,7 +2,12 @@ import Lake
 open Lake DSL
 
 package SphincsC6Verity where
-  leanOptions := #[⟨`autoImplicit, false⟩]
+  -- maxHeartbeats: a runaway whnf/decide aborts as an elaboration error instead
+  -- of ballooning a lean worker to multi-GB RSS (the proof files here are large
+  -- enough that 8 parallel workers can OOM a 16 GB machine — always build with
+  -- `scripts/build.sh` or `lake build -j2`).
+  leanOptions := #[⟨`autoImplicit, false⟩,
+                   ⟨`maxHeartbeats, (1000000 : Nat)⟩]
 
 require verity from "../../verity-framework"
 
