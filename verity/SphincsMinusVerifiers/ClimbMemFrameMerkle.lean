@@ -961,6 +961,35 @@ theorem xmssClimb_eq_specFold
       simp only [xmssClimb, ClimbLoop.specFold_succ, merkleSpecStep]
       exact xmssClimb_eq_specFold seed treeAdrs auth fuel (h + 1) (mIdx / 2) _
 
+/-- One spec FORS-climb step on the `(pathIdx, node)` accumulator: per the FIPS
+205 layout the per-level address is `adrsForsNode 0 0 i h parentIdx` (the
+`i <<< (18 - h)` tree-number fold makes it `h`-dependent, so the FORS climb is
+*not* `merkleSpecStep` at a fixed base).  Verbatim image of the `forsClimb`
+loop body. -/
+def forsSpecStep (seed i : Nat) (auth : List SphincsMinusVerifierSpec.Bytes) :
+    Nat → (Nat × Nat) → (Nat × Nat)
+  | h, (pathIdx, node) =>
+    let sibling := wordOfHash16 ((auth[h]?).getD ⟨#[]⟩)
+    let parentIdx := pathIdx / 2
+    let adrs := SphincsMinusVerifierSpec.C13Concrete.adrsForsNode 0 0 i h parentIdx
+    let node' :=
+      if pathIdx % 2 == 0 then maskN (keccakWords [seed, adrs, node, sibling])
+      else maskN (keccakWords [seed, adrs, sibling, node])
+    (parentIdx, node')
+
+theorem forsClimb_eq_specFold
+    (seed i : Nat) (auth : List SphincsMinusVerifierSpec.Bytes) :
+    ∀ (fuel h pathIdx node : Nat),
+      SphincsMinusVerifierSpec.C13Concrete.forsClimb seed i fuel h pathIdx node auth
+        = (ClimbLoop.specFold (forsSpecStep seed i auth) (pathIdx, node) h fuel).2
+  | 0, h, pathIdx, node => by
+      simp only [SphincsMinusVerifierSpec.C13Concrete.forsClimb, ClimbLoop.specFold_zero]
+  | fuel + 1, h, pathIdx, node => by
+      simp only [SphincsMinusVerifierSpec.C13Concrete.forsClimb,
+        ClimbLoop.specFold_succ, forsSpecStep]
+      exact forsClimb_eq_specFold seed i auth fuel (h + 1) (pathIdx / 2) _
+
+
 /-! ### Per-step node output = the spec step function `merkleSpecStep`.
 
 The final weld of the per-step node algebra: the interpreter step's `nodeVar`
@@ -1558,6 +1587,16 @@ theorem merkleSpecStep_snd_normalized (seed treeAdrs : Nat)
       = (merkleSpecStep seed treeAdrs auth h a).2 := by
   obtain ⟨mIdx, node⟩ := a
   simp only [merkleSpecStep]
+  split <;> exact wordNormalize_maskN _
+
+/-- The spec FORS node output `forsSpecStep.2` is `wordNormalize`-stable (both
+parity branches are `maskN`-masked). -/
+theorem forsSpecStep_snd_normalized (seed i : Nat)
+    (auth : List SphincsMinusVerifierSpec.Bytes) (h : Nat) (a : Nat × Nat) :
+    wordNormalize (forsSpecStep seed i auth h a).2
+      = (forsSpecStep seed i auth h a).2 := by
+  obtain ⟨pathIdx, node⟩ := a
+  simp only [forsSpecStep]
   split <;> exact wordNormalize_maskN _
 
 /-- Exact-node variant of `MerkleClimbRel`.  It carries the raw node binding,
@@ -3132,31 +3171,31 @@ theorem xmssClimbRaw_model_node
   rw [xmssClimb_eq_specFold]
   exact hrel.node
 
-/-- **`forsClimb_model_node`** — FORS-specialised wrapper around
-`xmssClimb_model_node`.  The generic Merkle loop is instantiated with the FORS tree
-base `(3 <<< 96) ||| (i <<< 64)`, then rewritten to the named C13 `forsClimb`
-spec function. -/
+/-- **`forsClimb_model_node`** — FORS loop lift.  Under the FIPS 205 layout the
+per-level FORS address is `h`-dependent (`i <<< (18 - h)`), so this is a direct
+`foldLoop_invariant_cond` instantiation over `ClimbKit.stepForsMerkle` and
+`forsSpecStep`, folded to the named C13 `forsClimb` spec function. -/
 theorem forsClimb_model_node
-    (nodeVar idxVar adrsBaseVar authPtrVar : String)
     (seed i : Nat) (auth : List SphincsMinusVerifierSpec.Bytes) (cdAt : Nat → Nat)
     (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
-        MerkleClimbData auth cdAt idx → MerkleClimbRel nodeVar idxVar s a →
-        MerkleClimbRel nodeVar idxVar
-          (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar
+        MerkleClimbData auth cdAt idx → MerkleClimbRel "node" "pathIdx" s a →
+        MerkleClimbRel "node" "pathIdx"
+          (SphincsMinusVerifiers.ClimbKit.stepForsMerkle
             { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
-          (merkleSpecStep seed ((3 <<< 96) ||| (i <<< 64)) auth idx a))
+          (forsSpecStep seed i auth idx a))
     (state : RuntimeState) (pathIdx node h fuel : Nat)
     (hD : ∀ idx, h ≤ idx → idx < h + fuel → MerkleClimbData auth cdAt idx)
-    (hR : MerkleClimbRel nodeVar idxVar state (pathIdx, node)) :
+    (hR : MerkleClimbRel "node" "pathIdx" state (pathIdx, node)) :
     wordNormalize (lookupValue
-        (ClimbLoop.foldLoop "h" (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar)
-          state h fuel).bindings nodeVar)
+        (ClimbLoop.foldLoop "h" SphincsMinusVerifiers.ClimbKit.stepForsMerkle
+          state h fuel).bindings "node")
       = SphincsMinusVerifierSpec.C13Concrete.forsClimb seed i fuel h pathIdx node auth := by
-  have hx := xmssClimb_model_node nodeVar idxVar adrsBaseVar authPtrVar
-    seed ((3 <<< 96) ||| (i <<< 64)) auth cdAt hstep state pathIdx node h fuel hD hR
-  exact hx.trans
-    (SphincsMinusVerifiers.ClimbStepSpec.forsClimb_eq_xmssClimb
-      seed i fuel h pathIdx node auth).symm
+  have hrel := ClimbLoop.foldLoop_invariant_cond "h"
+    SphincsMinusVerifiers.ClimbKit.stepForsMerkle
+    (forsSpecStep seed i auth) (MerkleClimbRel "node" "pathIdx")
+    (MerkleClimbData auth cdAt) hstep state (pathIdx, node) h fuel hD hR
+  rw [forsClimb_eq_specFold]
+  exact hrel.node
 
 /-! ## 6c. STEP-3 frame-carrying loop lift: whole-loop `MerkleClimbFrame` ↔
 `specFold`/`xmssClimb`.
@@ -3246,37 +3285,40 @@ theorem xmssClimbFrame_model_node
   rw [xmssClimb_eq_specFold]
   exact hframe.toRel.node
 
-/-- **`forsClimbFrame_model_node`** — frame-carrying FORS-specialised wrapper around
-`xmssClimbFrame_model_node`, returning the named C13 `forsClimb` root expression. -/
+/-- **`forsClimbFrame_model_node`** — frame-carrying FORS loop lift over
+`ClimbKit.stepForsMerkle` / `forsSpecStep`, returning the named C13 `forsClimb`
+root expression.  The frame's `adrsBaseVar` slot carries the hoisted
+`"forsBase"` binding (its value `forsBase` is the FIPS `adrsForsBase`). -/
 theorem forsClimbFrame_model_node
-    (nodeVar idxVar adrsBaseVar authPtrVar : String)
     (pkSeed pkRoot message sig : ByteArray)
-    (seed i merklePtr : Nat)
+    (seed i forsBase merklePtr : Nat)
     (auth : List SphincsMinusVerifierSpec.Bytes) (cdAt : Nat → Nat)
     (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
         MerkleClimbData auth cdAt idx →
-        MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
-          pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64)) merklePtr s a →
-        MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
-          pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64)) merklePtr
-          (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar
+        MerkleClimbFrame "node" "pathIdx" "forsBase" "authPtr"
+          pkSeed pkRoot message sig seed forsBase merklePtr s a →
+        MerkleClimbFrame "node" "pathIdx" "forsBase" "authPtr"
+          pkSeed pkRoot message sig seed forsBase merklePtr
+          (SphincsMinusVerifiers.ClimbKit.stepForsMerkle
             { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
-          (merkleSpecStep seed ((3 <<< 96) ||| (i <<< 64)) auth idx a))
+          (forsSpecStep seed i auth idx a))
     (state : RuntimeState) (pathIdx node h fuel : Nat)
     (hD : ∀ idx, h ≤ idx → idx < h + fuel → MerkleClimbData auth cdAt idx)
-    (hR : MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
-            pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64)) merklePtr
+    (hR : MerkleClimbFrame "node" "pathIdx" "forsBase" "authPtr"
+            pkSeed pkRoot message sig seed forsBase merklePtr
             state (pathIdx, node)) :
     wordNormalize (lookupValue
-        (ClimbLoop.foldLoop "h" (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar)
-          state h fuel).bindings nodeVar)
+        (ClimbLoop.foldLoop "h" SphincsMinusVerifiers.ClimbKit.stepForsMerkle
+          state h fuel).bindings "node")
       = SphincsMinusVerifierSpec.C13Concrete.forsClimb seed i fuel h pathIdx node auth := by
-  have hx := xmssClimbFrame_model_node nodeVar idxVar adrsBaseVar authPtrVar
-    pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64)) merklePtr auth cdAt
-    hstep state pathIdx node h fuel hD hR
-  exact hx.trans
-    (SphincsMinusVerifiers.ClimbStepSpec.forsClimb_eq_xmssClimb
-      seed i fuel h pathIdx node auth).symm
+  have hframe := ClimbLoop.foldLoop_invariant_cond "h"
+    SphincsMinusVerifiers.ClimbKit.stepForsMerkle
+    (forsSpecStep seed i auth)
+    (MerkleClimbFrame "node" "pathIdx" "forsBase" "authPtr"
+      pkSeed pkRoot message sig seed forsBase merklePtr)
+    (MerkleClimbData auth cdAt) hstep state (pathIdx, node) h fuel hD hR
+  rw [forsClimb_eq_specFold]
+  exact hframe.toRel.node
 
 /-! ## 6d. Memory-frame loop adapters. -/
 
