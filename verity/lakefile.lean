@@ -40,6 +40,7 @@ lean_lib SphincsMinusVerifiers where
              `SphincsMinusVerifiers.ClimbLoopGuarded,
              `SphincsMinusVerifiers.SegmentS3,
              `SphincsMinusVerifiers.SegmentSeed,
+             `SphincsMinusVerifiers.SegmentForsSetup,
              `SphincsMinusVerifiers.SegmentS4Fors,
              `SphincsMinusVerifiers.SegmentS4ForsMerkleFrame,
              `SphincsMinusVerifiers.SegmentS4Finalize,
