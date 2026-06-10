@@ -981,6 +981,77 @@ theorem forsLeafBody_preserves_sigBase
     exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
       s s'' "sigBase" (addE (u 0x80) (shlE (u 5) (v "i"))) (v "node") hexec
 
+/-- The whole FORS leaf body never rebinds the hoisted FIPS ADRS base
+`"forsBase"` (bound once by the fors-setup segment, before the outer loop). -/
+theorem forsLeafBody_preserves_forsBase
+    (st s' : RuntimeState)
+    (h : execStmtList [] st forsLeafBody = .continue s') :
+    lookupValue s'.bindings "forsBase" = lookupValue st.bindings "forsBase" := by
+  refine SphincsMinusVerifiers.BindingFrame.execStmtList_preserves_lookup
+    "forsBase" forsLeafBody st s' ?_ h
+  intro s s'' stmt hmem hexec
+  simp [forsLeafBody, mstore, mstoreE] at hmem
+  rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt |
+    hstmt | hstmt | hstmt | hstmt | hstmt
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "treeIdx" "forsBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "secretVal" "forsBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "leafAdrs" "forsBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "forsBase" (u 0x20) (v "leafAdrs") hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "forsBase" (u 0x40) (v "secretVal") hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "node" "forsBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "pathIdx" "forsBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+      s s'' "authPtr" "forsBase" _ (by decide) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_forEach_preserves_lookup
+      "h" "forsBase" _ _ s s'' (by decide)
+      (fun s s'' stmt hmem hexec => by
+        simp [SphincsMinusVerifiers.ClimbKit.forsClimbBody,
+          SphincsMinusVerifiers.ClimbKit.merkleClimbBodyA] at hmem
+        rcases hmem with hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt | hstmt
+        · subst stmt
+          exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+            s s'' "sibling" "forsBase" _ (by decide) hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+            s s'' "parentIdx" "forsBase" _ (by decide) hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+            s s'' "forsBase" (u 0x20) _ hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.BindingFrame.execStmt_letVar_preserves_lookup
+            s s'' "s" "forsBase" _ (by decide) hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+            s s'' "forsBase" _ _ hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+            s s'' "forsBase" _ _ hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+            s s'' "node" "forsBase" _ (by decide) hexec
+        · subst stmt
+          exact SphincsMinusVerifiers.BindingFrame.execStmt_assignVar_preserves_lookup
+            s s'' "pathIdx" "forsBase" _ (by decide) hexec) hexec
+  · subst stmt
+    exact SphincsMinusVerifiers.BindingFrame.execStmt_mstore_preserves_lookup
+      s s'' "forsBase" (addE (u 0x80) (shlE (u 5) (v "i"))) (v "node") hexec
+
 /-- The whole FORS leaf body preserves the EVM selector and calldata image. -/
 theorem forsLeafBody_preserves_selector_calldata
     (st s' : RuntimeState)
@@ -1460,6 +1531,12 @@ theorem forsLeafStep_preserves_sigBase (st : RuntimeState) :
       = lookupValue st.bindings "sigBase" :=
   forsLeafBody_preserves_sigBase st (forsLeafStep st) (execForsLeaf st)
 
+/-- Step-form FIPS ADRS-base binding frame for one FORS leaf iteration. -/
+theorem forsLeafStep_preserves_forsBase (st : RuntimeState) :
+    lookupValue (forsLeafStep st).bindings "forsBase"
+      = lookupValue st.bindings "forsBase" :=
+  forsLeafBody_preserves_forsBase st (forsLeafStep st) (execForsLeaf st)
+
 /-- Step-form selector/calldata frame for one FORS leaf iteration. -/
 theorem forsLeafStep_preserves_selector_calldata (st : RuntimeState) :
     SphincsMinusVerifiers.StateFrame.PreservesSelectorCalldata st (forsLeafStep st) :=
@@ -1655,6 +1732,8 @@ theorem execForsOuter_preserves_seed_slot_range_six
 #print axioms forsLeafStore_preserves_i
 #print axioms forsLeafBody_preserves_i
 #print axioms forsLeafBody_preserves_sigBase
+#print axioms forsLeafBody_preserves_forsBase
+#print axioms forsLeafStep_preserves_forsBase
 #print axioms forsLeafBody_preserves_selector_calldata
 #print axioms forsLeafStep_preserves_i
 #print axioms forsLeafStep_preserves_sigBase
