@@ -5,11 +5,12 @@
   interpreter to a symbolic step transformer:
 
   * `SegmentS2.execS2`            stmts 1..9   → `.continue (s2Step ·)`
-  * `SegmentS3.execSegmentS3`     stmts 10..13 → guarded `.continue (stepS3 ·)`
-  * `SegmentS4Fors.execForsOuter` stmt  14     → `.continue (foldLoop "i" forsLeafStep ·)`
-  * `SegmentS4Finalize.execForsFinalize` stmts 15..21 → `.continue (forsFinalizeStep ·)`
-  * `SegmentSeed.execSegmentSeed` stmts 22..24 → `.continue (stepSeed ·)`
-  * `SegmentLayer3.execLayerLoop` stmt  25     → guarded `.continue (foldLoop "layer" stepLayer ·)`
+  * `SegmentS3.execSegmentS3`     stmts 10..12 → guarded `.continue (stepS3 ·)`
+  * `SegmentForsSetup.execForsSetup` stmts 13..15 → `.continue (stepForsSetup ·)`
+  * `SegmentS4Fors.execForsOuter` stmt  16     → `.continue (foldLoop "i" forsLeafStep ·)`
+  * `SegmentS4Finalize.execForsFinalize` stmts 17..23 → `.continue (forsFinalizeStep ·)`
+  * `SegmentSeed.execSegmentSeed` stmts 24..26 → `.continue (stepSeed ·)`
+  * `SegmentLayer3.execLayerLoop` stmt  27     → guarded `.continue (foldLoop "layer" stepLayer ·)`
 
   This file composes them — under the length guard and the two body guards (the
   FORS forced-zero guard and the WOTS-checksum climb guards) — into a single
@@ -25,6 +26,7 @@
 
 import SphincsMinusVerifiers.SegmentS2
 import SphincsMinusVerifiers.SegmentS3
+import SphincsMinusVerifiers.SegmentForsSetup
 import SphincsMinusVerifiers.SegmentS4Fors
 import SphincsMinusVerifiers.SegmentS4Finalize
 import SphincsMinusVerifiers.SegmentSeed
@@ -42,9 +44,14 @@ def afterS2 (st : RuntimeState) : RuntimeState := SegmentS2.s2Step st
 
 def afterS3 (st : RuntimeState) : RuntimeState := SegmentS3.stepS3 (afterS2 st)
 
+/-- After the FIPS FORS pre-loop setup (stmts 13..15: the hoisted
+`idxLeaf0`/`idxTree0`/`forsBase` digits). -/
+def afterForsSetup (st : RuntimeState) : RuntimeState :=
+  SegmentForsSetup.stepForsSetup (afterS3 st)
+
 def afterFors (st : RuntimeState) : RuntimeState :=
   ClimbLoop.foldLoop "i" SegmentS4Fors.forsLeafStep
-    { (afterS3 st) with bindings := bindValue (afterS3 st).bindings "i" (wordNormalize 0) }
+    { (afterForsSetup st) with bindings := bindValue (afterForsSetup st).bindings "i" (wordNormalize 0) }
     0 (wordNormalize 6)
 
 def afterFinalize (st : RuntimeState) : RuntimeState :=
@@ -62,9 +69,10 @@ def afterLayer (st : RuntimeState) : RuntimeState :=
 set_option maxHeartbeats 4000000 in
 theorem body_reshape :
     c13VerifyBodyTail =
-      SegmentS2.s2Body ++ (SegmentS3.segmentS3 ++ ([SegmentS4Fors.forsOuterStmt] ++
+      SegmentS2.s2Body ++ (SegmentS3.segmentS3 ++ (SegmentForsSetup.forsSetupBody ++
+        ([SegmentS4Fors.forsOuterStmt] ++
         (SegmentS4Finalize.forsFinalizeBody ++ (SegmentSeed.segmentSeed ++
-          ([SegmentLayer3.layerStmt] ++ c13VerifyBodyTail.drop 28))))) := rfl
+          ([SegmentLayer3.layerStmt] ++ c13VerifyBodyTail.drop 28)))))) := rfl
 
 /-! ## 3. Singleton-statement continue helper. -/
 
@@ -104,22 +112,27 @@ theorem execC13Body_thread
       = .continue (afterS3 st) := by
     rw [SegmentS3.execSegmentS3, if_pos hg3]; rfl
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ hS3]
-  -- FORS outer loop (stmt 14)
-  have hFors : execStmtList [] (afterS3 st) [SegmentS4Fors.forsOuterStmt]
+  -- FORS pre-loop setup (stmts 13..15)
+  have hSetup : execStmtList [] (afterS3 st) SegmentForsSetup.forsSetupBody
+      = .continue (afterForsSetup st) :=
+    SegmentForsSetup.execForsSetup (afterS3 st)
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ hSetup]
+  -- FORS outer loop (stmt 16)
+  have hFors : execStmtList [] (afterForsSetup st) [SegmentS4Fors.forsOuterStmt]
       = .continue (afterFors st) :=
-    execSingleton_continue _ _ _ (SegmentS4Fors.execForsOuter (afterS3 st))
+    execSingleton_continue _ _ _ (SegmentS4Fors.execForsOuter (afterForsSetup st))
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ hFors]
-  -- FORS finalize (stmts 15..21)
+  -- FORS finalize (stmts 17..23)
   have hFin : execStmtList [] (afterFors st) SegmentS4Finalize.forsFinalizeBody
       = .continue (afterFinalize st) :=
     SegmentS4Finalize.execForsFinalize (afterFors st)
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ hFin]
-  -- Seed (stmts 22..24)
+  -- Seed (stmts 24..26)
   have hSeed : execStmtList [] (afterFinalize st) SegmentSeed.segmentSeed
       = .continue (afterSeed st) :=
     SegmentSeed.execSegmentSeed (afterFinalize st)
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ hSeed]
-  -- Layer-3 climb (stmt 25), checksum guards pass
+  -- Layer-3 climb (stmt 27), checksum guards pass
   have hLayer : execStmtList [] (afterSeed st) [SegmentLayer3.layerStmt]
       = .continue (afterLayer st) :=
     execSingleton_continue _ _ _ (SegmentLayer3.execLayerLoop (afterSeed st) hgL)

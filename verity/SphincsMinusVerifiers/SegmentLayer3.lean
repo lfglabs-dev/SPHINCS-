@@ -3736,39 +3736,45 @@ theorem beforeWotsPkCopy_memory_0x20_eq_of_afterDigit_bindings
       ls layer idxTree idxLeaf hLayer hIdxTree hIdxLeaf
       hLayerLt hIdxTreeLt hIdxLeafLt
   unfold wotsPkAdrsExpr u at hEval
-  unfold beforeWotsPkCopy suffixBeforeWotsPkCopy mstore u
-  rw [execStmtList_cons_continue _ _ _ _
-    (execStmt_letVar_continue _ "wotsPtr" _ _ rfl)]
-  rw [execStmtList_cons_continue _ _ _ _
-    (execStmt_forEach_of_step "i" (.literal 43) wotsOuterBody _ _
-      wotsOuterStep rfl wotsOuterStepLemma)]
-  rw [show wordNormalize 43 = 43 by rfl]
-  change
-    ((match execStmtList [] (beforeWotsPkAfterWots ls)
-        [Stmt.letVar "pkAdrs"
-          (orE (shlE (Expr.literal 224) (v "layer"))
-            (orE (shlE (Expr.literal 128) (v "idxTree"))
-              (orE (shlE (Expr.literal 96) (Expr.literal 1))
-                (shlE (Expr.literal 64) (v "idxLeaf"))))),
-         Stmt.mstore (Expr.literal 32) (v "pkAdrs")] with
-      | .continue s' => s'
-      | _ => afterDigit ls).world.memory 0x20).val =
-      SphincsMinusVerifierSpec.C13Concrete.adrsWotsPk
-        layer idxTree idxLeaf
+  -- Thread the 2-statement prefix to the *named* cutpoint, introducing the
+  -- `wotsPtr` value in its `.getD` form so the closing `rfl` never has to
+  -- align a whnf'd eval against `beforeWotsPkWotsPtr`'s `getD` (that defeq
+  -- whnf-unfolds the 64-iteration digit fold and exhausts memory).
+  have hpre : execStmtList [] (afterDigit ls)
+      [ (.letVar "wotsPtr" (addE (v "sigBase") (v "sigOff")) : Stmt)
+      , .forEach "i" (u 43) wotsOuterBody ]
+      = .continue (beforeWotsPkAfterWots ls) := by
+    unfold beforeWotsPkAfterWots beforeWotsPkWotsPtr u addE v
+    rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_letVar_continue _ "wotsPtr"
+        (.add (.localVar "sigBase") (.localVar "sigOff"))
+        ((evalExpr [] (afterDigit ls)
+          (.add (.localVar "sigBase") (.localVar "sigOff"))).getD 0)
+        rfl)]
+    rw [execStmtList_cons_continue _ _ _ _
+      (execStmt_forEach_of_step "i" (.literal 43) wotsOuterBody _ _
+        wotsOuterStep rfl wotsOuterStepLemma)]
+    rw [show wordNormalize 43 = 43 from rfl]
+    rfl
+  unfold beforeWotsPkCopy
+  rw [show suffixBeforeWotsPkCopy
+      = [ (.letVar "wotsPtr" (addE (v "sigBase") (v "sigOff")) : Stmt)
+        , .forEach "i" (u 43) wotsOuterBody ]
+        ++ [ .letVar "pkAdrs"
+              (orE (shlE (u 224) (v "layer"))
+                (orE (shlE (u 128) (v "idxTree"))
+                  (orE (shlE (u 96) (u 1)) (shlE (u 64) (v "idxLeaf")))))
+           , mstore 0x20 (v "pkAdrs") ] from rfl]
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ hpre]
+  unfold mstore u
   rw [execStmtList_cons_continue _ _ _ _
     (execStmt_letVar_continue _ "pkAdrs" _ _ hEval)]
   rw [execStmtList_cons_continue _ _ _ _
     (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
   simp only [execStmtList]
-  change
-    (MemoryKit.memUpdate _ (wordNormalize 32)
-        (wordNormalize
-          (SphincsMinusVerifierSpec.C13Concrete.adrsWotsPk
-            layer idxTree idxLeaf))
-        (wordNormalize 32)).val =
-      SphincsMinusVerifierSpec.C13Concrete.adrsWotsPk
-        layer idxTree idxLeaf
-  rw [MemoryKit.memUpdate_val_same]
+  rw [MemoryKit.lookupValue_bindValue_self,
+    show wordNormalize 32 = 32 from rfl,
+    MemoryKit.memUpdate_val_same]
   exact adrsWotsPk_wordNormalize_of_bounds
     layer idxTree idxLeaf hLayerLt hIdxTreeLt hIdxLeafLt
 
