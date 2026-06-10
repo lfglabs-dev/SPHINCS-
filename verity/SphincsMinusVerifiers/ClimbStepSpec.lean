@@ -61,12 +61,13 @@ theorem xmssClimb_zero (seed treeAdrs : Word) (h mIdx : Nat)
 /-! ## 2. FORS climb step. -/
 
 /-- One spec FORS-climb combine: same branchless-swap shape as `xmssClimbStep`, but
-under the FIPS 205 FORS-tree address `adrsForsNode 0 0 i h parentIdx` (the
-`idxTree0`/`idxLeaf0` digits are pinned to the spec `forsClimb`'s `0 0`; the
-per-level word folds the tree number as `i <<< (18 - h)` per FIPS 205 Alg 17). -/
-def forsClimbStep (seed i : Word) (h pathIdx : Nat) (node sibling : Word) : Word :=
+under the FIPS 205 FORS-tree address `adrsForsNode idxTree0 idxLeaf0 i h parentIdx`
+(the per-level word folds the tree number as `i <<< (18 - h)` per FIPS 205 Alg 17;
+the `idxTree0`/`idxLeaf0` digits come from the hypertree-leaf field split). -/
+def forsClimbStep (seed i : Word) (idxTree0 idxLeaf0 : Nat) (h pathIdx : Nat)
+    (node sibling : Word) : Word :=
   let parentIdx := pathIdx / 2
-  let adrs := adrsForsNode 0 0 i h parentIdx
+  let adrs := adrsForsNode idxTree0 idxLeaf0 i h parentIdx
   if pathIdx % 2 == 0 then maskN (keccakWords [seed, adrs, node, sibling])
   else maskN (keccakWords [seed, adrs, sibling, node])
 
@@ -76,17 +77,17 @@ def forsSibling (auth : List Bytes) (h : Nat) : Word :=
 
 /-- **`forsClimb_succ`** — the spec `forsClimb` unfolds one fuel step into a single
 `forsClimbStep`.  Pure `rfl` against `forsClimb`'s `succ` branch. -/
-theorem forsClimb_succ (seed i : Word) (fuel h pathIdx : Nat)
+theorem forsClimb_succ (seed i : Word) (idxTree0 idxLeaf0 fuel h pathIdx : Nat)
     (node : Word) (auth : List Bytes) :
-    forsClimb seed i (fuel + 1) h pathIdx node auth
-      = forsClimb seed i fuel (h + 1) (pathIdx / 2)
-          (forsClimbStep seed i h pathIdx node (forsSibling auth h)) auth := by
+    forsClimb seed i idxTree0 idxLeaf0 (fuel + 1) h pathIdx node auth
+      = forsClimb seed i idxTree0 idxLeaf0 fuel (h + 1) (pathIdx / 2)
+          (forsClimbStep seed i idxTree0 idxLeaf0 h pathIdx node (forsSibling auth h)) auth := by
   simp only [forsClimb, forsClimbStep, forsSibling]
 
 /-- The spec FORS climb on zero fuel is the identity. -/
-theorem forsClimb_zero (seed i : Word) (h pathIdx : Nat)
+theorem forsClimb_zero (seed i : Word) (idxTree0 idxLeaf0 h pathIdx : Nat)
     (node : Word) (auth : List Bytes) :
-    forsClimb seed i 0 h pathIdx node auth = node := by
+    forsClimb seed i idxTree0 idxLeaf0 0 h pathIdx node auth = node := by
   simp only [forsClimb]
 
 /-! ## 3. FORS node-address decomposition.

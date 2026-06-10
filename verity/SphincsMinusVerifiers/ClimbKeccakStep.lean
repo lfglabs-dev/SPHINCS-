@@ -229,6 +229,26 @@ theorem evalExpr_add_bounded
   have hmod : Verity.Core.Uint256.modulus = 2 ^ 256 := rfl
   rw [hkv, hlv, hmod, Nat.mod_eq_of_lt hsum]
 
+/-- `sub(a, b)` evaluates to `k - l` when `a ↦ k`, `b ↦ l` with both `< 2^256`
+and `l ≤ k` (no wrap): the interpreter's `Uint256.sub` reduces mod `2^256`, the
+operand mods vanish, and `k - l ≤ k < 2^256` kills the outer mod.  Needed for
+the FIPS FORS per-level shift amount `sub(18, h)` (`ClimbKit.forsAdrs`). -/
+theorem evalExpr_sub_bounded
+    (st : RuntimeState) (a b : Expr) (k l : Nat)
+    (ha : evalExpr [] st a = some k) (hb : evalExpr [] st b = some l)
+    (hk : k < 2 ^ 256) (hl : l < 2 ^ 256) (hle : l ≤ k) :
+    evalExpr [] st (.sub a b) = some (k - l) := by
+  show (do
+        let lhs : Verity.Core.Uint256 := ← evalExpr [] st a
+        let rhs : Verity.Core.Uint256 := ← evalExpr [] st b
+        pure (lhs - rhs).val) = some (k - l)
+  rw [ha, hb]
+  show some ((Verity.Core.Uint256.ofNat k - Verity.Core.Uint256.ofNat l).val)
+      = some (k - l)
+  have hkv : (Verity.Core.Uint256.ofNat k).val = k := Nat.mod_eq_of_lt hk
+  have hlv : (Verity.Core.Uint256.ofNat l).val = l := Nat.mod_eq_of_lt hl
+  rw [Verity.Core.Uint256.sub_eq_of_le (by rw [hkv, hlv]; exact hle), hkv, hlv]
+
 /-! ## 5. The composed ADRS-word resolution.
 
 The merkle/FORS climb body assembles the per-step ADRS word as the interpreter
@@ -342,6 +362,7 @@ theorem evalExpr_siblingOffset
 #print axioms evalExpr_shl_bounded
 #print axioms evalExpr_shr_bounded
 #print axioms evalExpr_add_bounded
+#print axioms evalExpr_sub_bounded
 #print axioms evalExpr_merkleAdrsWord
 #print axioms evalExpr_maskedCalldata
 #print axioms evalExpr_siblingOffset
