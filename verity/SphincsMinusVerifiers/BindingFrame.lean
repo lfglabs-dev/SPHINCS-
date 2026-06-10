@@ -19,9 +19,10 @@
 -/
 
 import SphincsMinusVerifiers.ClimbLoop
--- NOTE: do not import `Compiler.Proofs.Frames` — that module lives in the
--- unmerged upstream Verity PR #1983 and does not exist at upstream HEAD.
--- All preserves_* lemmas below are proved locally; revisit when #1983 lands.
+-- `Compiler.Proofs.Frames` is intentionally not imported: all preserves_*
+-- lemmas below are proved locally and stay independent of upstream PR #1983
+-- even after its merge.  Re-import only if a specific lemma name needs to
+-- be shared with another workspace.
 
 namespace SphincsMinusVerifiers.BindingFrame
 
