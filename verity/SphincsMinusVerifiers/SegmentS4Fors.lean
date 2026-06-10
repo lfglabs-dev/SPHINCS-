@@ -471,10 +471,6 @@ private theorem uint256_and_val_lt (a b : Verity.Core.Uint256) :
     (a.and b).val < 2 ^ 256 := by
   simpa [Verity.Core.UINT256_MODULUS] using (a.and b).isLt
 
-private theorem uint256_or_val_lt (a b : Verity.Core.Uint256) :
-    (a.or b).val < 2 ^ 256 := by
-  simpa [Verity.Core.UINT256_MODULUS] using (a.or b).isLt
-
 /-- C13-shaped setup fact for the FORS auth-path pointer: the straight-line
 setup prefix binds `"authPtr"` to the signature-data base plus the per-FORS-tree
 authentication-path offset. -/

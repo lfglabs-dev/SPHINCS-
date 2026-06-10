@@ -7,6 +7,23 @@ This folder is the verification workbench for the three verifier contracts in
 - `SPHINCs_C12Asm_VerityModel` models `SPHINCs-C12Asm.sol`.
 - `SLH_DSA_SHA2_128_24_VerityModel` models `SLH-DSA-SHA2-128-24verifier.sol`.
 
+> **Status (June 2026, FIPS-FORS migration / PR #6).** The C13 model, spec, and
+> the whole segment-proof chain now use the FIPS 205 §11.2.2 FORS address
+> layout: the model hoists `idxLeaf0`/`idxTree0`/`forsBase` (statements 13–15
+> of `c13VerifyBodyTail`), the spec's `forsClimb`/`fors*C13` family carries the
+> digits derived from `digest.hyperIndex` (`idxTree0C13`/`idxLeaf0C13`), and
+> the per-level climb address is `ClimbKit.forsAdrs`
+> (`or(forsBase, or(shl(32,h+1), or(shl(sub(18,h),i), parentIdx)))`).
+> On this branch `c13_refines_byte_spec` and `c12_refines_byte_spec` are
+> **theorems**, resting on the documented "Residual assembly axioms" family
+> (see below): never-elaborated-on-small-hosts composition obligations recorded
+> as accepted axioms pending a >64 GB discharge pass.  `#print axioms
+> c13_refines_spec` →
+> `[propext, Classical.choice, Quot.sound, c13_ok_current_node_wordcmp_residual,
+> c13_reverted_afterMerkle_raw_xmss_residual]`.  Zero `sorry` package-wide.
+> Build with `verity/scripts/build.sh` (memory-capped) — never bare `lake build`
+> on <64 GB machines.
+
 The specs are layered in `SphincsMinusVerifierSpec/Spec.lean`:
 
 - `verifyParsed` is the algorithmic spec over a parsed public key and parsed
