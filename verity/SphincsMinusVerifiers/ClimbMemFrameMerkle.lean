@@ -1931,7 +1931,7 @@ theorem xmss_climb_data_range
 
 /-- **`fors_climb_data_range`** — the FORS analog of `xmss_climb_data_range`.  The FORS
 outer loop's inner Merkle climb (`SegmentS4Fors.forsLeafBody`, the
-`forEach "h" (u 19) (merkleClimbBody "node" "pathIdx" "treeAdrsBase" "authPtr")`) is the
+`forEach "h" (u 19) (merkleClimbBody "node" "pathIdx" "forsBase" "authPtr")`) is the
 *same* `merkleClimbBody`, so its per-height datum is again `MerkleClimbData`.  For FORS
 tree `t < 6` the body sets `authPtr = sigBase + (128 + 304·t)`, hence the per-height read
 sits at `sigDataOffset + (128 + 304·t + 16·h)`; (hcd) is the offset-arithmetic identity

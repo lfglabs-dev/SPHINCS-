@@ -449,7 +449,7 @@ def forsFinalizePreCopyBody : List Stmt :=
 /-- Faithfulness: `forsFinalizeBody` is *exactly* statements 15..21 of
 `c13VerifyBody` (the FORS finalize block, copy loop included). -/
 theorem forsFinalizeBody_eq_slice :
-    forsFinalizeBody = (c13VerifyBodyTail.drop 14).take 7 := rfl
+    forsFinalizeBody = (c13VerifyBodyTail.drop 17).take 7 := rfl
 
 /-! ## 4. The finalize-block step lemma. -/
 

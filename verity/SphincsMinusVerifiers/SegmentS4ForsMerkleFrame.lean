@@ -29,7 +29,7 @@ def ForsFrozenSite
           ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig ∧
     lookupValue s.bindings "authPtr"
       = SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t) ∧
-    lookupValue s.bindings "treeAdrsBase" = base ∧
+    lookupValue s.bindings "forsBase" = base ∧
     base < 2 ^ 256 ∧
     lookupValue s.bindings "pathIdx" < 2 ^ 256
 
@@ -50,10 +50,10 @@ theorem stepMerkle_preserves_seed_slot_of_s4_eval
               (bindValue
                 (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
                 "parentIdx" (mIdx >>> 1)) }
-            (.bitOr (.localVar "treeAdrsBase")
+            (.bitOr (.localVar "forsBase")
               (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
                 (.localVar "parentIdx"))) = some vadr) :
-    ((stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+    ((stepMerkle "node" "pathIdx" "forsBase" "authPtr"
         { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }).world.memory 0).val
       = (s.world.memory 0).val := by
   let stH : RuntimeState := { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
@@ -146,10 +146,10 @@ theorem stepMerkle_preserves_seed_slot_of_s4_eval
         change (0x60 : Nat) ^^^ ((mIdx &&& 1) <<< 5) = 0x40
         exact ho.2
       exact ⟨hone, ho5, ho6⟩
-  change ((stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr" stH).world.memory 0).val
+  change ((stepMerkle "node" "pathIdx" "forsBase" "authPtr" stH).world.memory 0).val
       = (stH.world.memory 0).val
   exact SphincsMinusVerifiers.ClimbMemFrameMerkle.stepMerkle_mem_zero_val_of_parity
-    "node" "pathIdx" "treeAdrsBase" "authPtr" stH
+    "node" "pathIdx" "forsBase" "authPtr" stH
     vsib vpar vadr sval o5 vnode o6 (lookupValue st5.bindings "sibling")
     mIdx hparOff h1 h2 h3 h4 h5off h5val h6off h6val
 
@@ -169,10 +169,10 @@ theorem stepMerkle_preserves_root_cell_of_s4_eval
               (bindValue
                 (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
                 "parentIdx" (mIdx >>> 1)) }
-            (.bitOr (.localVar "treeAdrsBase")
+            (.bitOr (.localVar "forsBase")
               (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
                 (.localVar "parentIdx"))) = some vadr) :
-    ((stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+    ((stepMerkle "node" "pathIdx" "forsBase" "authPtr"
         { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }).world.memory
         (0x80 + 32 * j)).val
       = (s.world.memory (0x80 + 32 * j)).val := by
@@ -271,10 +271,10 @@ theorem stepMerkle_preserves_root_cell_of_s4_eval
     rcases hparOff with ⟨_, ho5, _⟩ | ⟨_, ho5, _⟩ <;> rw [ho5] <;> omega
   have ho6 : 0x80 + 32 * j ≠ o6 := by
     rcases hparOff with ⟨_, _, ho6⟩ | ⟨_, _, ho6⟩ <;> rw [ho6] <;> omega
-  change ((stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr" stH).world.memory
+  change ((stepMerkle "node" "pathIdx" "forsBase" "authPtr" stH).world.memory
       (0x80 + 32 * j)).val = (stH.world.memory (0x80 + 32 * j)).val
   exact SphincsMinusVerifiers.ClimbMemFrameMerkle.stepMerkle_mem_val_of_ne
-    "node" "pathIdx" "treeAdrsBase" "authPtr" stH
+    "node" "pathIdx" "forsBase" "authPtr" stH
     (0x80 + 32 * j) vsib vpar vadr sval o5 vnode o6
     (lookupValue st5.bindings "sibling")
     h20 ho5 ho6 h1 h2 h3 h4 h5off h5val h6off h6val
@@ -289,7 +289,7 @@ theorem stepMerkle_forsFrame_hstep_of_s4_data
     (auth : List SphincsMinusVerifierSpec.Bytes) (cdAt : Nat → Nat)
     (vsib vadr : Nat)
     (hframe : SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-        "node" "pathIdx" "treeAdrsBase" "authPtr"
+        "node" "pathIdx" "forsBase" "authPtr"
         pkSeed pkRoot message sig seed treeAdrs merklePtr s (mIdx, node))
     (hidx : idx < 19)
     (hmlt : mIdx < 2 ^ 256)
@@ -305,13 +305,13 @@ theorem stepMerkle_forsFrame_hstep_of_s4_data
               (bindValue
                 (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
                 "parentIdx" (mIdx >>> 1)) }
-            (.bitOr (.localVar "treeAdrsBase")
+            (.bitOr (.localVar "forsBase")
               (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
                 (.localVar "parentIdx"))) = some vadr) :
     SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-      "node" "pathIdx" "treeAdrsBase" "authPtr"
+      "node" "pathIdx" "forsBase" "authPtr"
       pkSeed pkRoot message sig seed treeAdrs merklePtr
-      (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+      (stepMerkle "node" "pathIdx" "forsBase" "authPtr"
         { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
       (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
         seed treeAdrs auth idx (mIdx, node)) := by
@@ -443,16 +443,16 @@ theorem stepMerkle_forsFrame_hstep_of_s4_data
     dsimp [vpar]
     rw [Nat.shiftRight_eq_div_pow]
     exact Nat.lt_of_le_of_lt (Nat.div_le_self _ _) hmlt
-  have hbaseEval : evalExpr [] st2 (.localVar "treeAdrsBase") = some treeAdrs := by
-    show some (lookupValue st2.bindings "treeAdrsBase") = some treeAdrs
+  have hbaseEval : evalExpr [] st2 (.localVar "forsBase") = some treeAdrs := by
+    show some (lookupValue st2.bindings "forsBase") = some treeAdrs
     dsimp [st2, st1, stH]
     rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
       (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
-      "parentIdx" "treeAdrsBase" vpar (by decide)]
+      "parentIdx" "forsBase" vpar (by decide)]
     rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
-      (bindValue s.bindings "h" (wordNormalize idx)) "sibling" "treeAdrsBase" vsib (by decide)]
+      (bindValue s.bindings "h" (wordNormalize idx)) "sibling" "forsBase" vsib (by decide)]
     rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
-      s.bindings "h" "treeAdrsBase" (wordNormalize idx) (by decide)]
+      s.bindings "h" "forsBase" (wordNormalize idx) (by decide)]
     exact congrArg some hframe.2.1
   have hhEval : evalExpr [] st2 (.localVar "h") = some idx := by
     show some (lookupValue st2.bindings "h") = some idx
@@ -488,7 +488,7 @@ theorem stepMerkle_forsFrame_hstep_of_s4_data
     rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_self]
   have hadr : wordNormalize vadr = treeAdrs ||| ((idx + 1) <<< 32) ||| mIdx / 2 := by
     have hraw := SphincsMinusVerifiers.ClimbMemFrameMerkle.address_assembly_eq
-      st2 (.localVar "treeAdrsBase")
+      st2 (.localVar "forsBase")
       (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
       (.localVar "parentIdx") vadr treeAdrs ((idx + 1) <<< 32) vpar
       h3 hbaseEval hsh hparentEval htreeAdrsLt hshlt hplt
@@ -502,7 +502,7 @@ theorem stepMerkle_forsFrame_hstep_of_s4_data
     SphincsMinusVerifiers.ClimbMemFrameMerkle.StepDataObligations.intro
       hseed hadr hsib
   exact SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame_hstep
-    "node" "pathIdx" "treeAdrsBase" "authPtr"
+    "node" "pathIdx" "forsBase" "authPtr"
     pkSeed pkRoot message sig seed treeAdrs merklePtr
     s mIdx node idx auth vsib vpar vadr sval o5 vnode o6 vsib
     hframe hparOff hvpar hnode hstepData h1 h2 h3 h4 h5off h5val h6off h6val
@@ -512,7 +512,7 @@ theorem stepMerkle_forsFrame_hstep_of_s4_data
 height to `"h"`, then the whole `forsLeafInnerStmt` preserves the seed cell. -/
 theorem forsLeafInner_preserves_seed_slot_bound_of_step
     (hstep : ∀ (s : RuntimeState) (idx : Nat),
-      ((stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+      ((stepMerkle "node" "pathIdx" "forsBase" "authPtr"
           { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }).world.memory 0).val
         = (s.world.memory 0).val)
     (st s' : RuntimeState)
@@ -520,7 +520,7 @@ theorem forsLeafInner_preserves_seed_slot_bound_of_step
         = .continue s') :
     (s'.world.memory 0).val = (st.world.memory 0).val := by
   exact SphincsMinusVerifiers.ClimbMemFrameMerkle.execStmt_forEach_h_merkleClimb_preserves_memory_val_bound
-      "node" "pathIdx" "treeAdrsBase" "authPtr" 0 19 hstep st s'
+      "node" "pathIdx" "forsBase" "authPtr" 0 19 hstep st s'
       (by simpa [SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStmt] using h)
 
 /-- S4-shaped bounded-index adapter for arbitrary memory cells through the FORS
@@ -530,7 +530,7 @@ non-alias frame for the concrete address they are carrying. -/
 theorem forsLeafInner_preserves_memory_val_bound_of_step
     (addr : Nat)
     (hstep : ∀ (s : RuntimeState) (idx : Nat),
-      ((stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+      ((stepMerkle "node" "pathIdx" "forsBase" "authPtr"
           { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }).world.memory addr).val
         = (s.world.memory addr).val)
     (st s' : RuntimeState)
@@ -538,14 +538,14 @@ theorem forsLeafInner_preserves_memory_val_bound_of_step
         = .continue s') :
     (s'.world.memory addr).val = (st.world.memory addr).val := by
   exact SphincsMinusVerifiers.ClimbMemFrameMerkle.execStmt_forEach_h_merkleClimb_preserves_memory_val_bound
-      "node" "pathIdx" "treeAdrsBase" "authPtr" addr 19 hstep st s'
+      "node" "pathIdx" "forsBase" "authPtr" addr 19 hstep st s'
       (by simpa [SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStmt] using h)
 
 /-- Range-gated memory-frame variant for the FORS inner Merkle climb. -/
 theorem forsLeafInner_preserves_memory_val_range_of_step
     (addr : Nat) (D : Nat → Prop)
     (hstep : ∀ (s : RuntimeState) (idx : Nat), D idx →
-      ((stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+      ((stepMerkle "node" "pathIdx" "forsBase" "authPtr"
           { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }).world.memory addr).val
         = (s.world.memory addr).val)
     (hD : ∀ i, 0 ≤ i → i < 0 + wordNormalize 19 → D i)
@@ -554,7 +554,7 @@ theorem forsLeafInner_preserves_memory_val_range_of_step
         = .continue s') :
     (s'.world.memory addr).val = (st.world.memory addr).val := by
   exact SphincsMinusVerifiers.ClimbMemFrameMerkle.execStmt_forEach_h_merkleClimb_preserves_memory_val_range
-      "node" "pathIdx" "treeAdrsBase" "authPtr" addr 19 D hstep st s' hD
+      "node" "pathIdx" "forsBase" "authPtr" addr 19 D hstep st s' hD
       (by simpa [SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStmt] using h)
 
 /-- One FORS leaf iteration preserves every other ordinary root slot, provided
@@ -565,7 +565,7 @@ theorem forsLeafStep_preserves_root_cell_range_ne_of_inner_step
     (st : RuntimeState) (j idx : Nat) (hidx : idx < 6)
     (hi : lookupValue st.bindings "i" = idx) (hne : j ≠ idx)
     (hstep : ∀ (s : RuntimeState) (h : Nat),
-      ((stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+      ((stepMerkle "node" "pathIdx" "forsBase" "authPtr"
           { s with bindings := bindValue s.bindings "h" (wordNormalize h) }).world.memory
             (0x80 + 32 * j)).val =
         (s.world.memory (0x80 + 32 * j)).val) :
@@ -595,7 +595,7 @@ theorem forsLeafStep_preserves_root_cell_range_ne_of_s4_eval
               (bindValue
                 (bindValue (bindValue s.bindings "h" (wordNormalize hidx)) "sibling" vsib)
                 "parentIdx" (lookupValue s.bindings "pathIdx" >>> 1)) }
-            (.bitOr (.localVar "treeAdrsBase")
+            (.bitOr (.localVar "forsBase")
               (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
                 (.localVar "parentIdx"))) = some vadr) :
     ((SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep st).world.memory
@@ -625,7 +625,7 @@ theorem forsOuter_root_cell_eq_iteration_node_of_s4_eval
               (bindValue
                 (bindValue (bindValue s.bindings "h" (wordNormalize hidx)) "sibling" vsib)
                 "parentIdx" (lookupValue s.bindings "pathIdx" >>> 1)) }
-            (.bitOr (.localVar "treeAdrsBase")
+            (.bitOr (.localVar "forsBase")
               (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
                 (.localVar "parentIdx"))) = some vadr) :
     ((SphincsMinusVerifiers.ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
@@ -670,7 +670,7 @@ theorem forsLeafInner_preserves_seed_slot_bound_of_s4_eval
               (bindValue
                 (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
                 "parentIdx" (lookupValue s.bindings "pathIdx" >>> 1)) }
-            (.bitOr (.localVar "treeAdrsBase")
+            (.bitOr (.localVar "forsBase")
               (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
                 (.localVar "parentIdx"))) = some vadr)
     (st s' : RuntimeState)
@@ -692,7 +692,7 @@ boundedness hypotheses.  This produces the `vadr` witness required by the
 with the spec ADRS value. -/
 theorem s4_address_assembly_eval_exists
     (s : RuntimeState) (idx vsib base : Nat)
-    (hbase : lookupValue s.bindings "treeAdrsBase" = base)
+    (hbase : lookupValue s.bindings "forsBase" = base)
     (hbaselt : base < 2 ^ 256)
     (hpathlt : lookupValue s.bindings "pathIdx" < 2 ^ 256)
     (hidx : idx < 19) :
@@ -702,7 +702,7 @@ theorem s4_address_assembly_eval_exists
             (bindValue
               (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
               "parentIdx" (lookupValue s.bindings "pathIdx" >>> 1)) }
-          (.bitOr (.localVar "treeAdrsBase")
+          (.bitOr (.localVar "forsBase")
             (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
               (.localVar "parentIdx"))) = some vadr := by
   let stA : RuntimeState :=
@@ -730,17 +730,17 @@ theorem s4_address_assembly_eval_exists
     rw [Nat.shiftRight_eq_div_pow]
     exact Nat.lt_of_le_of_lt
       (Nat.div_le_self (lookupValue s.bindings "pathIdx") (2 ^ 1)) hpathlt
-  have hbase_eval : evalExpr [] stA (.localVar "treeAdrsBase") = some base := by
-    show some (lookupValue stA.bindings "treeAdrsBase") = some base
+  have hbase_eval : evalExpr [] stA (.localVar "forsBase") = some base := by
+    show some (lookupValue stA.bindings "forsBase") = some base
     dsimp [stA]
     rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
       (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
-      "parentIdx" "treeAdrsBase" (lookupValue s.bindings "pathIdx" >>> 1) (by decide)]
+      "parentIdx" "forsBase" (lookupValue s.bindings "pathIdx" >>> 1) (by decide)]
     rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
       (bindValue s.bindings "h" (wordNormalize idx))
-      "sibling" "treeAdrsBase" vsib (by decide)]
+      "sibling" "forsBase" vsib (by decide)]
     rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
-      s.bindings "h" "treeAdrsBase" (wordNormalize idx) (by decide)]
+      s.bindings "h" "forsBase" (wordNormalize idx) (by decide)]
     rw [hbase]
   have hh_eval : evalExpr [] stA (.localVar "h") = some idx := by
     show some (lookupValue stA.bindings "h") = some idx
@@ -786,7 +786,7 @@ theorem s4_address_assembly_eval_exists
   refine ⟨vadr, ?_⟩
   dsimp [vadr]
   exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitOr_bounded
-    stA (.localVar "treeAdrsBase")
+    stA (.localVar "forsBase")
     (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
       (.localVar "parentIdx")) base inner hbase_eval hinner hbaselt
     (Nat.bitwise_lt_two_pow hshlt hplt)
@@ -803,7 +803,7 @@ theorem s4_eval_site_of_frozen_calldata
             = SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
                 ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
     (hap : lookupValue s.bindings "authPtr" = ap)
-    (hbase : lookupValue s.bindings "treeAdrsBase" = base)
+    (hbase : lookupValue s.bindings "forsBase" = base)
     (hbaselt : base < 2 ^ 256)
     (hpathlt : lookupValue s.bindings "pathIdx" < 2 ^ 256)
     (hidx : idx < 19)
@@ -823,7 +823,7 @@ theorem s4_eval_site_of_frozen_calldata
             (bindValue
               (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
               "parentIdx" (lookupValue s.bindings "pathIdx" >>> 1)) }
-          (.bitOr (.localVar "treeAdrsBase")
+          (.bitOr (.localVar "forsBase")
             (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
               (.localVar "parentIdx"))) = some vadr := by
   let stH : RuntimeState := { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
@@ -880,7 +880,7 @@ theorem s4_eval_site_of_fors_frozen_calldata
                 ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
     (hap : lookupValue s.bindings "authPtr"
             = SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t))
-    (hbase : lookupValue s.bindings "treeAdrsBase" = base)
+    (hbase : lookupValue s.bindings "forsBase" = base)
     (hbaselt : base < 2 ^ 256)
     (hpathlt : lookupValue s.bindings "pathIdx" < 2 ^ 256)
     (ht : t < 6)
@@ -896,7 +896,7 @@ theorem s4_eval_site_of_fors_frozen_calldata
             (bindValue
               (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
               "parentIdx" (lookupValue s.bindings "pathIdx" >>> 1)) }
-          (.bitOr (.localVar "treeAdrsBase")
+          (.bitOr (.localVar "forsBase")
             (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
               (.localVar "parentIdx"))) = some vadr := by
   let ap : Nat := SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t)
@@ -932,7 +932,7 @@ theorem stepMerkle_forsFrame_hstep_of_fors_frozen_calldata
     (pkSeed pkRoot message sig : ByteArray)
     (auth : List SphincsMinusVerifierSpec.Bytes)
     (hframe : SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-        "node" "pathIdx" "treeAdrsBase" "authPtr"
+        "node" "pathIdx" "forsBase" "authPtr"
         pkSeed pkRoot message sig seed treeAdrs
         (SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t))
         s (mIdx, node))
@@ -948,10 +948,10 @@ theorem stepMerkle_forsFrame_hstep_of_fors_frozen_calldata
             (SphincsMinusVerifiers.MkC13State.sigDataOffset
               + (128 + 304 * t) + 16 * h)) idx) :
     SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-      "node" "pathIdx" "treeAdrsBase" "authPtr"
+      "node" "pathIdx" "forsBase" "authPtr"
       pkSeed pkRoot message sig seed treeAdrs
       (SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t))
-      (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+      (stepMerkle "node" "pathIdx" "forsBase" "authPtr"
         { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
       (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
         seed treeAdrs auth idx (mIdx, node)) := by
@@ -966,7 +966,7 @@ theorem stepMerkle_forsFrame_hstep_of_fors_frozen_calldata
   have hcd : s.world.calldata
       = SphincsMinusVerifiers.MkC13State.headWords pkSeed pkRoot message sig.size
           ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig := hframe.2.2.2.2.2.1
-  have hbase : lookupValue s.bindings "treeAdrsBase" = treeAdrs := hframe.2.1
+  have hbase : lookupValue s.bindings "forsBase" = treeAdrs := hframe.2.1
   have hap : lookupValue s.bindings "authPtr"
       = SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t) :=
     hframe.2.2.1
@@ -1035,7 +1035,7 @@ theorem stepMerkle_forsFrame_hstep_of_fors_frozen_calldata
           (bindValue
             (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
             "parentIdx" (mIdx >>> 1)) }
-        (.bitOr (.localVar "treeAdrsBase")
+        (.bitOr (.localVar "forsBase")
           (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
             (.localVar "parentIdx"))) = some vadr := by
     simpa [hpath] using h3
@@ -1068,7 +1068,7 @@ theorem forsLeafSetupStep_fors_frozen_calldata_site
       lookupValue (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep st).bindings "authPtr"
         = SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t) ∧
       lookupValue (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep st).bindings
-        "treeAdrsBase" = base ∧
+        "forsBase" = base ∧
       base < 2 ^ 256 ∧
       lookupValue (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep st).bindings
         "pathIdx" < 2 ^ 256 := by
@@ -1144,7 +1144,7 @@ theorem forsLeafSetupStep_initial_forsClimbRel_of_eval
 /-- Initial frame-carrying FORS climb invariant after the straight-line setup.
 The relation component comes from the setup evaluator; the static frame comes
 from the concrete frozen-site package.  The frame uses the actual post-setup
-`"treeAdrsBase"`/`"authPtr"` words, avoiding another raw address-arithmetic
+`"forsBase"`/`"authPtr"` words, avoiding another raw address-arithmetic
 obligation at this boundary. -/
 theorem forsLeafSetupStep_initial_forsClimbFrame_of_eval_site
     (st : RuntimeState) (seed i treeIdx : Nat) (sk : SphincsMinusVerifierSpec.Bytes)
@@ -1174,11 +1174,11 @@ theorem forsLeafSetupStep_initial_forsClimbFrame_of_eval_site
           (.bitOr (.shl (.literal 64) (.localVar "i")) (.localVar "treeIdx")))
           = some (adrsForsLeaf i treeIdx)) :
     SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-      "node" "pathIdx" "treeAdrsBase" "authPtr"
+      "node" "pathIdx" "forsBase" "authPtr"
       pkSeed pkRoot message sig seed
       (lookupValue
         (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep st).bindings
-        "treeAdrsBase")
+        "forsBase")
       (lookupValue
         (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep st).bindings
         "authPtr")
@@ -1205,7 +1205,7 @@ theorem forsLeafInnerStep_node_eq_forsClimb_of_eval
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth cdAt idx →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx" s a →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx"
-          (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+          (stepMerkle "node" "pathIdx" "forsBase" "authPtr"
             { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
           (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
             seed ((3 <<< 96) ||| (i <<< 64)) auth idx a))
@@ -1263,7 +1263,7 @@ theorem forsLeafInnerStep_node_eq_forsClimb_of_eval
       exact SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel.node hR0
   have hmodel :=
     SphincsMinusVerifiers.ClimbMemFrameMerkle.forsClimb_model_node
-      "node" "pathIdx" "treeAdrsBase" "authPtr"
+      "node" "pathIdx" "forsBase" "authPtr"
       seed i auth cdAt hstep start treeIdx
       (maskN (keccakWords [seed, adrsForsLeaf i treeIdx, wordOfHash16 sk]))
       0 19 hD hR
@@ -1278,7 +1278,7 @@ theorem forsLeafInnerStep_node_eq_forsClimb_of_eval
 /-- Frame-carrying post-inner FORS node correspondence for one normal C13 FORS
 tree.  This is the frame-shaped sibling of
 `forsLeafInnerStep_node_eq_forsClimb_of_eval`: setup supplies the initial
-`MerkleClimbFrame`, the range-gated setup theorem rewrites `"treeAdrsBase"` to
+`MerkleClimbFrame`, the range-gated setup theorem rewrites `"forsBase"` to
 the exact C13 ADRS base, and callers provide the per-height frame step facts. -/
 theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site
     (st : RuntimeState) (seed i treeIdx : Nat) (sk : SphincsMinusVerifierSpec.Bytes)
@@ -1291,19 +1291,19 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site
     (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth cdAt idx →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-          "node" "pathIdx" "treeAdrsBase" "authPtr"
+          "node" "pathIdx" "forsBase" "authPtr"
           pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64))
           (lookupValue
             (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep st).bindings
             "authPtr")
           s a →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-          "node" "pathIdx" "treeAdrsBase" "authPtr"
+          "node" "pathIdx" "forsBase" "authPtr"
           pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64))
           (lookupValue
             (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep st).bindings
             "authPtr")
-          (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+          (stepMerkle "node" "pathIdx" "forsBase" "authPtr"
             { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
           (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
             seed ((3 <<< 96) ||| (i <<< 64)) auth idx a))
@@ -1342,9 +1342,9 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site
   let start : RuntimeState := { setup with bindings := bindValue setup.bindings "h" (wordNormalize 0) }
   have hFrame0 :
       SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-        "node" "pathIdx" "treeAdrsBase" "authPtr"
+        "node" "pathIdx" "forsBase" "authPtr"
         pkSeed pkRoot message sig seed
-        (lookupValue setup.bindings "treeAdrsBase")
+        (lookupValue setup.bindings "forsBase")
         (lookupValue setup.bindings "authPtr")
         setup
         (treeIdx, maskN (keccakWords [seed, adrsForsLeaf i treeIdx, wordOfHash16 sk])) := by
@@ -1353,13 +1353,13 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site
         st seed i treeIdx sk pkSeed pkRoot message sig hsite
         hm0 hAdrLt hSkLt hTree hSecret hLeaf
   have hbase :
-      lookupValue setup.bindings "treeAdrsBase" = (3 <<< 96) ||| (i <<< 64) := by
+      lookupValue setup.bindings "forsBase" = (3 <<< 96) ||| (i <<< 64) := by
     simpa [setup] using
       SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep_treeAdrsBase_eq_of_i
         st i hi hiLt
   have hFrameExact :
       SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-        "node" "pathIdx" "treeAdrsBase" "authPtr"
+        "node" "pathIdx" "forsBase" "authPtr"
         pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64))
         (lookupValue setup.bindings "authPtr")
         setup
@@ -1367,20 +1367,20 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site
     simpa [hbase] using hFrame0
   have hFrameStart :
       SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-        "node" "pathIdx" "treeAdrsBase" "authPtr"
+        "node" "pathIdx" "forsBase" "authPtr"
         pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64))
         (lookupValue setup.bindings "authPtr")
         start
         (treeIdx, maskN (keccakWords [seed, adrsForsLeaf i treeIdx, wordOfHash16 sk])) :=
     SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame_h_inject
-      "node" "pathIdx" "treeAdrsBase" "authPtr"
+      "node" "pathIdx" "forsBase" "authPtr"
       pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64))
       (lookupValue setup.bindings "authPtr") setup
       (treeIdx, maskN (keccakWords [seed, adrsForsLeaf i treeIdx, wordOfHash16 sk]))
       (wordNormalize 0) hFrameExact
   have hmodel :=
     SphincsMinusVerifiers.ClimbMemFrameMerkle.forsClimbFrame_model_node
-      "node" "pathIdx" "treeAdrsBase" "authPtr"
+      "node" "pathIdx" "forsBase" "authPtr"
       pkSeed pkRoot message sig seed i
       (lookupValue setup.bindings "authPtr") auth cdAt hstep start treeIdx
       (maskN (keccakWords [seed, adrsForsLeaf i treeIdx, wordOfHash16 sk]))
@@ -1408,19 +1408,19 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site_range
     (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat), idx < 19 →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth cdAt idx →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-          "node" "pathIdx" "treeAdrsBase" "authPtr"
+          "node" "pathIdx" "forsBase" "authPtr"
           pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64))
           (lookupValue
             (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep st).bindings
             "authPtr")
           s a →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-          "node" "pathIdx" "treeAdrsBase" "authPtr"
+          "node" "pathIdx" "forsBase" "authPtr"
           pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64))
           (lookupValue
             (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep st).bindings
             "authPtr")
-          (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+          (stepMerkle "node" "pathIdx" "forsBase" "authPtr"
             { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
           (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
             seed ((3 <<< 96) ||| (i <<< 64)) auth idx a))
@@ -1460,9 +1460,9 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site_range
   let node0 := maskN (keccakWords [seed, adrsForsLeaf i treeIdx, wordOfHash16 sk])
   have hFrame0 :
       SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-        "node" "pathIdx" "treeAdrsBase" "authPtr"
+        "node" "pathIdx" "forsBase" "authPtr"
         pkSeed pkRoot message sig seed
-        (lookupValue setup.bindings "treeAdrsBase")
+        (lookupValue setup.bindings "forsBase")
         (lookupValue setup.bindings "authPtr")
         setup (treeIdx, node0) := by
     simpa [setup, node0] using
@@ -1470,25 +1470,25 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site_range
         st seed i treeIdx sk pkSeed pkRoot message sig hsite
         hm0 hAdrLt hSkLt hTree hSecret hLeaf
   have hbase :
-      lookupValue setup.bindings "treeAdrsBase" = (3 <<< 96) ||| (i <<< 64) := by
+      lookupValue setup.bindings "forsBase" = (3 <<< 96) ||| (i <<< 64) := by
     simpa [setup] using
       SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep_treeAdrsBase_eq_of_i
         st i hi hiLt
   have hFrameExact :
       SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-        "node" "pathIdx" "treeAdrsBase" "authPtr"
+        "node" "pathIdx" "forsBase" "authPtr"
         pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64))
         (lookupValue setup.bindings "authPtr")
         setup (treeIdx, node0) := by
     simpa [hbase] using hFrame0
   have hFrameStart :
       SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-        "node" "pathIdx" "treeAdrsBase" "authPtr"
+        "node" "pathIdx" "forsBase" "authPtr"
         pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64))
         (lookupValue setup.bindings "authPtr")
         start (treeIdx, node0) :=
     SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame_h_inject
-      "node" "pathIdx" "treeAdrsBase" "authPtr"
+      "node" "pathIdx" "forsBase" "authPtr"
       pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64))
       (lookupValue setup.bindings "authPtr") setup (treeIdx, node0)
       (wordNormalize 0) hFrameExact
@@ -1499,11 +1499,11 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site_range
     exact ⟨by omega, hD idx h0 hlt⟩
   have hframe :=
     SphincsMinusVerifiers.ClimbLoop.foldLoop_invariant_cond "h"
-      (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr")
+      (stepMerkle "node" "pathIdx" "forsBase" "authPtr")
       (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
         seed ((3 <<< 96) ||| (i <<< 64)) auth)
       (SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-        "node" "pathIdx" "treeAdrsBase" "authPtr"
+        "node" "pathIdx" "forsBase" "authPtr"
         pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64))
         (lookupValue setup.bindings "authPtr"))
       D
@@ -1513,7 +1513,7 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site_range
       wordNormalize
         (lookupValue
           (SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
-            (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr")
+            (stepMerkle "node" "pathIdx" "forsBase" "authPtr")
             start 0 19).bindings "node")
         =
           (SphincsMinusVerifiers.ClimbLoop.specFold
@@ -1525,7 +1525,7 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site_range
       wordNormalize
         (lookupValue
           (SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
-            (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr")
+            (stepMerkle "node" "pathIdx" "forsBase" "authPtr")
             start 0 19).bindings "node")
         =
           SphincsMinusVerifierSpec.C13Concrete.xmssClimb seed
@@ -1537,7 +1537,7 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site_range
       wordNormalize
         (lookupValue
           (SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
-            (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr")
+            (stepMerkle "node" "pathIdx" "forsBase" "authPtr")
             start 0 19).bindings "node")
         =
           SphincsMinusVerifierSpec.C13Concrete.forsClimb seed i 19 0 treeIdx node0 auth :=
@@ -1569,19 +1569,19 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site_range_path_bound
         a.1 < 2 ^ 256 →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbData auth cdAt idx →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-          "node" "pathIdx" "treeAdrsBase" "authPtr"
+          "node" "pathIdx" "forsBase" "authPtr"
           pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64))
           (lookupValue
             (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep st).bindings
             "authPtr")
           s a →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-          "node" "pathIdx" "treeAdrsBase" "authPtr"
+          "node" "pathIdx" "forsBase" "authPtr"
           pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64))
           (lookupValue
             (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep st).bindings
             "authPtr")
-          (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+          (stepMerkle "node" "pathIdx" "forsBase" "authPtr"
             { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
           (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
             seed ((3 <<< 96) ||| (i <<< 64)) auth idx a))
@@ -1623,13 +1623,13 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site_range_path_bound
   let merklePtr := lookupValue setup.bindings "authPtr"
   let R : RuntimeState → Nat × Nat → Prop := fun s a =>
     SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-      "node" "pathIdx" "treeAdrsBase" "authPtr"
+      "node" "pathIdx" "forsBase" "authPtr"
       pkSeed pkRoot message sig seed base merklePtr s a ∧ a.1 < 2 ^ 256
   have hFrame0 :
       SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-        "node" "pathIdx" "treeAdrsBase" "authPtr"
+        "node" "pathIdx" "forsBase" "authPtr"
         pkSeed pkRoot message sig seed
-        (lookupValue setup.bindings "treeAdrsBase")
+        (lookupValue setup.bindings "forsBase")
         (lookupValue setup.bindings "authPtr")
         setup (treeIdx, node0) := by
     simpa [setup, node0] using
@@ -1637,23 +1637,23 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site_range_path_bound
         st seed i treeIdx sk pkSeed pkRoot message sig hsite
         hm0 hAdrLt hSkLt hTree hSecret hLeaf
   have hbase :
-      lookupValue setup.bindings "treeAdrsBase" = base := by
+      lookupValue setup.bindings "forsBase" = base := by
     simpa [setup, base] using
       SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep_treeAdrsBase_eq_of_i
         st i hi hiLt
   have hFrameExact :
       SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-        "node" "pathIdx" "treeAdrsBase" "authPtr"
+        "node" "pathIdx" "forsBase" "authPtr"
         pkSeed pkRoot message sig seed base merklePtr
         setup (treeIdx, node0) := by
     simpa [merklePtr, hbase] using hFrame0
   have hFrameStart :
       SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-        "node" "pathIdx" "treeAdrsBase" "authPtr"
+        "node" "pathIdx" "forsBase" "authPtr"
         pkSeed pkRoot message sig seed base merklePtr
         start (treeIdx, node0) :=
     SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame_h_inject
-      "node" "pathIdx" "treeAdrsBase" "authPtr"
+      "node" "pathIdx" "forsBase" "authPtr"
       pkSeed pkRoot message sig seed base merklePtr setup (treeIdx, node0)
       (wordNormalize 0) hFrameExact
   let D : Nat → Prop := fun idx =>
@@ -1665,7 +1665,7 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site_range_path_bound
     exact ⟨hFrameStart, hTreeIdxLt⟩
   have hpair :=
     SphincsMinusVerifiers.ClimbLoop.foldLoop_invariant_cond "h"
-      (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr")
+      (stepMerkle "node" "pathIdx" "forsBase" "authPtr")
       (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep seed base auth)
       R D
       (fun s a idx hDi hR => by
@@ -1678,7 +1678,7 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site_range_path_bound
       wordNormalize
         (lookupValue
           (SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
-            (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr")
+            (stepMerkle "node" "pathIdx" "forsBase" "authPtr")
             start 0 19).bindings "node")
         =
           (SphincsMinusVerifiers.ClimbLoop.specFold
@@ -1689,7 +1689,7 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site_range_path_bound
       wordNormalize
         (lookupValue
           (SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
-            (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr")
+            (stepMerkle "node" "pathIdx" "forsBase" "authPtr")
             start 0 19).bindings "node")
         =
           SphincsMinusVerifierSpec.C13Concrete.xmssClimb seed base 19 0 treeIdx node0 auth :=
@@ -1700,7 +1700,7 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_eval_site_range_path_bound
       wordNormalize
         (lookupValue
           (SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
-            (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr")
+            (stepMerkle "node" "pathIdx" "forsBase" "authPtr")
             start 0 19).bindings "node")
         =
           SphincsMinusVerifierSpec.C13Concrete.forsClimb seed i 19 0 treeIdx node0 auth :=
@@ -1768,7 +1768,7 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_fors_frozen_calldata
   let setup := SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep st
   rcases hsite with ⟨base0, _hsel, _hcd, hap, hbaseSite, hbaselt, _hpathlt⟩
   have hbaseExact :
-      lookupValue setup.bindings "treeAdrsBase" = (3 <<< 96) ||| (i <<< 64) := by
+      lookupValue setup.bindings "forsBase" = (3 <<< 96) ||| (i <<< 64) := by
     simpa [setup] using
       SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep_treeAdrsBase_eq_of_i
         st i hi hiLt
@@ -1792,7 +1792,7 @@ theorem forsLeafInnerStep_node_eq_forsClimbFrame_of_fors_frozen_calldata
     (fun s a idx hidx hmlt hdata hframe => by
       have hframeFixed :
           SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbFrame
-            "node" "pathIdx" "treeAdrsBase" "authPtr"
+            "node" "pathIdx" "forsBase" "authPtr"
             pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64))
             (SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * i))
             s a := by
@@ -1817,7 +1817,7 @@ theorem forsLeafInnerStep_node_eq_forsAllRootsC13_getElem_of_eval
           ((fors.authPath[j]?).getD []) cdAt idx →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx" s a →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx"
-          (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+          (stepMerkle "node" "pathIdx" "forsBase" "authPtr"
             { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
           (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
             (wordOfHash16 pk.pkSeed) ((3 <<< 96) ||| (j <<< 64))
@@ -1875,12 +1875,12 @@ theorem stepMerkle_preserves_seed_slot_of_fors_frozen_calldata
                 ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
     (hap : lookupValue s.bindings "authPtr"
             = SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t))
-    (hbase : lookupValue s.bindings "treeAdrsBase" = base)
+    (hbase : lookupValue s.bindings "forsBase" = base)
     (hbaselt : base < 2 ^ 256)
     (hpathlt : lookupValue s.bindings "pathIdx" < 2 ^ 256)
     (ht : t < 6)
     (hidx : idx < 19) :
-    ((stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+    ((stepMerkle "node" "pathIdx" "forsBase" "authPtr"
         { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }).world.memory 0).val
       = (s.world.memory 0).val := by
   rcases s4_eval_site_of_fors_frozen_calldata
@@ -1900,12 +1900,12 @@ theorem stepMerkle_preserves_root_cell_of_fors_frozen_calldata
                 ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig)
     (hap : lookupValue s.bindings "authPtr"
             = SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t))
-    (hbase : lookupValue s.bindings "treeAdrsBase" = base)
+    (hbase : lookupValue s.bindings "forsBase" = base)
     (hbaselt : base < 2 ^ 256)
     (hpathlt : lookupValue s.bindings "pathIdx" < 2 ^ 256)
     (ht : t < 6)
     (hidx : idx < 19) :
-    ((stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+    ((stepMerkle "node" "pathIdx" "forsBase" "authPtr"
         { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }).world.memory
         (0x80 + 32 * j)).val
       = (s.world.memory (0x80 + 32 * j)).val := by
@@ -1926,7 +1926,7 @@ theorem stepMerkle_preserves_forsFrozenSite
     (ht : t < 6)
     (hidx : idx < 19) :
     ForsFrozenSite t pkSeed pkRoot message sig
-      (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+      (stepMerkle "node" "pathIdx" "forsBase" "authPtr"
         { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }) := by
   rcases hsite with ⟨base, hsel, hcd, hap, hbase, hbaselt, hpathlt⟩
   rcases s4_eval_site_of_fors_frozen_calldata
@@ -1999,16 +1999,16 @@ theorem stepMerkle_preserves_forsFrozenSite
     rfl
   have hsc :=
     SphincsMinusVerifiers.ClimbMemFrameMerkle.stepMerkle_selector_calldata
-      "node" "pathIdx" "treeAdrsBase" "authPtr" stH
+      "node" "pathIdx" "forsBase" "authPtr" stH
       vsib vpar vadr sval o5 vnode o6 (lookupValue st5.bindings "sibling")
       h1 h2 h3 h4 h5off h5val h6off h6val
   have hapStep :
       lookupValue
-        (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr" stH).bindings
+        (stepMerkle "node" "pathIdx" "forsBase" "authPtr" stH).bindings
           "authPtr"
         = SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t) := by
     rw [SphincsMinusVerifiers.ClimbMemFrameMerkle.stepMerkle_binding_frozen
-      "node" "pathIdx" "treeAdrsBase" "authPtr" "authPtr" stH
+      "node" "pathIdx" "forsBase" "authPtr" "authPtr" stH
       vsib vpar vadr sval o5 vnode o6 (lookupValue st5.bindings "sibling")
       (by decide) (by decide) (by decide) (by decide) (by decide)
       h1 h2 h3 h4 h5off h5val h6off h6val]
@@ -2018,23 +2018,23 @@ theorem stepMerkle_preserves_forsFrozenSite
     exact hap
   have hbaseStep :
       lookupValue
-        (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr" stH).bindings
-          "treeAdrsBase" = base := by
+        (stepMerkle "node" "pathIdx" "forsBase" "authPtr" stH).bindings
+          "forsBase" = base := by
     rw [SphincsMinusVerifiers.ClimbMemFrameMerkle.stepMerkle_binding_frozen
-      "node" "pathIdx" "treeAdrsBase" "authPtr" "treeAdrsBase" stH
+      "node" "pathIdx" "forsBase" "authPtr" "forsBase" stH
       vsib vpar vadr sval o5 vnode o6 (lookupValue st5.bindings "sibling")
       (by decide) (by decide) (by decide) (by decide) (by decide)
       h1 h2 h3 h4 h5off h5val h6off h6val]
     dsimp [stH]
     rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
-      s.bindings "h" "treeAdrsBase" (wordNormalize idx) (by decide)]
+      s.bindings "h" "forsBase" (wordNormalize idx) (by decide)]
     exact hbase
   have hpathStepEq :
       lookupValue
-        (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr" stH).bindings
+        (stepMerkle "node" "pathIdx" "forsBase" "authPtr" stH).bindings
           "pathIdx" = vpar :=
     SphincsMinusVerifiers.ClimbMemFrameMerkle.stepMerkle_idx_binding
-      "node" "pathIdx" "treeAdrsBase" "authPtr" stH
+      "node" "pathIdx" "forsBase" "authPtr" stH
       vsib vpar vadr sval o5 vnode o6 (lookupValue st5.bindings "sibling")
       (by decide) h1 h2 h3 h4 h5off h5val h6off h6val
   have hvparlt : vpar < 2 ^ 256 := by
@@ -2056,7 +2056,7 @@ theorem foldLoop_preserves_forsFrozenSite_range
       ForsFrozenSite t pkSeed pkRoot message sig state →
       ForsFrozenSite t pkSeed pkRoot message sig
         (SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
-          (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr")
+          (stepMerkle "node" "pathIdx" "forsBase" "authPtr")
           state index remaining)
   | state, _, 0, _, hsite => by
       rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_zero]
@@ -2064,7 +2064,7 @@ theorem foldLoop_preserves_forsFrozenSite_range
   | state, index, remaining + 1, hD, hsite => by
       rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_succ]
       exact foldLoop_preserves_forsFrozenSite_range t pkSeed pkRoot message sig ht
-        (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+        (stepMerkle "node" "pathIdx" "forsBase" "authPtr"
           { state with bindings := bindValue state.bindings "h" (wordNormalize index) })
         (index + 1) remaining
         (fun i hi1 hi2 => hD i (by omega) (by omega))
@@ -2082,7 +2082,7 @@ theorem foldLoop_preserves_seed_slot_of_forsFrozenSite_range
       (∀ i, index ≤ i → i < index + remaining → i < 19) →
       ForsFrozenSite t pkSeed pkRoot message sig state →
       ((SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
-          (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr")
+          (stepMerkle "node" "pathIdx" "forsBase" "authPtr")
           state index remaining).world.memory 0).val
         = (state.world.memory 0).val
   | state, _, 0, _, _ => by
@@ -2090,7 +2090,7 @@ theorem foldLoop_preserves_seed_slot_of_forsFrozenSite_range
   | state, index, remaining + 1, hD, hsite => by
       rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_succ]
       let stepState : RuntimeState :=
-        stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+        stepMerkle "node" "pathIdx" "forsBase" "authPtr"
           { state with bindings := bindValue state.bindings "h" (wordNormalize index) }
       have hstepMem : (stepState.world.memory 0).val = (state.world.memory 0).val := by
         rcases hsite with ⟨base, hsel, hcd, hap, hbase, hbaselt, hpathlt⟩
@@ -2105,7 +2105,7 @@ theorem foldLoop_preserves_seed_slot_of_forsFrozenSite_range
           (hD index (by omega) (by omega))
       have hrec :
           ((SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
-              (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr")
+              (stepMerkle "node" "pathIdx" "forsBase" "authPtr")
               stepState (index + 1) remaining).world.memory 0).val
             = (stepState.world.memory 0).val :=
         foldLoop_preserves_seed_slot_of_forsFrozenSite_range
@@ -2124,7 +2124,7 @@ theorem foldLoop_preserves_root_cell_of_forsFrozenSite_range
       (∀ i, index ≤ i → i < index + remaining → i < 19) →
       ForsFrozenSite t pkSeed pkRoot message sig state →
       ((SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
-          (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr")
+          (stepMerkle "node" "pathIdx" "forsBase" "authPtr")
           state index remaining).world.memory (0x80 + 32 * j)).val
         = (state.world.memory (0x80 + 32 * j)).val
   | state, _, 0, _, _ => by
@@ -2132,7 +2132,7 @@ theorem foldLoop_preserves_root_cell_of_forsFrozenSite_range
   | state, index, remaining + 1, hD, hsite => by
       rw [SphincsMinusVerifiers.ClimbLoop.foldLoop_succ]
       let stepState : RuntimeState :=
-        stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+        stepMerkle "node" "pathIdx" "forsBase" "authPtr"
           { state with bindings := bindValue state.bindings "h" (wordNormalize index) }
       have hstepMem :
           (stepState.world.memory (0x80 + 32 * j)).val
@@ -2149,7 +2149,7 @@ theorem foldLoop_preserves_root_cell_of_forsFrozenSite_range
           (hD index (by omega) (by omega))
       have hrec :
           ((SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
-              (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr")
+              (stepMerkle "node" "pathIdx" "forsBase" "authPtr")
               stepState (index + 1) remaining).world.memory (0x80 + 32 * j)).val
             = (stepState.world.memory (0x80 + 32 * j)).val :=
         foldLoop_preserves_root_cell_of_forsFrozenSite_range
@@ -2178,7 +2178,7 @@ theorem forsLeafInnerStep_preserves_seed_slot_of_forsFrozenSite
       exact hap
     · dsimp [stH]
       rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
-        st.bindings "h" "treeAdrsBase" (wordNormalize 0) (by decide)]
+        st.bindings "h" "forsBase" (wordNormalize 0) (by decide)]
       exact hbase
     · dsimp [stH]
       rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
@@ -2186,7 +2186,7 @@ theorem forsLeafInnerStep_preserves_seed_slot_of_forsFrozenSite
       exact hpathlt
   have hinner :
       ((SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
-          (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr")
+          (stepMerkle "node" "pathIdx" "forsBase" "authPtr")
           stH 0 (wordNormalize 19)).world.memory 0).val
         = (stH.world.memory 0).val :=
     foldLoop_preserves_seed_slot_of_forsFrozenSite_range
@@ -2220,7 +2220,7 @@ theorem forsLeafInnerStep_preserves_root_cell_of_forsFrozenSite
       exact hap
     · dsimp [stH]
       rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
-        st.bindings "h" "treeAdrsBase" (wordNormalize 0) (by decide)]
+        st.bindings "h" "forsBase" (wordNormalize 0) (by decide)]
       exact hbase
     · dsimp [stH]
       rw [SphincsMinusVerifiers.MemoryKit.lookupValue_bindValue_ne
@@ -2228,7 +2228,7 @@ theorem forsLeafInnerStep_preserves_root_cell_of_forsFrozenSite
       exact hpathlt
   have hinner :
       ((SphincsMinusVerifiers.ClimbLoop.foldLoop "h"
-          (stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr")
+          (stepMerkle "node" "pathIdx" "forsBase" "authPtr")
           stH 0 (wordNormalize 19)).world.memory (0x80 + 32 * j)).val
         = (stH.world.memory (0x80 + 32 * j)).val :=
     foldLoop_preserves_root_cell_of_forsFrozenSite_range
@@ -2412,7 +2412,7 @@ theorem forsLeafStep_preserves_root_cell_range_ne_of_fors_frozen_calldata
               ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig ∧
         lookupValue s.bindings "authPtr"
           = SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t) ∧
-        lookupValue s.bindings "treeAdrsBase" = base ∧
+        lookupValue s.bindings "forsBase" = base ∧
         base < 2 ^ 256 ∧
         lookupValue s.bindings "pathIdx" < 2 ^ 256) :
     ((SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep st).world.memory
@@ -2451,7 +2451,7 @@ theorem forsOuter_root_cell_eq_iteration_node_of_fors_frozen_calldata
               ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig ∧
         lookupValue s.bindings "authPtr"
           = SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t) ∧
-        lookupValue s.bindings "treeAdrsBase" = base ∧
+        lookupValue s.bindings "forsBase" = base ∧
         base < 2 ^ 256 ∧
         lookupValue s.bindings "pathIdx" < 2 ^ 256) :
     ((SphincsMinusVerifiers.ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
@@ -2486,7 +2486,7 @@ seed-frame premise may depend on a predicate over the actual inner height. -/
 theorem forsLeafInner_preserves_seed_slot_range_of_step
     (D : Nat → Prop)
     (hstep : ∀ (s : RuntimeState) (idx : Nat), D idx →
-      ((stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+      ((stepMerkle "node" "pathIdx" "forsBase" "authPtr"
           { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }).world.memory 0).val
         = (s.world.memory 0).val)
     (hD : ∀ i, 0 ≤ i → i < 0 + wordNormalize 19 → D i)
@@ -2495,7 +2495,7 @@ theorem forsLeafInner_preserves_seed_slot_range_of_step
         = .continue s') :
     (s'.world.memory 0).val = (st.world.memory 0).val := by
   exact SphincsMinusVerifiers.ClimbMemFrameMerkle.execStmt_forEach_h_merkleClimb_preserves_memory_val_range
-      "node" "pathIdx" "treeAdrsBase" "authPtr" 0 19 D hstep st s' hD
+      "node" "pathIdx" "forsBase" "authPtr" 0 19 D hstep st s' hD
       (by simpa [SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStmt] using h)
 
 /-- One FORS leaf iteration preserves `mem[0x00]` over the real outer range once
@@ -2504,7 +2504,7 @@ theorem forsLeafStep_preserves_seed_slot_range_of_merkle_step_bound
     (st : RuntimeState) (idx : Nat) (hidx : idx < 6)
     (hi : lookupValue st.bindings "i" = idx)
     (hstep : ∀ (s : RuntimeState) (hidx : Nat),
-      ((stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+      ((stepMerkle "node" "pathIdx" "forsBase" "authPtr"
           { s with bindings := bindValue s.bindings "h" (wordNormalize hidx) }).world.memory 0).val
         = (s.world.memory 0).val) :
     ((SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep st).world.memory 0).val
@@ -2520,7 +2520,7 @@ theorem forsLeafStep_preserves_seed_slot_range_of_merkle_step_range
     (st : RuntimeState) (idx : Nat) (hidx : idx < 6)
     (hi : lookupValue st.bindings "i" = idx)
     (hstep : ∀ (s : RuntimeState) (hidx : Nat), D hidx →
-      ((stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+      ((stepMerkle "node" "pathIdx" "forsBase" "authPtr"
           { s with bindings := bindValue s.bindings "h" (wordNormalize hidx) }).world.memory 0).val
         = (s.world.memory 0).val)
     (hD : ∀ i, 0 ≤ i → i < 0 + wordNormalize 19 → D i) :
@@ -2535,7 +2535,7 @@ per-`stepMerkle` seed-frame proof for the inner Merkle climb. -/
 theorem execForsOuter_preserves_seed_slot_range_of_merkle_step_bound
     (st s' : RuntimeState)
     (hstep : ∀ (s : RuntimeState) (hidx : Nat),
-      ((stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+      ((stepMerkle "node" "pathIdx" "forsBase" "authPtr"
           { s with bindings := bindValue s.bindings "h" (wordNormalize hidx) }).world.memory 0).val
         = (s.world.memory 0).val)
     (h : execStmt [] st SphincsMinusVerifiers.SegmentS4Fors.forsOuterStmt
@@ -2561,7 +2561,7 @@ theorem execForsOuter_preserves_seed_slot_range_of_merkle_step_range
     (D : Nat → Prop)
     (st s' : RuntimeState)
     (hstep : ∀ (s : RuntimeState) (hidx : Nat), D hidx →
-      ((stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+      ((stepMerkle "node" "pathIdx" "forsBase" "authPtr"
           { s with bindings := bindValue s.bindings "h" (wordNormalize hidx) }).world.memory 0).val
         = (s.world.memory 0).val)
     (hD : ∀ i, 0 ≤ i → i < 0 + wordNormalize 19 → D i)
@@ -2599,7 +2599,7 @@ theorem execForsOuter_preserves_seed_slot_range_of_s4_eval
               (bindValue
                 (bindValue (bindValue s.bindings "h" (wordNormalize idx)) "sibling" vsib)
                 "parentIdx" (lookupValue s.bindings "pathIdx" >>> 1)) }
-            (.bitOr (.localVar "treeAdrsBase")
+            (.bitOr (.localVar "forsBase")
               (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
                 (.localVar "parentIdx"))) = some vadr)
     (h : execStmt [] st SphincsMinusVerifiers.SegmentS4Fors.forsOuterStmt
@@ -2628,7 +2628,7 @@ theorem forsLeafStep_preserves_seed_slot_range_of_fors_frozen_calldata
               ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig ∧
         lookupValue s.bindings "authPtr"
           = SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t) ∧
-        lookupValue s.bindings "treeAdrsBase" = base ∧
+        lookupValue s.bindings "forsBase" = base ∧
         base < 2 ^ 256 ∧
         lookupValue s.bindings "pathIdx" < 2 ^ 256) :
     ((SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep st).world.memory 0).val
@@ -2662,7 +2662,7 @@ theorem execForsOuter_preserves_seed_slot_range_of_fors_frozen_calldata
               ++ SphincsMinusVerifiers.MkC13State.bytesToWords sig ∧
         lookupValue s.bindings "authPtr"
           = SphincsMinusVerifiers.MkC13State.sigDataOffset + (128 + 304 * t) ∧
-        lookupValue s.bindings "treeAdrsBase" = base ∧
+        lookupValue s.bindings "forsBase" = base ∧
         base < 2 ^ 256 ∧
         lookupValue s.bindings "pathIdx" < 2 ^ 256)
     (h : execStmt [] st SphincsMinusVerifiers.SegmentS4Fors.forsOuterStmt

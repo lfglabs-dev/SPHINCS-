@@ -242,11 +242,11 @@ theorem forsLeafBody_pres : PreservesRoot SegmentS4Fors.forsLeafBody := by
   · exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
   · exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
   · exact execStmt_letVar_preserves_lookup _ _ "node" "root" _ (by decide) hexec
-  · exact execStmt_letVar_preserves_lookup _ _ "treeAdrsBase" "root" _ (by decide) hexec
+  · exact execStmt_letVar_preserves_lookup _ _ "forsBase" "root" _ (by decide) hexec
   · exact execStmt_letVar_preserves_lookup _ _ "pathIdx" "root" _ (by decide) hexec
   · exact execStmt_letVar_preserves_lookup _ _ "authPtr" "root" _ (by decide) hexec
   · exact execStmt_forEach_preserves_lookup "h" "root" _ _ _ _ (by decide)
-      (merkleClimbBody_pres "node" "pathIdx" "treeAdrsBase" "authPtr"
+      (merkleClimbBody_pres "node" "pathIdx" "forsBase" "authPtr"
         (by decide) (by decide)) hexec
   · exact execStmt_mstore_preserves_lookup _ _ "root" _ _ hexec
 

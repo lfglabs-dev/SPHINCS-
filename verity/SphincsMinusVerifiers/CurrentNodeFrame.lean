@@ -1016,7 +1016,7 @@ theorem normalRootCell_eq_of_fors_frozen_calldata_node
         s.world.calldata
           = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig ∧
         lookupValue s.bindings "authPtr" = sigDataOffset + (128 + 304 * t) ∧
-        lookupValue s.bindings "treeAdrsBase" = base ∧
+        lookupValue s.bindings "forsBase" = base ∧
         base < 2 ^ 256 ∧
         lookupValue s.bindings "pathIdx" < 2 ^ 256)
     (hNode :
@@ -1055,7 +1055,7 @@ theorem normalRootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes
         s.world.calldata
           = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig ∧
         lookupValue s.bindings "authPtr" = sigDataOffset + (128 + 304 * t) ∧
-        lookupValue s.bindings "treeAdrsBase" = base ∧
+        lookupValue s.bindings "forsBase" = base ∧
         base < 2 ^ 256 ∧
         lookupValue s.bindings "pathIdx" < 2 ^ 256)
     (hNode : ∀ j, (hj : j < 6) →
@@ -1174,7 +1174,7 @@ theorem forsOuterLeafState_node_eq_forsAllRootsC13_of_eval_parse
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx" s a →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx"
           (SphincsMinusVerifiers.ClimbKit.stepMerkle
-            "node" "pathIdx" "treeAdrsBase" "authPtr"
+            "node" "pathIdx" "forsBase" "authPtr"
             { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
           (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
             (wordOfHash16 pk.pkSeed) ((3 <<< 96) ||| (j <<< 64))
@@ -1257,7 +1257,7 @@ theorem forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_eval_parse
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx" s a →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx"
           (SphincsMinusVerifiers.ClimbKit.stepMerkle
-            "node" "pathIdx" "treeAdrsBase" "authPtr"
+            "node" "pathIdx" "forsBase" "authPtr"
             { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
           (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
             (wordOfHash16 pk.pkSeed) ((3 <<< 96) ||| (j <<< 64))
@@ -1401,7 +1401,7 @@ theorem forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_eval_parse
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx" s a →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx"
           (SphincsMinusVerifiers.ClimbKit.stepMerkle
-            "node" "pathIdx" "treeAdrsBase" "authPtr"
+            "node" "pathIdx" "forsBase" "authPtr"
             { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
           (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
             (wordOfHash16 pk.pkSeed) ((3 <<< 96) ||| (j <<< 64))
@@ -1984,7 +1984,7 @@ theorem forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_secret_parse
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx" s a →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx"
           (SphincsMinusVerifiers.ClimbKit.stepMerkle
-            "node" "pathIdx" "treeAdrsBase" "authPtr"
+            "node" "pathIdx" "forsBase" "authPtr"
             { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
           (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
             (wordOfHash16 pk.pkSeed) ((3 <<< 96) ||| (j <<< 64))
@@ -2048,7 +2048,7 @@ theorem forsOuterLeafState_node_eq_forsAllRootsC13_of_hMsg_setup_tree_secret_par
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx" s a →
         SphincsMinusVerifiers.ClimbMemFrameMerkle.MerkleClimbRel "node" "pathIdx"
           (SphincsMinusVerifiers.ClimbKit.stepMerkle
-            "node" "pathIdx" "treeAdrsBase" "authPtr"
+            "node" "pathIdx" "forsBase" "authPtr"
             { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
           (SphincsMinusVerifiers.ClimbMemFrameMerkle.merkleSpecStep
             (wordOfHash16 pk.pkSeed) ((3 <<< 96) ||| (j <<< 64))
@@ -2400,7 +2400,7 @@ theorem rootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes_and_parse_ran
         s.world.calldata
           = headWords pk.pkSeed pk.pkRoot message sig.size ++ bytesToWords sig ∧
         lookupValue s.bindings "authPtr" = sigDataOffset + (128 + 304 * t) ∧
-        lookupValue s.bindings "treeAdrsBase" = base ∧
+        lookupValue s.bindings "forsBase" = base ∧
         base < 2 ^ 256 ∧
         lookupValue s.bindings "pathIdx" < 2 ^ 256)
     (hNode : ∀ j, (hj : j < 6) →
@@ -2465,7 +2465,7 @@ theorem rootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes_and_parse
         s.world.calldata
           = headWords pk.pkSeed pk.pkRoot message sig.size ++ bytesToWords sig ∧
         lookupValue s.bindings "authPtr" = sigDataOffset + (128 + 304 * t) ∧
-        lookupValue s.bindings "treeAdrsBase" = base ∧
+        lookupValue s.bindings "forsBase" = base ∧
         base < 2 ^ 256 ∧
         lookupValue s.bindings "pathIdx" < 2 ^ 256)
     (hNode : ∀ j, (hj : j < 6) →

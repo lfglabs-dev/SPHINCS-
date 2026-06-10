@@ -2162,7 +2162,7 @@ set_option maxHeartbeats 8000000 in
 /-- Faithfulness: `layerStmt` is *exactly* statement 25 of `c13VerifyBody`
 (loop header, full body, every inner `forEach` and the checksum-guard `ite`). -/
 theorem layerStmt_eq_slice :
-    [layerStmt] = (c13VerifyBodyTail.drop 24).take 1 := rfl
+    [layerStmt] = (c13VerifyBodyTail.drop 27).take 1 := rfl
 
 /-- One-step unfold of `execStmtList` on a cons, kept generic so the head
 `execStmt` stays symbolic (no reduction of concrete loop-states). -/

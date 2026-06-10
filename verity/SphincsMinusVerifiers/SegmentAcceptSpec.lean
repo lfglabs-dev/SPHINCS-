@@ -2958,7 +2958,7 @@ structure C13SeedNamedAcceptGuardedPkRootSizeLeafRootObligations
       s.world.calldata
         = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig ∧
       lookupValue s.bindings "authPtr" = sigDataOffset + (128 + 304 * t) ∧
-      lookupValue s.bindings "treeAdrsBase" = base ∧
+      lookupValue s.bindings "forsBase" = base ∧
       base < 2 ^ 256 ∧
       lookupValue s.bindings "pathIdx" < 2 ^ 256
   hNode : ∀ j, (hj : j < 6) →
@@ -3005,7 +3005,7 @@ structure C13SeedNamedAcceptGuardedPkRootSizeSiteRootObligations
       s.world.calldata
         = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig ∧
       lookupValue s.bindings "authPtr" = sigDataOffset + (128 + 304 * t) ∧
-      lookupValue s.bindings "treeAdrsBase" = base ∧
+      lookupValue s.bindings "forsBase" = base ∧
       base < 2 ^ 256 ∧
       lookupValue s.bindings "pathIdx" < 2 ^ 256
   hNode : ∀ j, (hj : j < 6) →
@@ -3090,7 +3090,7 @@ structure C13SeedNamedAcceptConcreteLayerSiteRootObligations
       s.world.calldata
         = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig ∧
       lookupValue s.bindings "authPtr" = sigDataOffset + (128 + 304 * t) ∧
-      lookupValue s.bindings "treeAdrsBase" = base ∧
+      lookupValue s.bindings "forsBase" = base ∧
       base < 2 ^ 256 ∧
       lookupValue s.bindings "pathIdx" < 2 ^ 256
   hNode : ∀ j, (hj : j < 6) →

@@ -14,7 +14,7 @@
   This file composes them — under the length guard and the two body guards (the
   FORS forced-zero guard and the WOTS-checksum climb guards) — into a single
   equality reducing the whole `c13VerifyBody` run to the 3-statement return tail
-  (`drop 26`) over one named composite state `afterLayer`.  The reshape of the
+  (`drop 29`) over one named composite state `afterLayer`.  The reshape of the
   body into the named segments is machine-checked by `rfl` (`body_reshape`).
 
   This is the **control-flow** backbone of the Phase-3 bridge: it touches neither
@@ -64,7 +64,7 @@ theorem body_reshape :
     c13VerifyBodyTail =
       SegmentS2.s2Body ++ (SegmentS3.segmentS3 ++ ([SegmentS4Fors.forsOuterStmt] ++
         (SegmentS4Finalize.forsFinalizeBody ++ (SegmentSeed.segmentSeed ++
-          ([SegmentLayer3.layerStmt] ++ c13VerifyBodyTail.drop 25))))) := rfl
+          ([SegmentLayer3.layerStmt] ++ c13VerifyBodyTail.drop 28))))) := rfl
 
 /-! ## 3. Singleton-statement continue helper. -/
 
@@ -92,7 +92,7 @@ theorem execC13Body_thread
         { (afterSeed st) with bindings := bindValue (afterSeed st).bindings "layer" (wordNormalize 0) }
         0 (wordNormalize 2)) :
     execStmtList [] st c13VerifyBody
-      = execStmtList [] (afterLayer st) (c13VerifyBodyTail.drop 25) := by
+      = execStmtList [] (afterLayer st) (c13VerifyBodyTail.drop 28) := by
   rw [c13VerifyBody_passes_preflight_guards st hlen hpkSeed hpkRoot, body_reshape]
   -- S2 (stmts 1..9).  The type ascription folds `s2Step st` into `afterS2 st`
   -- (definitional), so every later rewrite stays in named-composite form.
@@ -135,7 +135,7 @@ def acceptWord (st : RuntimeState) : Nat :=
                     = lookupValue (afterLayer st).bindings "root"))
 
 private theorem drop26_eq :
-    c13VerifyBodyTail.drop 25 =
+    c13VerifyBodyTail.drop 28 =
       [ (.letVar "valid" (.eq (.localVar "currentNode") (.localVar "root")) : Stmt),
         .mstore (.literal 0) (.localVar "valid"),
         .return (.mload (.literal 0)) ] := rfl
