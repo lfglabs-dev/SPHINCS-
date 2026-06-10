@@ -16,11 +16,16 @@ This folder is the verification workbench for the three verifier contracts in
 > (`or(forsBase, or(shl(32,h+1), or(shl(sub(18,h),i), parentIdx)))`).
 > On this branch `c13_refines_byte_spec` and `c12_refines_byte_spec` are
 > **theorems**, resting on the documented "Residual assembly axioms" family
-> (see below): never-elaborated-on-small-hosts composition obligations recorded
-> as accepted axioms pending a >64 GB discharge pass.  `#print axioms
-> c13_refines_spec` →
-> `[propext, Classical.choice, Quot.sound, c13_ok_current_node_wordcmp_residual,
-> c13_reverted_afterMerkle_raw_xmss_residual]`.  Zero `sorry` package-wide.
+> (see below).  All sixteen composition-glue obligations are now proved (the
+> earlier elaboration divergence was a spelling mismatch between the explicit
+> start-state record and `c13BeforeWotsPkLightState`; stating the obligations
+> in the named form makes every composition elaborate in ~400 MB), so the
+> headline cones list only the primitive obligations: `c13_refines_spec` rests
+> on Lean's logic plus the three `c13_beforeWotsPk_memory_*_eq_lightweight`
+> single-cell cutpoint bridges, the layer-0 `lightweight_chain_inputs` /
+> `_of_inputs` pair, and the layer-1/reverted lightweight chain-cell twins;
+> `c12_refines_spec` on logic plus the single
+> `c12_layer3_after3_current_node_root_residual`.  Zero `sorry` package-wide.
 > Build with `verity/scripts/build.sh` (memory-capped) — never bare `lake build`
 > on <64 GB machines.
 

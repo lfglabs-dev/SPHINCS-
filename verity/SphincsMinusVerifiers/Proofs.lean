@@ -11187,16 +11187,9 @@ axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_of_inputs_layer0 :
               omega)
 
 /-- C13 accept-side layer-0 copied WOTS chain-end cells at the lightweight
-WOTS-outer/copy-fold cutpoint, derived from exact WOTS-outer inputs.
-
-ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
-Symmetric twin of the already-axiomatized
-`c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`: the
-intended one-line composition of the two neighbouring residual axioms
-diverges during elaboration on sub-64 GB hosts (same `Proofs.lean` single-module
-memory wall the surrounding axioms document), so it is recorded in the same
-accepted-obligation form as its layer-1 twin pending a large-memory pass. -/
-axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer0 :
+WOTS-outer/copy-fold cutpoint: composition of the exact-inputs obligation and
+its verified `_of_inputs` closure. -/
+theorem c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer0 :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11219,17 +11212,9 @@ axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer0 :
       ∀ j, (h : j < 43) →
         ((ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.copyStep
           (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep
-            { SegmentLayer3AddressCells.beforeWotsPkWotsPtrFrom
-                (SegmentLayer3.afterDigit
-                  (CurrentNodeFrame.c13LayerLoopState0
-                    (mkC13State pkSeed pkRoot message sig))) with
-              bindings :=
-                bindValue
-                  (SegmentLayer3AddressCells.beforeWotsPkWotsPtrFrom
-                    (SegmentLayer3.afterDigit
-                      (CurrentNodeFrame.c13LayerLoopState0
-                        (mkC13State pkSeed pkRoot message sig)))).bindings
-                  "i" (wordNormalize 0) }
+            (c13BeforeWotsPkLightState
+              (CurrentNodeFrame.c13LayerLoopState0
+                (mkC13State pkSeed pkRoot message sig)))
             0 43)
           0 43).world.memory (0x40 + 32 * j)).val =
           (InitialNodeKeccak.wotsChainsEnd
@@ -11237,18 +11222,22 @@ axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer0 :
             (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
             (C13Concrete.wordOfHash16 forsPk) d.lsig0.wots)[j]'(by
               rw [InitialNodeKeccak.wotsChainsEnd_length]
-              omega)
+              omega):= by
+  intro pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse hZero hFors hFold pk digest d j hj
+  have hInputs :=
+    c13_ok_beforeAuthOff_wotsPk_lightweight_chain_inputs_layer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hZero hFors hFold d
+  exact
+    c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_of_inputs_layer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot
+      hParse hZero hFors hFold d hInputs
+      j hj
 
 /-- C13 accept-side layer-0 copied WOTS chain-end cells at the historical
 `beforeWotsPk` cutpoint, reduced to the lightweight copy-fold residual. -/
--- ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
--- Composition glue between the neighbouring accepted assembly axioms and
--- verified cutpoint lemmas; its intended one-line proof diverges during
--- elaboration on sub-64 GB hosts (the documented `Proofs.lean` single-module
--- memory wall). Recorded in the same accepted-obligation form as
--- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`,
--- pending a large-memory discharge pass.
-axiom c13_ok_beforeAuthOff_wotsPk_chain_cells_residual_layer0 :
+theorem c13_ok_beforeAuthOff_wotsPk_chain_cells_residual_layer0 :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11265,19 +11254,35 @@ axiom c13_ok_beforeAuthOff_wotsPk_chain_cells_residual_layer0 :
         { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
       forsPk sigParsed.layers = .ok specRoot →
     C13FoldOkBeforeAuthOffWotsPkChainCellsDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot:= by
+  intro pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse hZero hFors hFold
+  intro d
+  change
+    ∀ j, (h : j < 43) →
+      ((SegmentLayer3.beforeWotsPk
+        (CurrentNodeFrame.c13LayerLoopState0
+          (mkC13State pkSeed pkRoot message sig))).world.memory
+        (0x40 + 32 * j)).val =
+        (InitialNodeKeccak.wotsChainsEnd
+          (C13Concrete.wordOfHash16 pkSeed) 0
+          ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048)
+          ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+          (C13Concrete.wordOfHash16 forsPk) d.lsig0.wots)[j]'(by
+            rw [InitialNodeKeccak.wotsChainsEnd_length]
+            omega)
+  intro j hj
+  rw [c13_beforeWotsPk_memory_chain_eq_lightweight]
+  exact
+    c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer0
       pkSeed pkRoot message sig sigParsed forsPk specRoot
-    
+      hParse hZero hFors hFold d j hj
 
 /-- C13 accept-side layer-1 WOTS-PK address cell at the `beforeWotsPk`
 cutpoint, discharged from the executable WOTS-PK address store. -/
--- ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
--- Composition glue between the neighbouring accepted assembly axioms and
--- verified cutpoint lemmas; its intended one-line proof diverges during
--- elaboration on sub-64 GB hosts (the documented `Proofs.lean` single-module
--- memory wall). Recorded in the same accepted-obligation form as
--- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`,
--- pending a large-memory discharge pass.
-axiom c13_ok_beforeAuthOff_wotsPk_address_cell_residual_layer1 :
+theorem c13_ok_beforeAuthOff_wotsPk_address_cell_residual_layer1 :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11294,8 +11299,60 @@ axiom c13_ok_beforeAuthOff_wotsPk_address_cell_residual_layer1 :
         { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
       forsPk sigParsed.layers = .ok specRoot →
     C13FoldOkBeforeAuthOffWotsPkAddressCellDataLayer1
-      pkSeed pkRoot message sig sigParsed forsPk specRoot
-    
+      pkSeed pkRoot message sig sigParsed forsPk specRoot:= by
+  intro pkSeed pkRoot message sig sigParsed forsPk specRoot hParse _hZero _hFors _hFold
+  intro _d
+  rw [← c13SecondLayerGuardState_eq_c13LayerLoopState1 pkSeed pkRoot message sig]
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  change
+    ((SegmentLayer3.beforeWotsPk
+      (c13SecondLayerGuardState pkSeed pkRoot message sig)).world.memory 0x20).val =
+      C13Concrete.adrsWotsPk 1
+        ((digest.hyperIndex / 2048) / 2048)
+        ((digest.hyperIndex / 2048) % 2048)
+  rw [c13_beforeWotsPk_memory_0x20_eq_lightweight]
+  exact SegmentLayer3AddressCells.beforeWotsPkFrom_memory_0x20_eq_of_bindings
+    (SegmentLayer3.afterDigit (c13SecondLayerGuardState pkSeed pkRoot message sig))
+    1 ((digest.hyperIndex / 2048) / 2048)
+      ((digest.hyperIndex / 2048) % 2048)
+    (by
+      rw [SegmentLayer3.afterDigit_preserves_lookup_of_ne
+        (c13SecondLayerGuardState pkSeed pkRoot message sig) "layer"
+        (by decide) (by decide)]
+      rw [SegmentLayer3.beforeDigitLoop_preserves_layer]
+      exact c13SecondLayerGuardState_layer pkSeed pkRoot message sig)
+    (by
+      rw [SegmentLayer3.afterDigit_preserves_lookup_of_ne
+        (c13SecondLayerGuardState pkSeed pkRoot message sig) "idxTree"
+        (by decide) (by decide)]
+      exact SegmentLayer3.beforeDigitLoop_idxTree_eq_of_idxTree
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)
+        (digest.hyperIndex / 2048)
+        (c13SecondLayerGuardState_idxTree_hyperIndex
+          pkSeed pkRoot message sig hParse)
+        (lt_of_le_of_lt (Nat.div_le_self _ _)
+          (lt_trans
+            (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
+            (by decide : 2 ^ 22 < 2 ^ 256))))
+    (by
+      exact SegmentLayer3.afterDigit_idxLeaf_eq_of_idxTree
+        (c13SecondLayerGuardState pkSeed pkRoot message sig)
+        (digest.hyperIndex / 2048)
+        (c13SecondLayerGuardState_idxTree_hyperIndex
+          pkSeed pkRoot message sig hParse)
+        (lt_of_le_of_lt (Nat.div_le_self _ _)
+          (lt_trans
+            (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
+            (by decide : 2 ^ 22 < 2 ^ 256))))
+    (by decide : 1 < 2 ^ 32)
+    (by
+      exact lt_of_le_of_lt (Nat.div_le_self _ _)
+        (lt_of_le_of_lt (Nat.div_le_self _ _)
+          (lt_trans (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
+            (by decide : 2 ^ 22 < 2 ^ 32))))
+    (lt_trans (Nat.mod_lt _ (by decide : 0 < 2048))
+      (by decide : 2048 < 2 ^ 32))
 
 /-- Residual C13 accept-side layer-1 copied WOTS chain-end cells at the
 lightweight WOTS-outer/copy-fold cutpoint.
@@ -11333,17 +11390,9 @@ axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1 :
       ∀ j, (h : j < 43) →
         ((ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.copyStep
           (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep
-            { SegmentLayer3AddressCells.beforeWotsPkWotsPtrFrom
-                (SegmentLayer3.afterDigit
-                  (CurrentNodeFrame.c13LayerLoopState1
-                    (mkC13State pkSeed pkRoot message sig))) with
-              bindings :=
-                bindValue
-                  (SegmentLayer3AddressCells.beforeWotsPkWotsPtrFrom
-                    (SegmentLayer3.afterDigit
-                      (CurrentNodeFrame.c13LayerLoopState1
-                        (mkC13State pkSeed pkRoot message sig)))).bindings
-                  "i" (wordNormalize 0) }
+            (c13BeforeWotsPkLightState
+              (CurrentNodeFrame.c13LayerLoopState1
+                (mkC13State pkSeed pkRoot message sig)))
             0 43)
           0 43).world.memory (0x40 + 32 * j)).val =
           (InitialNodeKeccak.wotsChainsEnd
@@ -11356,14 +11405,7 @@ axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1 :
 
 /-- C13 accept-side layer-1 copied WOTS chain-end cells at the historical
 `beforeWotsPk` cutpoint, reduced to the lightweight copy-fold residual. -/
--- ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
--- Composition glue between the neighbouring accepted assembly axioms and
--- verified cutpoint lemmas; its intended one-line proof diverges during
--- elaboration on sub-64 GB hosts (the documented `Proofs.lean` single-module
--- memory wall). Recorded in the same accepted-obligation form as
--- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`,
--- pending a large-memory discharge pass.
-axiom c13_ok_beforeAuthOff_wotsPk_chain_cells_residual_layer1 :
+theorem c13_ok_beforeAuthOff_wotsPk_chain_cells_residual_layer1 :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11380,19 +11422,35 @@ axiom c13_ok_beforeAuthOff_wotsPk_chain_cells_residual_layer1 :
         { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
       forsPk sigParsed.layers = .ok specRoot →
     C13FoldOkBeforeAuthOffWotsPkChainCellsDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot:= by
+  intro pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse hZero hFors hFold
+  intro d
+  change
+    ∀ j, (h : j < 43) →
+      ((SegmentLayer3.beforeWotsPk
+        (CurrentNodeFrame.c13LayerLoopState1
+          (mkC13State pkSeed pkRoot message sig))).world.memory
+        (0x40 + 32 * j)).val =
+        (InitialNodeKeccak.wotsChainsEnd
+          (C13Concrete.wordOfHash16 pkSeed) 1
+          (((C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048) / 2048)
+          (((C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048) % 2048)
+          (C13Concrete.wordOfHash16 d.root0) d.lsig1.wots)[j]'(by
+            rw [InitialNodeKeccak.wotsChainsEnd_length]
+            omega)
+  intro j hj
+  rw [c13_beforeWotsPk_memory_chain_eq_lightweight]
+  exact
+    c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1
       pkSeed pkRoot message sig sigParsed forsPk specRoot
-    
+      hParse hZero hFors hFold d j hj
 
 /-- C13 accept-side layer-0 address/chain cells, composed from separate exact
 address-cell and chain-cell residuals. -/
--- ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
--- Composition glue between the neighbouring accepted assembly axioms and
--- verified cutpoint lemmas; its intended one-line proof diverges during
--- elaboration on sub-64 GB hosts (the documented `Proofs.lean` single-module
--- memory wall). Recorded in the same accepted-obligation form as
--- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`,
--- pending a large-memory discharge pass.
-axiom c13_ok_beforeAuthOff_wotsPk_address_chain_cells_residual_layer0 :
+theorem c13_ok_beforeAuthOff_wotsPk_address_chain_cells_residual_layer0 :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11409,19 +11467,22 @@ axiom c13_ok_beforeAuthOff_wotsPk_address_chain_cells_residual_layer0 :
         { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
       forsPk sigParsed.layers = .ok specRoot →
     C13FoldOkBeforeAuthOffWotsPkAddressChainCellsDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot:= by
+  intro pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse hZero hFors hFold
+  exact
+    c13FoldOkBeforeAuthOffWotsPkAddressChainCellsDataLayer0_of_split
       pkSeed pkRoot message sig sigParsed forsPk specRoot
-    
+      (c13_ok_beforeAuthOff_wotsPk_address_cell_residual_layer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold)
+      (c13_ok_beforeAuthOff_wotsPk_chain_cells_residual_layer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold)
 
 /-- C13 accept-side layer-1 address/chain cells, composed from separate exact
 address-cell and chain-cell residuals. -/
--- ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
--- Composition glue between the neighbouring accepted assembly axioms and
--- verified cutpoint lemmas; its intended one-line proof diverges during
--- elaboration on sub-64 GB hosts (the documented `Proofs.lean` single-module
--- memory wall). Recorded in the same accepted-obligation form as
--- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`,
--- pending a large-memory discharge pass.
-axiom c13_ok_beforeAuthOff_wotsPk_address_chain_cells_residual_layer1 :
+theorem c13_ok_beforeAuthOff_wotsPk_address_chain_cells_residual_layer1 :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11438,19 +11499,22 @@ axiom c13_ok_beforeAuthOff_wotsPk_address_chain_cells_residual_layer1 :
         { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
       forsPk sigParsed.layers = .ok specRoot →
     C13FoldOkBeforeAuthOffWotsPkAddressChainCellsDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot:= by
+  intro pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse hZero hFors hFold
+  exact
+    c13FoldOkBeforeAuthOffWotsPkAddressChainCellsDataLayer1_of_split
       pkSeed pkRoot message sig sigParsed forsPk specRoot
-    
+      (c13_ok_beforeAuthOff_wotsPk_address_cell_residual_layer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold)
+      (c13_ok_beforeAuthOff_wotsPk_chain_cells_residual_layer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold)
 
 /-- C13 accept-side layer-0 final-WOTS-PK preimage cells, reduced to the
 remaining address/chain-cell residual plus the proved seed cell. -/
--- ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
--- Composition glue between the neighbouring accepted assembly axioms and
--- verified cutpoint lemmas; its intended one-line proof diverges during
--- elaboration on sub-64 GB hosts (the documented `Proofs.lean` single-module
--- memory wall). Recorded in the same accepted-obligation form as
--- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`,
--- pending a large-memory discharge pass.
-axiom c13_ok_beforeAuthOff_wotsPk_preimage_cells_residual_layer0 :
+theorem c13_ok_beforeAuthOff_wotsPk_preimage_cells_residual_layer0 :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11467,19 +11531,19 @@ axiom c13_ok_beforeAuthOff_wotsPk_preimage_cells_residual_layer0 :
         { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
       forsPk sigParsed.layers = .ok specRoot →
     C13FoldOkBeforeAuthOffWotsPkPreimageCellsDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot:= by
+  intro pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse hZero hFors hFold
+  exact
+    c13FoldOkBeforeAuthOffWotsPkPreimageCellsDataLayer0_of_address_chain_cells
       pkSeed pkRoot message sig sigParsed forsPk specRoot
-    
+      (c13_ok_beforeAuthOff_wotsPk_address_chain_cells_residual_layer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold)
 
 /-- C13 accept-side layer-1 final-WOTS-PK preimage cells, reduced to the
 remaining address/chain-cell residual plus the proved seed cell. -/
--- ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
--- Composition glue between the neighbouring accepted assembly axioms and
--- verified cutpoint lemmas; its intended one-line proof diverges during
--- elaboration on sub-64 GB hosts (the documented `Proofs.lean` single-module
--- memory wall). Recorded in the same accepted-obligation form as
--- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`,
--- pending a large-memory discharge pass.
-axiom c13_ok_beforeAuthOff_wotsPk_preimage_cells_residual_layer1 :
+theorem c13_ok_beforeAuthOff_wotsPk_preimage_cells_residual_layer1 :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11496,19 +11560,19 @@ axiom c13_ok_beforeAuthOff_wotsPk_preimage_cells_residual_layer1 :
         { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
       forsPk sigParsed.layers = .ok specRoot →
     C13FoldOkBeforeAuthOffWotsPkPreimageCellsDataLayer1
-      pkSeed pkRoot message sig sigParsed forsPk specRoot
-    
+      pkSeed pkRoot message sig sigParsed forsPk specRoot:= by
+  intro pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse hZero hFors hFold
+  exact
+    c13FoldOkBeforeAuthOffWotsPkPreimageCellsDataLayer1_of_address_chain_cells
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hParse
+      (c13_ok_beforeAuthOff_wotsPk_address_chain_cells_residual_layer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold)
 
 /-- C13 accept-side layer-0 WOTS-PK start node at the after-Merkle cutpoint,
 reduced to concrete WOTS-PK preimage cells at `beforeWotsPk`. -/
--- ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
--- Composition glue between the neighbouring accepted assembly axioms and
--- verified cutpoint lemmas; its intended one-line proof diverges during
--- elaboration on sub-64 GB hosts (the documented `Proofs.lean` single-module
--- memory wall). Recorded in the same accepted-obligation form as
--- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`,
--- pending a large-memory discharge pass.
-axiom c13_ok_afterMerkle_initial_wotsPk_residual_layer0 :
+theorem c13_ok_afterMerkle_initial_wotsPk_residual_layer0 :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11525,19 +11589,21 @@ axiom c13_ok_afterMerkle_initial_wotsPk_residual_layer0 :
         { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
       forsPk sigParsed.layers = .ok specRoot →
     C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk specRoot:= by
+  intro pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse hZero hFors hFold
+  exact
+    c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer0_of_beforeAuthOff
       pkSeed pkRoot message sig sigParsed forsPk specRoot
-    
+      (c13FoldOkBeforeAuthOffWotsPkDataLayer0_of_preimage_cells
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        (c13_ok_beforeAuthOff_wotsPk_preimage_cells_residual_layer0
+          pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold))
 
 /-- C13 accept-side layer-1 WOTS-PK start node at the after-Merkle cutpoint,
 reduced to concrete WOTS-PK preimage cells at `beforeWotsPk`. -/
--- ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
--- Composition glue between the neighbouring accepted assembly axioms and
--- verified cutpoint lemmas; its intended one-line proof diverges during
--- elaboration on sub-64 GB hosts (the documented `Proofs.lean` single-module
--- memory wall). Recorded in the same accepted-obligation form as
--- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`,
--- pending a large-memory discharge pass.
-axiom c13_ok_afterMerkle_initial_wotsPk_residual_layer1 :
+theorem c13_ok_afterMerkle_initial_wotsPk_residual_layer1 :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11554,21 +11620,23 @@ axiom c13_ok_afterMerkle_initial_wotsPk_residual_layer1 :
         { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
       forsPk sigParsed.layers = .ok specRoot →
     C13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1
+      pkSeed pkRoot message sig sigParsed forsPk specRoot:= by
+  intro pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse hZero hFors hFold
+  exact
+    c13FoldOkAfterMerkleRawXmssClimbInitialWotsPkDataLayer1_of_beforeAuthOff
       pkSeed pkRoot message sig sigParsed forsPk specRoot
-    
+      (c13FoldOkBeforeAuthOffWotsPkDataLayer1_of_preimage_cells
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        (c13_ok_beforeAuthOff_wotsPk_preimage_cells_residual_layer1
+          pkSeed pkRoot message sig sigParsed forsPk specRoot
+          hParse hZero hFors hFold))
 
 /-- Residual C13 accept-side digit/checksum and Merkle facts, now composed from
 separate raw step-witness and initial-WOTS-PK obligations.  The final
 current-node word-comparison package is composed locally from this surface by
 `c13FoldOkCurrentNodeWordcmpData_of_digit_merkle_facts`. -/
--- ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
--- Composition glue between the neighbouring accepted assembly axioms and
--- verified cutpoint lemmas; its intended one-line proof diverges during
--- elaboration on sub-64 GB hosts (the documented `Proofs.lean` single-module
--- memory wall). Recorded in the same accepted-obligation form as
--- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`,
--- pending a large-memory discharge pass.
-axiom c13_ok_digit_merkle_facts_residual :
+theorem c13_ok_digit_merkle_facts_residual :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11585,19 +11653,21 @@ axiom c13_ok_digit_merkle_facts_residual :
         { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
       forsPk sigParsed.layers = .ok specRoot →
     C13FoldOkDigitMerkleData
+      pkSeed pkRoot message sig sigParsed forsPk specRoot:= by
+  intro pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse hZero hFors hFold
+  exact
+    c13FoldOkDigitMerkleData_of_afterMerkle_raw_step_witnesses_and_wotsPk
       pkSeed pkRoot message sig sigParsed forsPk specRoot
-    
+      hParse hZero hFors hFold
+      (c13_ok_afterMerkle_initial_wotsPk_residual_layer0
+        pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold)
+      (c13_ok_afterMerkle_initial_wotsPk_residual_layer1
+        pkSeed pkRoot message sig sigParsed forsPk specRoot hParse hZero hFors hFold)
 
 /-- C13 accept-side current-node fact at the final word-comparison boundary,
 proved by composing the smaller digit/Merkle package. -/
--- ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
--- Composition glue between the neighbouring accepted assembly axioms and
--- verified cutpoint lemmas; its intended one-line proof diverges during
--- elaboration on sub-64 GB hosts (the documented `Proofs.lean` single-module
--- memory wall). Recorded in the same accepted-obligation form as
--- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`,
--- pending a large-memory discharge pass.
-axiom c13_ok_current_node_wordcmp_residual :
+theorem c13_ok_current_node_wordcmp_residual :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11614,19 +11684,19 @@ axiom c13_ok_current_node_wordcmp_residual :
         { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
       forsPk sigParsed.layers = .ok specRoot →
     C13FoldOkCurrentNodeWordcmpData
-      pkSeed pkRoot message sig sigParsed forsPk specRoot
-    
+      pkSeed pkRoot message sig sigParsed forsPk specRoot:= by
+  intro pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse hZero hFors hFold
+  exact
+    c13FoldOkCurrentNodeWordcmpData_of_digit_merkle_facts
+      pkSeed pkRoot message sig sigParsed forsPk specRoot hFors hFold
+      (c13_ok_digit_merkle_facts_residual
+        pkSeed pkRoot message sig sigParsed forsPk specRoot
+        hParse hZero hFors hFold)
 
 /-- C13 reverted-at-layer-1 layer-0 WOTS-PK address cell at the `beforeWotsPk`
 cutpoint, discharged from the executable WOTS-PK address store. -/
--- ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
--- Composition glue between the neighbouring accepted assembly axioms and
--- verified cutpoint lemmas; its intended one-line proof diverges during
--- elaboration on sub-64 GB hosts (the documented `Proofs.lean` single-module
--- memory wall). Recorded in the same accepted-obligation form as
--- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`,
--- pending a large-memory discharge pass.
-axiom c13_reverted_layer0_beforeAuthOff_wotsPk_address_cell_residual :
+theorem c13_reverted_layer0_beforeAuthOff_wotsPk_address_cell_residual :
   ∀ pkSeed pkRoot message sig sigParsed forsPk,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11643,8 +11713,54 @@ axiom c13_reverted_layer0_beforeAuthOff_wotsPk_address_cell_residual :
         { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
       forsPk sigParsed.layers = .reverted →
     C13FoldRevertedBeforeAuthOffWotsPkAddressCellDataLayer0
-      pkSeed pkRoot message sig sigParsed forsPk
-    
+      pkSeed pkRoot message sig sigParsed forsPk:= by
+  intro pkSeed pkRoot message sig sigParsed forsPk hParse _hZero _hFors _hFold
+  intro _d
+  let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
+  let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  change
+    ((SegmentLayer3.beforeWotsPk
+      (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x20).val =
+      C13Concrete.adrsWotsPk 0
+        (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+  rw [c13_beforeWotsPk_memory_0x20_eq_lightweight]
+  exact SegmentLayer3AddressCells.beforeWotsPkFrom_memory_0x20_eq_of_bindings
+    (SegmentLayer3.afterDigit (c13FirstLayerGuardState pkSeed pkRoot message sig))
+    0 (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+    (by
+      rw [SegmentLayer3.afterDigit_preserves_lookup_of_ne
+        (c13FirstLayerGuardState pkSeed pkRoot message sig) "layer"
+        (by decide) (by decide)]
+      rw [SegmentLayer3.beforeDigitLoop_preserves_layer]
+      exact c13FirstLayerGuardState_layer pkSeed pkRoot message sig)
+    (by
+      rw [SegmentLayer3.afterDigit_preserves_lookup_of_ne
+        (c13FirstLayerGuardState pkSeed pkRoot message sig) "idxTree"
+        (by decide) (by decide)]
+      exact SegmentLayer3.beforeDigitLoop_idxTree_eq_of_idxTree
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)
+        digest.hyperIndex
+        (c13FirstLayerGuardState_idxTree_hyperIndex
+          pkSeed pkRoot message sig hParse)
+        (lt_trans
+          (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
+          (by decide : 2 ^ 22 < 2 ^ 256)))
+    (by
+      exact SegmentLayer3.afterDigit_idxLeaf_eq_of_idxTree
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)
+        digest.hyperIndex
+        (c13FirstLayerGuardState_idxTree_hyperIndex
+          pkSeed pkRoot message sig hParse)
+        (lt_trans
+          (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
+          (by decide : 2 ^ 22 < 2 ^ 256)))
+    (by decide : 0 < 2 ^ 32)
+    (by
+      exact lt_of_le_of_lt (Nat.div_le_self _ _)
+        (lt_trans (C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message)
+          (by decide : 2 ^ 22 < 2 ^ 32)))
+    (lt_trans (Nat.mod_lt _ (by decide : 0 < 2048))
+      (by decide : 2048 < 2 ^ 32))
 
 /-- Residual C13 reverted-at-layer-1 layer-0 copied WOTS chain-end cells at the
 lightweight WOTS-outer/copy-fold cutpoint.
@@ -11681,15 +11797,8 @@ axiom c13_reverted_layer0_beforeAuthOff_wotsPk_lightweight_chain_cells_residual 
       ∀ j, (h : j < 43) →
         ((ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.copyStep
           (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep
-            { SegmentLayer3AddressCells.beforeWotsPkWotsPtrFrom
-                (SegmentLayer3.afterDigit
-                  (c13FirstLayerGuardState pkSeed pkRoot message sig)) with
-              bindings :=
-                bindValue
-                  (SegmentLayer3AddressCells.beforeWotsPkWotsPtrFrom
-                    (SegmentLayer3.afterDigit
-                      (c13FirstLayerGuardState pkSeed pkRoot message sig))).bindings
-                  "i" (wordNormalize 0) }
+            (c13BeforeWotsPkLightState
+              (c13FirstLayerGuardState pkSeed pkRoot message sig))
             0 43)
           0 43).world.memory (0x40 + 32 * j)).val =
           (InitialNodeKeccak.wotsChainsEnd
@@ -11702,14 +11811,7 @@ axiom c13_reverted_layer0_beforeAuthOff_wotsPk_lightweight_chain_cells_residual 
 /-- C13 reverted-at-layer-1 layer-0 copied WOTS chain-end cells at the
 historical `beforeWotsPk` cutpoint, reduced to the lightweight copy-fold
 residual. -/
--- ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
--- Composition glue between the neighbouring accepted assembly axioms and
--- verified cutpoint lemmas; its intended one-line proof diverges during
--- elaboration on sub-64 GB hosts (the documented `Proofs.lean` single-module
--- memory wall). Recorded in the same accepted-obligation form as
--- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`,
--- pending a large-memory discharge pass.
-axiom c13_reverted_layer0_beforeAuthOff_wotsPk_chain_cells_residual :
+theorem c13_reverted_layer0_beforeAuthOff_wotsPk_chain_cells_residual :
   ∀ pkSeed pkRoot message sig sigParsed forsPk,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11726,20 +11828,34 @@ axiom c13_reverted_layer0_beforeAuthOff_wotsPk_chain_cells_residual :
         { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
       forsPk sigParsed.layers = .reverted →
     C13FoldRevertedBeforeAuthOffWotsPkChainCellsDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk:= by
+  intro pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors hFold
+  intro d
+  change
+    ∀ j, (h : j < 43) →
+      ((SegmentLayer3.beforeWotsPk
+        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory
+        (0x40 + 32 * j)).val =
+        (InitialNodeKeccak.wotsChainsEnd
+          (C13Concrete.wordOfHash16 pkSeed) 0
+          ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex / 2048)
+          ((C13Concrete.c13PrimitivesConcrete.hMsg c13
+            { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
+          (C13Concrete.wordOfHash16 forsPk) d.lsig0.wots)[j]'(by
+            rw [InitialNodeKeccak.wotsChainsEnd_length]
+            omega)
+  intro j hj
+  rw [c13_beforeWotsPk_memory_chain_eq_lightweight]
+  exact
+    c13_reverted_layer0_beforeAuthOff_wotsPk_lightweight_chain_cells_residual
       pkSeed pkRoot message sig sigParsed forsPk
-    
+      hParse hZero hFors hFold d j hj
 
 /-- Residual C13 reverted-at-layer-1 layer-0 WOTS-PK address and chain cells
 at the `beforeWotsPk` cutpoint, now composed from separate exact address-cell
 and copied-chain-cell obligations. -/
--- ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
--- Composition glue between the neighbouring accepted assembly axioms and
--- verified cutpoint lemmas; its intended one-line proof diverges during
--- elaboration on sub-64 GB hosts (the documented `Proofs.lean` single-module
--- memory wall). Recorded in the same accepted-obligation form as
--- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`,
--- pending a large-memory discharge pass.
-axiom c13_reverted_layer0_beforeAuthOff_wotsPk_address_chain_cells_residual :
+theorem c13_reverted_layer0_beforeAuthOff_wotsPk_address_chain_cells_residual :
   ∀ pkSeed pkRoot message sig sigParsed forsPk,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11756,19 +11872,19 @@ axiom c13_reverted_layer0_beforeAuthOff_wotsPk_address_chain_cells_residual :
         { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
       forsPk sigParsed.layers = .reverted →
     C13FoldRevertedBeforeAuthOffWotsPkAddressChainCellsDataLayer0
+      pkSeed pkRoot message sig sigParsed forsPk:= by
+  intro pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors hFold
+  exact
+    c13FoldRevertedBeforeAuthOffWotsPkAddressChainCellsDataLayer0_of_split
       pkSeed pkRoot message sig sigParsed forsPk
-    
+      (c13_reverted_layer0_beforeAuthOff_wotsPk_address_cell_residual
+        pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors hFold)
+      (c13_reverted_layer0_beforeAuthOff_wotsPk_chain_cells_residual
+        pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors hFold)
 
 /-- C13 reverted-branch raw XMSS climb fact after the first layer's Merkle
 segment, reduced to the smaller layer-0 WOTS-PK address and chain cells. -/
--- ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
--- Composition glue between the neighbouring accepted assembly axioms and
--- verified cutpoint lemmas; its intended one-line proof diverges during
--- elaboration on sub-64 GB hosts (the documented `Proofs.lean` single-module
--- memory wall). Recorded in the same accepted-obligation form as
--- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`,
--- pending a large-memory discharge pass.
-axiom c13_reverted_afterMerkle_raw_xmss_residual :
+theorem c13_reverted_afterMerkle_raw_xmss_residual :
   ∀ pkSeed pkRoot message sig sigParsed forsPk,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11800,7 +11916,16 @@ axiom c13_reverted_afterMerkle_raw_xmss_residual :
           11 0
           ((C13Concrete.c13PrimitivesConcrete.hMsg c13
             { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message).hyperIndex % 2048)
-          (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath 
+          (C13Concrete.wordOfHash16 d.wotsPk0) d.lsig0.authPath:= by
+  intro pkSeed pkRoot message sig sigParsed forsPk
+    hParse hZero hFors hFold
+  exact
+    c13_reverted_afterMerkle_raw_xmss_of_address_chain_cells
+      pkSeed pkRoot message sig sigParsed forsPk
+      hParse hZero hFors hFold
+      (c13_reverted_layer0_beforeAuthOff_wotsPk_address_chain_cells_residual
+        pkSeed pkRoot message sig sigParsed forsPk
+        hParse hZero hFors hFold)
 
 /-- C13 exported byte-spec bridge, reduced to the accept-side current-node
 word-comparison residual and the reverted after-Merkle residual rather than
