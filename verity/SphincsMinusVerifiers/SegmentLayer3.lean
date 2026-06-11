@@ -437,7 +437,7 @@ theorem wotsChainFold_preserves_i_lookup (st : RuntimeState) (n : Nat) :
 `wotsSpecStep seed chainBase digit` over the `"val"` binding, equalling
 `chainHash seed chainBase digit remaining index val₀` by `chainHash_eq_specFold`.
 
-Hypothesis form (analogous to the verified C12 `c12WotsChain_foldLoop_val_eq`):
+Hypothesis form for the C13 WOTS chain fold:
 the loop entry carries `seed` at scratch `0x00`, `chainBase`/`digit` in its
 bindings, an inbound `"val"` `< 2^256`, and `index + remaining ≤ 7` (digits are
 3-bit so chain depth is at most `7`).  Bounds on `chainBase`, `digit`, `index`,
@@ -3367,7 +3367,7 @@ theorem beforeAuthOff_eq (ls : RuntimeState) :
 The accept-suffix `suffixBeforeAuthOff` ends in `.letVar "wotsPk" (andE (keccak
 0x00 0x5A0) (u N_MASK))`.  The state immediately before this letVar is the
 finest natural boundary at which the WOTS+C public-key Keccak preimage cells are
-fully populated.  Reusable analogue of the C12 `c12LayerStateBeforeWotsPk`
+fully populated for the C13 layer boundary
 infrastructure used to break the `wotsPk`-binding obligation away from the
 final-Keccak preimage obligation. -/
 
@@ -3396,7 +3396,7 @@ def beforeWotsPkCopy (ls : RuntimeState) : RuntimeState :=
   | _ => afterDigit ls
 
 /-- The state immediately before binding `"wotsPk"` in the accept layer
-suffix.  Analogue of `c12LayerStateBeforeWotsPk`. -/
+suffix. -/
 def beforeWotsPk (ls : RuntimeState) : RuntimeState :=
   match execStmtList [] (afterDigit ls) suffixBeforeWotsPk with
   | .continue s' => s'
@@ -3829,8 +3829,7 @@ theorem beforeWotsPk_preserves_memory_zero_of_loop_frames
   · exact hCopy s s'' hexec
 
 /-- The `"wotsPk"` binding at `beforeAuthOff` is exactly the masked Keccak
-evaluated at the smaller `beforeWotsPk` boundary.  C13 analogue of the C12
-`c12LayerStateBeforeAuthOff_wotsPk_eq_beforeWotsPk_keccak`.  This splits the
+evaluated at the smaller `beforeWotsPk` boundary. This splits the
 binding equation away from the substantive WOTS+C Keccak-preimage obligation:
 the binding equation is now unconditional, and the residual is the value-only
 final-Keccak fact at the smaller boundary. -/

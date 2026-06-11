@@ -1,5 +1,5 @@
 /-
-  KeccakBridge — the foundational hash bridge for the C13 (and C12) model→spec
+  KeccakBridge - the foundational hash bridge for the C13 model-to-spec
   refinement.  Every keccak in the contract is a word-aligned
   `keccak256(offset, 32*k)`; the interpreter models it as
 
@@ -160,7 +160,7 @@ theorem keccakWords_lt (ws : List Nat) : keccakWords ws < Compiler.Constants.evm
     rw [← Nat.pow_mul]
   rwa [h256] at hb
 
-/-! ## 7. The unwrapped hash bridge (the reusable C13/C12 keccak identity). -/
+/-! ## 7. The unwrapped hash bridge for the reusable C13 keccak identity. -/
 
 theorem keccakMemorySlice_eq_keccakWords
     (memory : Nat → Verity.Core.Uint256) (offset : Nat) (ws : List Nat)

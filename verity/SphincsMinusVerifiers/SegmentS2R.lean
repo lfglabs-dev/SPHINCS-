@@ -121,6 +121,16 @@ theorem land_nmask (H L : Nat) (hH : H < 2 ^ 128) (hL : L < 2 ^ 128) :
         Nat.testBit_eq_false_of_lt (lt_of_lt_of_le hH (Nat.pow_le_pow_right (by norm_num) hhi))
       simp [hf]
 
+/-- `wordOfHash16` is already in the high half of the EVM word, so masking with
+`N_MASK` leaves it unchanged. -/
+theorem wordOfHash16_land_nmask (b : ByteArray) :
+    Nat.land (wordOfHash16 b) N_MASK = wordOfHash16 b := by
+  unfold wordOfHash16
+  have hH : baToNatBE b % 2 ^ 128 < 2 ^ 128 :=
+    Nat.mod_lt _ (by decide : 0 < 2 ^ 128)
+  have hL : 0 < 2 ^ 128 := by decide
+  simpa using land_nmask (baToNatBE b % 2 ^ 128) 0 hH hL
+
 /-! ## 3. The 32-byte word splits into high/low 16-byte halves. -/
 
 /-- A byte digit of `sig` (`sig[j]` or `0` past the end), as a `Nat`. -/
@@ -266,6 +276,7 @@ theorem s2_digest_mkC13State_final (pkSeed pkRoot message sig : ByteArray) :
 
 #print axioms baToNatBE_toArray
 #print axioms land_nmask
+#print axioms wordOfHash16_land_nmask
 #print axioms read16_eq_fold
 #print axioms bytesToWords_head_split
 #print axioms R_correspondence

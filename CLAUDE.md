@@ -164,23 +164,43 @@ BIP-39 mnemonic → HMAC-SHA512("sphincs-c6-v1", seed) → SPHINCs- keys (quantu
 
 ## Formal Verification (`verity/`)
 
-Lean 4 model via Verity framework: 3 axioms (keccak CR), 20 theorems, 0 sorry. `verity_contract` macro version has Layer 1-2-3 compilation correctness proofs. See `verity/README.md` for proof inventory.
+The `verity/` directory is a small Verity workbench that hand-models two
+of the production verifiers in `src/` and proves each model refines a
+functional spec. See `verity/README.md` for scope, file map, and build
+instructions, and `verity/SphincsMinusVerifiers/AXIOMS.md` for the full
+remaining trust surface.
 
-The `SphincsMinusVerifiers` workbench (`verity/SphincsMinusVerifiers/`) layers the refinement as: compiled Verity model → `ByteLevel.verifyBytes` (byte-level contract spec) → `verifySpec` (abstract algorithmic spec). The lower→abstract link (`verifyBytes_eq_verifySpec`, `byteVerifier_refines_spec`) is fully proved (`#print axioms` → `propext`). The per-verifier theorems (`c13_refines_spec`, `c12_refines_spec`, `slhDsaSha2_128_24_refines_spec`) are **unconditional**, each resting on one named MODEL-EXEC-BRIDGE bridge axiom (`c13_refines_byte_spec`, `c12_refines_byte_spec`, `slhDsaSha2_128_24_refines_byte_spec`) that asserts the compiled model refines its byte spec — the Lean form of the `proofStatus := .assumed` obligations in `Model.lean`. These 3 bridge axioms are the only model-specific assumptions and sit in the trust surface alongside the keccak-CR axioms; no `sorry` anywhere. Discharging them requires Verity's executable source semantics over the raw `bytes`-calldata surface (`sig.length`/`sig.offset`), tracked as MODEL-EXEC-BRIDGE in `SphincsMinusVerifiers/README.md`.
+The `SphincsMinusVerifiers` workbench (`verity/SphincsMinusVerifiers/`)
+layers the refinement as: hand-transcribed Verity model →
+`ByteLevel.verifyBytes` (byte-level contract spec) → `verifySpec`
+(abstract algorithmic spec). The lower-to-abstract link
+(`verifyBytes_eq_verifySpec`, `byteVerifier_refines_spec`) is fully
+proved (`#print axioms` -> `propext`). The per-verifier theorems
+`c13_refines_spec` and `slhDsaSha2_128_24_refines_spec` are proved in
+`Proofs.lean`. `c13_refines_spec` rests on Lean's logic plus three named
+residual assembly axioms; `slhDsaSha2_128_24_refines_spec` rests on
+Lean's logic plus its model-to-byte-spec bridge axiom and an opaque
+SHA-256 primitives constant. All are enumerated in
+`SphincsMinusVerifiers/AXIOMS.md`. A follow-up PR is discharging the
+residual assembly obligations; the README is worded so it stays true in
+both proof states.
 
-### FIPS-FORS migration status (PR #6)
+The Verity models are hand-transcribed from the Solidity inline
+assembly. They are not compiled into the production contracts, not
+deployed, and not replayed in the Foundry test suite. There is no
+EVM-side regression test that takes the Lean model and runs it against
+the on-chain verifier; correspondence rests on the transcription itself
+being reviewed against the assembly. The old `SphincsC6/`, `SphincsC6Full/`,
+`SphincsC6V/`, and `SphincsKernel/` trees, the C12 model, the
+`verity/artifacts/` Yul artefacts, and `test/MerkleKernelVerityTest.t.sol`
+have been removed; no Verity artifact is exercised by Foundry.
 
-R2–R4 of the FIPS 205 FORS-address migration are complete and committed:
-
-- **R2 (`SegmentForsSetup.lean`)** — done, 0 sorry: match-pattern `stepForsSetup`, digit accessors (`stepForsSetup_idxTree0/_idxLeaf0/_forsBase_eq`), preservation frames, generic `stepForsSetup_preserves_key`.
-- **Spec generalization** — `C13Concrete.forsClimb` and the `fors*C13` family now carry the FIPS digits (`idxTree0C13/idxLeaf0C13` derived from `digest.hyperIndex`); `ClimbStepSpec.forsClimbStep` and `ClimbMemFrameMerkle.forsSpecStep/ForsClimbRel_step/forsClimb_model_node` are digit-parametric.
-- **R3 (`SegmentS4ForsMerkleFrame.lean`)** — fully rewritten on `forsClimbBody`/`stepForsMerkle`: memory-frame half needs no address value (forsAdrs is total), node-correspondence half threads the outer `"i"` binding via the strengthened `ForsClimbFrameI` invariant; `forsAdrs_eval_eq` identifies the per-level ADRS with `adrsForsNode`.
-- **R4** — `SegmentCompose` threads `stepForsSetup` (`afterForsSetup` state); `CurrentNodeFrame`, `SegmentAcceptSpec` (hR-threaded accept chain, obligation structures at `afterForsSetup`), `RootFrame`, `SegmentRejectSpec`, `SegmentS4ForsDataObligations` all green on the FIPS digits.
-- **`C13BridgePrep.lean`** — restored to the last sorry-free version (8968551); the later "narrowed bridge" commits (2ec3737/e0c48ef) had never compiled (forward references, syntax errors, 5 sorries) and were dropped pending a real re-derivation.
-
-**Complete.** The full `verity/` package builds (`scripts/build.sh`), zero `sorry`. `Proofs.lean` is green: `c13_refines_spec` / `c12_refines_spec` elaborate end-to-end on the FIPS layout. The cloud-orchestrator material that had never compiled anywhere (the 2ec3737 "narrowed bridge" postscript and 15 residual-glue compositions, each diverging on <64 GB hosts) was resolved by restoring `C13BridgePrep` to its last green version and recording the glue in the file's own accepted-obligation axiom convention ("Residual assembly axioms", see `SphincsMinusVerifiers/README.md`). All sixteen residual composition-glue obligations are proved (the divergence was an explicit-record vs `c13BeforeWotsPkLightState` spelling mismatch; the named form elaborates in ~400 MB), so `#print axioms c13_refines_spec` lists only Lean's logic plus the seven primitive assembly obligations (three single-cell cutpoint bridges, the layer-0 inputs/of_inputs pair, the layer-1 and reverted lightweight twins); `c12_refines_spec` rests on logic plus one.
-
-**Build discipline (16 GB machines):** never run a bare `lake build` — use `verity/scripts/build.sh` (caps the Lean task pool at 2 workers via `LEAN_NUM_THREADS`; `lakefile.lean` sets `maxHeartbeats 1000000` so runaway whnf aborts as an error instead of OOMing the machine). Several proof files were authored on large cloud machines and exceed 12 GB per worker if a defeq diverges.
+**Build discipline (16 GB machines):** never run a bare `lake build`. Use
+`verity/scripts/build.sh` (caps the Lean task pool at 2 workers via
+`LEAN_NUM_THREADS`; `lakefile.lean` sets `maxHeartbeats 1000000` so a
+runaway whnf aborts as an error instead of OOMing the machine). Several
+proof files were authored on large cloud machines and exceed 12 GB per
+worker if a defeq diverges.
 
 ## Foundry Config
 

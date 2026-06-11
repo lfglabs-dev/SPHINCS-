@@ -1,5 +1,5 @@
 /-
-  SegmentLayer3MerkleFrame — lightweight adapters for the C13/C12 XMSS layer
+  SegmentLayer3MerkleFrame: lightweight adapters for the C13 XMSS layer
   Merkle climb.
 
   This module mirrors the S4 FORS Merkle-frame adapters, but instantiates the
@@ -137,7 +137,7 @@ theorem stepMerkle_preserves_seed_slot_of_layer_eval
     vsib vpar vadr sval o5 vnode o6 (lookupValue st5.bindings "sibling")
     mIdx hparOff h1 h2 h3 h4 h5off h5val h6off h6val
 
-/-- The remaining C13/C12 layer-site facts needed to prove that one XMSS Merkle
+/-- The remaining C13 layer-site facts needed to prove that one XMSS Merkle
 step preserves seed cell `0x00`: bounded `"mIdx"`, the masked auth-sibling load,
 and the assembled parent ADRS word. -/
 def LayerMerkleEvalFacts (s : RuntimeState) (idx : Nat) : Prop :=

@@ -271,7 +271,7 @@ theorem wotsChainFold_preserves_i_lookup (st : RuntimeState) (n : Nat) :
 `wotsSpecStep seed chainBase digit` over the `"val"` binding, equalling
 `chainHash seed chainBase digit remaining index val₀` by `chainHash_eq_specFold`.
 
-Hypothesis form (analogous to the verified C12 `c12WotsChain_foldLoop_val_eq`):
+Hypothesis form for the C13 WOTS chain fold:
 the loop entry carries `seed` at scratch `0x00`, `chainBase`/`digit` in its
 bindings, an inbound `"val"` `< 2^256`, and `index + remaining ≤ 7` (digits are
 3-bit so chain depth is at most `7`).  Bounds on `chainBase`, `digit`, `index`,

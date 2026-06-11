@@ -10,7 +10,6 @@
 
 import SphincsMinusVerifierSpec.Spec
 import SphincsMinusVerifierSpec.C13Concrete
-import SphincsMinusVerifierSpec.C12Concrete
 import SphincsMinusVerifiers.Model
 import SphincsMinusVerifiers.MkC13State
 
@@ -21,9 +20,6 @@ open Compiler.Proofs.IRGeneration.SourceSemantics
 
 /-- Concrete primitive semantics for the C13 Keccak/SPHINCS- variant. -/
 def c13Primitives : Primitives := C13Concrete.c13PrimitivesConcrete
-
-/-- Concrete primitive semantics for the C12 Keccak/SPHINCS- variant. -/
-def c12Primitives : Primitives := C12Concrete.c12PrimitivesConcrete
 
 /-- Concrete primitive semantics for the SHA2 SLH-DSA verifier variant. -/
 axiom slhDsaSha2_128_24_Primitives : Primitives
@@ -61,15 +57,6 @@ theorem observeStmtResultBool_return_boolWord
 
 theorem observeStmtResultBool_revert :
     observeStmtResultBool .revert = none := rfl
-
-/-- Observable semantics of the compiled C12 Verity model.  This uses the same
-byte-facing ABI entry-state constructor as C13: the parameter/local bindings and
-calldata image are variant-independent. -/
-def execC12 :
-    Bytes → Bytes → Bytes → Bytes → Option Bool :=
-  fun pkSeed pkRoot message sig =>
-    observeStmtResultBool
-      (execStmtList [] (MkC13State.mkC13State pkSeed pkRoot message sig) c12VerifyBody)
 
 /-- Observable semantics of the compiled SHA2 SLH-DSA Verity model. -/
 opaque execSlhDsaSha2_128_24 :

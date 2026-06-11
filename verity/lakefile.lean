@@ -1,32 +1,19 @@
 import Lake
 open Lake DSL
 
-package SphincsC6Verity where
+package SphincsVerity where
   -- maxHeartbeats: a runaway whnf/decide aborts as an elaboration error instead
   -- of ballooning a lean worker to multi-GB RSS (the proof files here are large
-  -- enough that 8 parallel workers can OOM a 16 GB machine — always build with
+  -- enough that 8 parallel workers can OOM a 16 GB machine; always build with
   -- `scripts/build.sh` or `lake build -j2`).
   leanOptions := #[⟨`autoImplicit, false⟩,
                    ⟨`maxHeartbeats, (1000000 : Nat)⟩]
 
 require verity from "../../verity-framework"
 
-lean_lib SphincsC6 where
-  srcDir := "SphincsC6"
-  roots := #[`Types, `Hash, `WotsC, `ForsC, `Hypertree, `Contract, `Spec]
-
-lean_lib Proofs where
-  srcDir := "SphincsC6/Proofs"
-  roots := #[`Correctness]
-
-lean_lib SphincsKernel where
-  srcDir := "."
-  roots := #[`SphincsKernel.Model, `SphincsKernel.MerkleKernel, `SphincsKernel.Spec,
-    `SphincsKernel.Examples, `SphincsKernel.Proofs.Basic, `SphincsKernel.Proofs.Correctness]
-
 lean_lib SphincsMinusVerifierSpec where
   srcDir := "."
-  roots := #[`SphincsMinusVerifierSpec.Spec, `SphincsMinusVerifierSpec.C13Concrete, `SphincsMinusVerifierSpec.C12Concrete, `SphincsMinusVerifierSpec.C13ConcreteAxioms, `SphincsMinusVerifierSpec.C13Mirror, `SphincsMinusVerifierSpec.C13MirrorAxioms]
+  roots := #[`SphincsMinusVerifierSpec.Spec, `SphincsMinusVerifierSpec.C13Concrete, `SphincsMinusVerifierSpec.C13ConcreteAxioms, `SphincsMinusVerifierSpec.C13Mirror, `SphincsMinusVerifierSpec.C13MirrorAxioms]
 
 lean_lib SphincsMinusVerifiers where
   srcDir := "."
@@ -68,8 +55,4 @@ lean_lib SphincsMinusVerifiers where
              `SphincsMinusVerifiers.SegmentAcceptSpec,
              `SphincsMinusVerifiers.SegmentS4ForsDataObligations,
              `SphincsMinusVerifiers.SegmentRejectSpec,
-             `SphincsMinusVerifiers.C13BridgePrep, `SphincsMinusVerifiers.C12BridgePrep,
-             `SphincsMinusVerifiers.C12SegmentSeed, `SphincsMinusVerifiers.C12SegmentFors,
-             `SphincsMinusVerifiers.C12SegmentForsCompress,
-             `SphincsMinusVerifiers.C12SegmentWotsSetup,
-             `SphincsMinusVerifiers.C12SegmentFinal]
+             `SphincsMinusVerifiers.C13BridgePrep]

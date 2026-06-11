@@ -110,26 +110,6 @@ def c13 : Variant :=
   , wotsMode := .grindingTarget 208
   , forsMode := .grindingForcedZero 6 }
 
-def c12 : Variant :=
-  { name := "SPHINCS-C12"
-  , n := 16
-  , fullPkSeed := true
-  , fullPkRoot := true
-  , h := 20
-  , d := 5
-  , subtreeH := 4
-  , forsK := 20
-  , forsA := 7
-  , forsAuthTrees := 20
-  , wotsW := 8
-  , wotsLen := 45
-  , rBytes := 32
-  , sigBytes := 6512
-  , hashAlg := .keccak256
-  , adrsFormat := .jardin
-  , wotsMode := .standardChecksum
-  , forsMode := .standard }
-
 def slhDsaSha2_128_24 : Variant :=
   { name := "SLH-DSA-SHA2-128s-24"
   , n := 16
@@ -152,9 +132,6 @@ def slhDsaSha2_128_24 : Variant :=
 
 theorem c13_paramOk : c13.paramOk := by
   simp [Variant.paramOk, c13]
-
-theorem c12_paramOk : c12.paramOk := by
-  simp [Variant.paramOk, c12]
 
 theorem slhDsaSha2_128_24_paramOk : slhDsaSha2_128_24.paramOk := by
   simp [Variant.paramOk, slhDsaSha2_128_24]
@@ -246,10 +223,11 @@ keeps the high `n` bytes and forces the remaining low bytes to zero. -/
 def pkPartCanonical (v : Variant) (x : Bytes) : Bool :=
   (List.range x.size).all (fun i => decide (i < v.n) || x.get! i == 0)
 
-/-- Contract-faithful public-key acceptance. Variants whose pubkey parts use the
-full word (`fullPk* = true`, e.g. C13/C12) impose no constraint; variants that
-mask to `n` bytes (`fullPk* = false`, e.g. the SHA-2 SLH-DSA verifier) require the
-low bytes to be zero and otherwise revert with `Invalid public key`. -/
+/-- Contract-faithful public-key acceptance at the byte-spec boundary. Variants
+whose public-key parts use the full word (`fullPk* = true`, including C13)
+impose no byte-level constraint; variants that mask to `n` bytes (`fullPk* =
+false`, including the SHA-2 SLH-DSA verifier) require the low bytes to be zero
+and otherwise reject with `Invalid public key`. -/
 def publicKeyOk (v : Variant) (pk : PublicKey) : Bool :=
   (v.fullPkSeed || pkPartCanonical v pk.pkSeed) &&
   (v.fullPkRoot || pkPartCanonical v pk.pkRoot)

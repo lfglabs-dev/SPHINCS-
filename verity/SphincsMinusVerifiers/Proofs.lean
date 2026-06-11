@@ -18,7 +18,7 @@
     opcode: `evalExpr` on `.keccak256 off size` returns the *computed* 32-byte
     digest of the word-aligned memory slice (`keccakMemorySlice`, backed by the
     in-tree pure `KeccakEngine`), no longer `none`. So the keccak-family bodies
-    (C13, C12) no longer revert at their first hash; their accept subdomain is
+    C13 no longer reverts at its first hash; its accept subdomain is
     now *reachable* through the real interpreter, and the residual gap there is
     proof size — the line-by-line equivalence of the full hypertree climb against
     `ByteLevel.verifyBytes` — not a framework limitation. The SHA-256 precompile
@@ -70,7 +70,6 @@ import SphincsMinusVerifiers.ProofCore
 import SphincsMinusVerifiers.C13BridgePrep
 import SphincsMinusVerifiers.C13ChainCells
 import SphincsMinusVerifiers.C13WotsPkKeccak
-import SphincsMinusVerifiers.C12BridgePrep
 import SphincsMinusVerifiers.KeccakBridge
 import SphincsMinusVerifiers.SegmentLayer3AddressCells
 import SphincsMinusVerifiers.SegmentLayer3MerkleFrame
@@ -141,8 +140,8 @@ Each axiom asserts that one compiled Verity model refines its byte-level spec.
 These are the assumed left link of the refinement chain; see the file header and
 `SphincsMinusVerifiers/README.md`. They are deliberately fixed per verifier
 (distinct primitive packages) and are the only model-specific assumptions the
-theorems below rest on. The C13 and C12 bridges are narrowed later in this file
-to their remaining concrete residuals before being re-exported at the byte-spec
+theorems below rest on. The C13 bridge is narrowed later in this file
+to its remaining concrete residuals before being re-exported at the byte-spec
 boundary. -/
 
 /-- Assumed: the compiled SHA2 SLH-DSA model refines the byte-level spec under
@@ -206,21 +205,6 @@ theorem c13_interp_agrees_verifyBytes_bad_length
     intro h
     exact hne (congrArg wordNormalize h)
 
-open Compiler.Proofs.IRGeneration.SourceSemantics in
-/-- C12: the real compiled body run and the byte spec agree on every wrong-length
-input. Proved, no bridge axiom. -/
-theorem c12_interp_agrees_verifyBytes_bad_length
-    (pkSeed pkRoot message sig : Bytes)
-    (hne : wordNormalize sig.size ≠ wordNormalize 6512) :
-    execStmtList [] (badLenState sig.size) c12VerifyBody = .revert
-      ∧ ByteLevel.verifyBytes c12Primitives c12 pkSeed pkRoot message sig = none := by
-  refine ⟨?_, ?_⟩
-  · apply c12VerifyBody_reverts_on_bad_length
-    rw [badLenState_sig_length]; exact hne
-  · apply ByteLevel.verifyBytes_bad_length
-    intro h
-    exact hne (congrArg wordNormalize h)
-
 /-- C13: the internal concrete observable runner and byte spec agree on every malformed
 signature length. This is the same bad-length bridge as
 `c13_interp_agrees_verifyBytes_bad_length`, lifted all the way to `execC13Concrete`
@@ -231,16 +215,6 @@ theorem execC13Concrete_agrees_verifyBytes_bad_length
     execC13Concrete pkSeed pkRoot message sig =
       ByteLevel.verifyBytes c13Primitives c13 pkSeed pkRoot message sig :=
   C13BridgePrep.runC13BodyObserved_revert_on_bad_length
-    pkSeed pkRoot message sig hne
-
-/-- C12: the concrete observable runner and byte spec agree on every malformed
-signature length. -/
-theorem execC12_agrees_verifyBytes_bad_length
-    (pkSeed pkRoot message sig : Bytes)
-    (hne : sig.size ≠ 6512) :
-    execC12 pkSeed pkRoot message sig =
-      ByteLevel.verifyBytes c12Primitives c12 pkSeed pkRoot message sig :=
-  SegmentRejectSpec.execC12_revert_on_bad_length
     pkSeed pkRoot message sig hne
 
 /-- C13 bridge reducer: once the good-length branch is covered for every input,
@@ -3940,8 +3914,7 @@ strictly smaller residual is the value-only Keccak equation, taken at the
 finer `beforeWotsPk` cutpoint (i.e. immediately after the copy-loop and before
 the final `.letVar "wotsPk"`).
 
-This shape is the C13 analogue of the C12 `beforeWotsPk` boundary used by
-`c12LayerStateBeforeAuthOff_wotsPk_eq_beforeWotsPk_keccak`. -/
+This shape packages the C13 `beforeWotsPk` boundary used by the WOTS-PK bridge. -/
 def C13FoldOkBeforeAuthOffWotsPkPrebindKeccakDataLayer0
     (pkSeed pkRoot message sig : Bytes)
     (sigParsed : Signature) (forsPk specRoot : Bytes) : Prop :=
@@ -12195,173 +12168,6 @@ theorem c13_implements_spec :
       (fun pk message sig => execC13 pk.pkSeed pk.pkRoot message sig) :=
   byteVerifier_implements_spec c13_refines_byte_spec
 
-theorem c12_refines_byte_spec_of_good_length_cover
-    (hGood :
-      ∀ pkSeed pkRoot message sig,
-        sig.size = 6512 →
-        execC12 pkSeed pkRoot message sig =
-          ByteLevel.verifyBytes c12Primitives c12 pkSeed pkRoot message sig) :
-    ByteLevel.ImplementsByteVerifier c12Primitives c12 execC12 := by
-  intro pkSeed pkRoot message sig
-  by_cases hLen : sig.size = 6512
-  · exact hGood pkSeed pkRoot message sig hLen
-  · exact execC12_agrees_verifyBytes_bad_length pkSeed pkRoot message sig hLen
-
-/-- C12 bridge reducer after byte-length parsing.  The concrete C12 parser has
-no good-length failure branch, so callers only need to cover parsed signatures. -/
-theorem c12_refines_byte_spec_of_parsed_cover
-    (hParsed :
-      ∀ pkSeed pkRoot message sig sigParsed,
-        SphincsMinusVerifierSpec.C12Concrete.parseSignatureC12 c12 sig
-          = some sigParsed →
-        execC12 pkSeed pkRoot message sig =
-          ByteLevel.verifyBytes c12Primitives c12 pkSeed pkRoot message sig) :
-    ByteLevel.ImplementsByteVerifier c12Primitives c12 execC12 := by
-  apply c12_refines_byte_spec_of_good_length_cover
-  intro pkSeed pkRoot message sig hLen
-  have hLenC12 : sig.size = c12.sigBytes := by
-    simpa [c12] using hLen
-  obtain ⟨sigParsed, hParse⟩ :=
-    SphincsMinusVerifierSpec.C12Concrete.parseSignatureC12_some_of_size
-      (v := c12) (sig := sig) hLenC12
-  exact hParsed pkSeed pkRoot message sig sigParsed hParse
-
-/-- C12 bridge reducer at the exact public `execC12` boundary.  The C12 prep
-module already proves the byte-refinement for `runC12BodyObserved`, which is
-definitionally the same observable as `execC12`; this wrapper exposes that proof
-with the same type as the former bridge axiom once the remaining layer-4 WOTS
-public-key premise is discharged. -/
-theorem c12_refines_byte_spec_of_layer4_wotsPk_beforeAuthOff_cover
-    (hLayer4WotsPkBeforeAuthOff :
-      C12BridgePrep.C12Layer4WotsPkBeforeAuthOffPremise) :
-    ByteLevel.ImplementsByteVerifier c12Primitives c12 execC12 := by
-  simpa [C12BridgePrep.runC12BodyObserved] using
-    C12BridgePrep.c12_refines_byte_spec_of_layer4_known_authPtr_cover
-      hLayer4WotsPkBeforeAuthOff
-
-/-- C12 bridge reducer at the public `execC12` boundary with the remaining
-layer-4 WOTS-PK obligation stated as the post-copy-loop final-Keccak scratch
-memory image. -/
-theorem c12_refines_byte_spec_of_layer4_beforeWotsPk_memory_cover
-    (hMem : C12BridgePrep.C12Layer4WotsPkBeforeWotsPkMemoryPremise) :
-    ByteLevel.ImplementsByteVerifier c12Primitives c12 execC12 := by
-  simpa [C12BridgePrep.runC12BodyObserved] using
-    C12BridgePrep.c12_refines_byte_spec_of_layer4_beforeWotsPk_memory_cover hMem
-
-/-- C12 layer-3 fold/root residual: after layer 3, the runtime
-`"currentNode"` is the semantic layer-3 unrolled root, i.e. the node seed used
-to start layer 4.
-
-ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
-The single C12-side residual: the deep layers-0→3 MODEL-EXEC roundtrip that establishes
-the layer-3 unrolled root as the runtime `"currentNode"` seeding layer 4. Minimal honest
-assembly obligation at a concrete post-layer-3 state; everything downstream of it
-(`c12_layer4_prebody_current_node_binding_preservation_residual`,
-`c12_layer4_beforePkAdrs_message/checksum_cells_*`) is already derived as theorems from
-this one axiom. Lives in the heavy C12 chain (`C12BridgePrep`/`Proofs.lean`); cannot be
-discharged on the current host (~48 GB OOM above the 10 GB cap); needs a >~64 GB pass. -/
-axiom c12_layer3_after3_current_node_root_residual :
-    C12BridgePrep.C12Layer3After3CurrentNodePremise
-
-/-- C12 layer-4 prebody binding-preservation handoff: the layer-4 prebody state
-observes the layer-3 root/currentNode value after the layer-4 `"layer"` rebinding
-prefix.  Downstream message/checksum facts consume this theorem rather than the
-raw layer-3 residual directly. -/
-theorem c12_layer4_prebody_current_node_binding_preservation_residual :
-    C12BridgePrep.C12Layer4PreBodyCurrentNodePremise :=
-  C12BridgePrep.c12Layer4PreBodyCurrentNode_of_after3_current_node
-    c12_layer3_after3_current_node_root_residual
-
-/-- Backward-compatible alias for callers that still use the old residual name
-while the C12 split is migrated. -/
-theorem c12_layer3_after3_current_node_residual :
-    C12BridgePrep.C12Layer3After3CurrentNodePremise :=
-  c12_layer3_after3_current_node_root_residual
-
-/-- C12 executable message-loop cells at the smaller layer-4 WOTS-PK
-pre-`pkAdrs` cutpoint, stated against the runtime `"currentNode"`. -/
-theorem c12_layer4_beforePkAdrs_message_cells_runtime_node_residual :
-    C12BridgePrep.C12Layer4WotsPkBeforePkAdrsMessageCellsRuntimeNodePremise
-  :=
-  C12BridgePrep.c12Layer4BeforePkAdrs_message_cells_runtime_node_of_after3_current_node
-    c12_layer3_after3_current_node_root_residual
-
-/-- C12 executable checksum-loop cells at the smaller layer-4 WOTS-PK
-pre-`pkAdrs` cutpoint, stated against the runtime `"currentNode"`. -/
-theorem c12_layer4_beforePkAdrs_checksum_cells_runtime_node_residual :
-    C12BridgePrep.C12Layer4WotsPkBeforePkAdrsChecksumCellsRuntimeNodePremise
-  :=
-  C12BridgePrep.c12Layer4BeforePkAdrs_checksum_cells_runtime_node_of_after3_current_node
-    c12_layer3_after3_current_node_root_residual
-
-/-- C12 message-loop cells at the semantic layer-4 node, reduced to executable
-runtime-node cells plus the layer-3 current-node handoff. -/
-theorem c12_layer4_beforePkAdrs_message_cells_residual :
-    C12BridgePrep.C12Layer4WotsPkBeforePkAdrsMessageCellsPremise :=
-  C12BridgePrep.c12Layer4BeforePkAdrs_message_cells_of_runtime_node_cells
-    c12_layer4_beforePkAdrs_message_cells_runtime_node_residual
-    c12_layer4_prebody_current_node_binding_preservation_residual
-
-/-- C12 checksum-loop cells at the semantic layer-4 node, reduced to executable
-runtime-node cells plus the layer-3 current-node handoff. -/
-theorem c12_layer4_beforePkAdrs_checksum_cells_residual :
-    C12BridgePrep.C12Layer4WotsPkBeforePkAdrsChecksumCellsPremise :=
-  C12BridgePrep.c12Layer4BeforePkAdrs_checksum_cells_of_runtime_node_cells
-    c12_layer4_beforePkAdrs_checksum_cells_runtime_node_residual
-    c12_layer4_prebody_current_node_binding_preservation_residual
-
-/-- The remaining C12 `beforePkAdrs` cells, assembled from the loop-shaped
-message and checksum residuals. -/
-theorem c12_layer4_beforePkAdrs_cells_residual :
-    C12BridgePrep.C12Layer4WotsPkBeforePkAdrsCellsPremise :=
-  C12BridgePrep.c12Layer4BeforePkAdrs_cells_of_message_checksum_cells
-    c12_layer4_beforePkAdrs_message_cells_residual
-    c12_layer4_beforePkAdrs_checksum_cells_residual
-
-/-- C12 byte-level refinement, reduced to the layer-4 WOTS-PK memory image. -/
-theorem c12_refines_byte_spec :
-    ByteLevel.ImplementsByteVerifier c12Primitives c12 execC12 :=
-  c12_refines_byte_spec_of_layer4_beforeWotsPk_memory_cover
-    (C12BridgePrep.c12Layer4BeforeWotsPk_memory_of_beforeCopy_memory
-      (C12BridgePrep.c12Layer4BeforeWotsPkCopy_memory_of_addr_cells
-        (C12BridgePrep.c12Layer4BeforeWotsPkCopy_addr_cells_of_cells
-          (C12BridgePrep.c12Layer4BeforeWotsPkCopy_cells_of_beforePkAdrs_cells
-            c12_layer4_beforePkAdrs_cells_residual))))
-
-/-- C12 compiled verifier refines the parsed specification. -/
-theorem c12_refines_spec
-    (pkSeed pkRoot message sig : Bytes) :
-    execC12 pkSeed pkRoot message sig =
-      verifySpec c12Primitives c12
-        { pkSeed := pkSeed, pkRoot := pkRoot } message sig :=
-  byteVerifier_refines_spec c12_refines_byte_spec pkSeed pkRoot message sig
-
-/-- C12 compiled verifier implements the public byte-level verifier. -/
-theorem c12_implements_spec :
-    ImplementsVerifier c12Primitives c12
-      (fun pk message sig => execC12 pk.pkSeed pk.pkRoot message sig) :=
-  byteVerifier_implements_spec c12_refines_byte_spec
-
-/-- C12: on the length-ok branch, byte-level verification reaches the parsed
-verifier under the concrete C12 primitive package.  This is the C12 analogue of
-the C13 parser bridge in `C13BridgePrep`. -/
-theorem c12_verifyBytes_eq_verifyParsed_of_length
-    (pkSeed pkRoot message sig : Bytes)
-    (hLen : sig.size = c12.sigBytes) :
-    ∃ sigParsed,
-      SphincsMinusVerifierSpec.C12Concrete.parseSignatureC12 c12 sig = some sigParsed ∧
-      ByteLevel.verifyBytes c12Primitives c12 pkSeed pkRoot message sig =
-        verifyParsed SphincsMinusVerifierSpec.C12Concrete.c12PrimitivesConcrete c12
-          { pkSeed := pkSeed, pkRoot := pkRoot } message sigParsed := by
-  obtain ⟨sigParsed, hParse⟩ :=
-    SphincsMinusVerifierSpec.C12Concrete.parseSignatureC12_some_of_size
-      (v := c12) (sig := sig) hLen
-  refine ⟨sigParsed, hParse, ?_⟩
-  unfold ByteLevel.verifyBytes
-  simp [hLen, SphincsMinusVerifierSpec.C12Concrete.parsePublicKey_c12,
-    c12Primitives, SphincsMinusVerifierSpec.C12Concrete.c12PrimitivesConcrete,
-    hParse]
-
 open Compiler.Proofs.IRGeneration.SourceSemantics in
 /-- SHA-2 SLH-DSA: the real compiled body run and the byte spec agree on every
 wrong-length input. Proved, no bridge axiom. -/
@@ -12419,20 +12225,6 @@ theorem execC13_accepts_sound
       rootMatchesPk c13 root pk.pkRoot = true :=
   exec_accepts_sound c13_refines_byte_spec pkSeed pkRoot message sig hAcc
 
-/-- C12: accepting compiled run ⇒ well-formed reconstructed witness. -/
-theorem execC12_accepts_sound
-    (pkSeed pkRoot message sig : Bytes)
-    (hAcc : execC12 pkSeed pkRoot message sig = some true) :
-    ∃ pk parsedSig forsPk root,
-      ByteLevel.parsePublicKey c12 pkSeed pkRoot = some pk ∧
-      c12Primitives.parseSignature c12 sig = some parsedSig ∧
-      signatureShapeOk c12 parsedSig = true ∧
-      forcedZeroOk c12 (c12Primitives.hMsg c12 pk parsedSig.R message) = true ∧
-      c12Primitives.forsPkFromSig c12 pk (c12Primitives.hMsg c12 pk parsedSig.R message) parsedSig.fors = some forsPk ∧
-      foldHypertree c12Primitives c12 pk (c12Primitives.hMsg c12 pk parsedSig.R message) forsPk parsedSig.layers = .ok root ∧
-      rootMatchesPk c12 root pk.pkRoot = true :=
-  exec_accepts_sound c12_refines_byte_spec pkSeed pkRoot message sig hAcc
-
 /-- SHA2 SLH-DSA: accepting compiled run ⇒ well-formed reconstructed witness. -/
 theorem execSlhDsaSha2_128_24_accepts_sound
     (pkSeed pkRoot message sig : Bytes)
@@ -12453,7 +12245,6 @@ models are renamed or removed, the refinement file stops compiling before any
 semantic proof attempt starts.
 -/
 example : c13Model.name = "SphincsC13Asm_VerityModel" := rfl
-example : c12Model.name = "SPHINCs_C12Asm_VerityModel" := rfl
 example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rfl
 
 #print axioms c13_refines_byte_spec_of_good_length_cover
@@ -12529,8 +12320,6 @@ example : slhDsaSha2_128_24_Model.name = "SLH_DSA_SHA2_128_24_VerityModel" := rf
 #print axioms c13_refines_byte_spec_of_current_node_facts_and_reverted_afterMerkle_raw_xmss_cover
 #print axioms c13_refines_byte_spec_of_ok_digit_merkle_and_reverted_afterMerkle_raw_xmss_cover
 #print axioms c13_refines_byte_spec_of_two_step_current_node_and_reverted_digest_scratch_cover
-#print axioms c12_refines_byte_spec_of_good_length_cover
-#print axioms c12_refines_byte_spec_of_parsed_cover
 #print axioms c13AfterMerkleXmssFrameStepBoundedWitnessPremiseAt_layer0
 #print axioms c13AfterMerkleXmssFrameStepBoundedWitnessPremiseAt_layer1
 #print axioms c13FoldOkAfterMerkleNormalizedXmssClimbBoundedFrameStepDataLayer0_holds

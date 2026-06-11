@@ -1,66 +1,20 @@
-# C13 interface contract (boss-frozen segment map)
+# C13 Interface Contract
 
-Derived from the actual `c13VerifyBody` (Model.lean:98-206) and `SPHINCs-C13Asm.sol`,
-this CORRECTS the idealized S1-S6 table in STRATEGY.md §2 to match the real control
-flow. Phase 2 workers code against THIS, not the strategy table.
+This file records the segment map for the modeled C13 verifier. It is derived from `c13VerifyBody` in `Model.lean` and the live Solidity assembly in `src/SPHINCs-C13Asm.sol`.
 
-## Top-level statement indices of `c13VerifyBody`
+## Preflight
 
-| idx | statement | segment |
-|---|---|---|
-| 0 | length-guard `ite` (revert if `sig_length ≠ 3688`) | **S1** (done: reject/pass lemmas) |
-| 1-3 | `seed`,`root` lets; `mstore 0x00 seed` | S2 setup |
-| 4-8 | `R` let; `mstore 0x20/0x40/0x60/0x80` (Hmsg preimage) | S2 setup |
-| 9 | `digest = keccak 0x00 0xA0` | **S2** (first-keccak lemma done) |
-| 10-13 | `htIdx`, `dVal`, forced-zero `ite` revert, `sigBase` | **S3** index extraction + forced-zero |
-| 14 | `forEach i<6` FORS normal trees (NESTED `forEach h<19` Merkle climb) | **S4a** (LOOP, not straight-line) |
-| 15-18 | last (forced-zero) FORS tree leaf hash → `mstore 0x140` | S4b |
-| 19-20 | `mstore 0x20` FORS_ROOTS adrs; `forEach i<7` copy roots to scratch | S4c |
-| 21 | `forsPk = keccak 0x120` | **S4** result = `forsRootBytes` |
-| 22-24 | `currentNode=forsPk`, `idxTree=htIdx`, `sigOff=1952` | climb setup |
-| 25 | `forEach layer<2` hypertree climb | **Layer 3** (Worker C) |
-| 26 | `valid = eq currentNode root` | final compare |
-| ++ | `returnBoolFromWord "valid"` | return |
+The C13 body starts with:
 
-## Corrections vs STRATEGY table
-- **S4 is a double loop**, not straight-line: outer `i<6` over FORS trees, each with an
-  inner `h<19` branchless-Merkle auth-path climb, then a forced-zero 7th tree, then a
-  7-root compression keccak. Needs a loop-invariant proof, not `cons_continue` chaining.
-- **S5/S6 do not exist as a prefix.** There is no pre-loop "WOTS on FORS root → first HT
-  leaf". The FORS root seeds `currentNode` directly; ALL WOTS+XMSS work happens INSIDE
-  the `layer<2` loop. So STRATEGY's S5 (WOTS pk) and S6 (HT leaf) are subsumed into
-  iteration 0 of the Layer-3 loop.
+1. Signature length guard for `3688` bytes.
+2. Public-key canonicality guard for `pkSeed` and `pkRoot` using `N_MASK`.
 
-## Reusable shapes (Layer-1 kit targets)
-Three structurally identical **branchless-Merkle-climb** loops appear:
-- FORS auth path: `forEach h<19` (Model.lean:126-135)
-- XMSS auth path: `forEach h<11` (Model.lean:192-201)
-Both use `s := shl 5 (and idx 1)`; `mstore (xor 0x40 s) node`; `mstore (xor 0x60 s) sib`;
-`node := and (keccak 0x00 0x80) N_MASK`; `idx := idx>>1`. ONE parametric lemma
-`merkleClimbStep` covers both — no path case-split (branchless swap is the whole point).
+Only after both guards pass does execution enter `c13VerifyBodyTail`.
 
-One **WOTS chain** shape: `forEach step<steps` (Model.lean:174-178) repeatedly hashes
-`val := and (keccak 0x00 0x60) N_MASK` under `chainBase | (digit+step)`. One lemma covers it;
-the outer `i<43` then folds 43 independent chains into scratch.
+## Body Shape
 
-## Pre_i / Post_i contract (symbolic memory as assoc list)
-Each segment lemma has the shape:
-> Given `RuntimeState s` whose symbolic memory satisfies `Pre_i` and whose bindings
-> contain the named inputs, `execStmtList [] s segment_i = .continue s'`, where `s'`'s
-> symbolic memory satisfies `Post_i` and the produced/bound value equals
-> `<spec intermediate>_i` (computed via `c13Primitives`).
+The body then performs Hmsg keccak, FORS+C reconstruction, FORS root compression, the two-layer WOTS+C and XMSS climb, final root comparison, and boolean return.
 
-Memory is tracked as a finite `(addr, value)` association list; later reads resolve by
-lookup (`mload_mstore_same`/`_diff`), never by replaying history. Word addresses in play:
-`0x00,0x20,0x40,0x60,0x80,0xA0` (scratch) and `0x80 + 32*i` for i∈[0,6] (FORS root slots,
-top at `0x140`), plus `0x40 + 32*i` compression slots.
+## Scope
 
-## Spec mirror intermediates (Worker D must expose, matching boundaries above)
-`digestBytes` (S2) · `htIndex`/`forsIndices` (S3) · `forsRootBytes` (S4) ·
-per-layer `wotsPkBytes`/`xmssRootBytes` and `htClimb layer node` (Layer 3) ·
-`finalRootBytes`. Prove `verifyBytes c13Primitives c13Variant = compose-of-these` once.
-
-## Gate dependency
-ALL of the above is unprovable until Phase 0 concretizes `c13Primitives` so the spec's
-hash equals the interpreter's `KeccakEngine.keccak256` over the same byte preimage. Do
-not start Phase 2 until the gate worker reports PASS.
+This contract applies only to the C13 Verity model. SHA2 has a separate model shape because it uses SHA-256 precompile calls and packed memory offsets.

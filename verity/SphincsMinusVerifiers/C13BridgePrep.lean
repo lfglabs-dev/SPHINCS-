@@ -36,8 +36,9 @@ def runC13BodyObserved
     (pkSeed pkRoot message sig : ByteArray) : Option Bool :=
   execC13Concrete pkSeed pkRoot message sig
 
-/-- On the C13 length-ok branch, byte-level verification always reaches the
-parsed verifier.  The concrete parser cannot fail for any other reason. -/
+/-- On the C13 length-ok branch, byte-level
+verification always reaches the parsed verifier.  The concrete parser cannot
+fail for any other reason. -/
 theorem c13_verifyBytes_eq_verifyParsed_of_length
     (pkSeed pkRoot message sig : ByteArray)
     (hLen : sig.size = c13.sigBytes) :
@@ -50,7 +51,8 @@ theorem c13_verifyBytes_eq_verifyParsed_of_length
     C13Concrete.parseSignatureC13_some_of_size (v := c13) (sig := sig) hLen
   refine ⟨sigParsed, hParse, ?_⟩
   unfold ByteLevel.verifyBytes
-  simp [hLen, C13Concrete.parsePublicKey_c13, c13Primitives,
+  simp [hLen, C13Concrete.parsePublicKey_c13 pkSeed pkRoot,
+    c13Primitives,
     C13Concrete.c13PrimitivesConcrete, hParse]
 
 theorem observeStmtResult_return_boolWord
@@ -94,7 +96,8 @@ theorem runC13BodyObserved_accept_from_concrete_layer_current_node_two_step_obli
   have hLen : sig.size = c13.sigBytes :=
     C13Concrete.parseSignatureC13_size hParse
   unfold ByteLevel.verifyBytes
-  simp [hLen, C13Concrete.parsePublicKey_c13, c13Primitives,
+  simp [hLen, C13Concrete.parsePublicKey_c13 pkSeed pkRoot,
+    c13Primitives,
     C13Concrete.c13PrimitivesConcrete, hParse]
   simpa [C13Concrete.c13PrimitivesConcrete] using hSpec.symm
 
@@ -330,7 +333,8 @@ theorem runC13BodyObserved_accept_from_fold_ok_current_nodes_wordcmp
   have hLen : sig.size = c13.sigBytes :=
     C13Concrete.parseSignatureC13_size hParse
   unfold ByteLevel.verifyBytes
-  simp [hLen, C13Concrete.parsePublicKey_c13, c13Primitives,
+  simp [hLen, C13Concrete.parsePublicKey_c13 pkSeed pkRoot,
+    c13Primitives,
     C13Concrete.c13PrimitivesConcrete, hParse]
   simpa [C13Concrete.c13PrimitivesConcrete] using hSpec.symm
 
@@ -406,7 +410,8 @@ theorem c13_verifyBytes_none_of_fold_reverted
         forsPk sigParsed.layers = .reverted := by
     simpa [C13Concrete.c13PrimitivesConcrete] using hFold'
   unfold ByteLevel.verifyBytes
-  simp [hLen, C13Concrete.parsePublicKey_c13, c13Primitives,
+  simp [hLen, C13Concrete.parsePublicKey_c13 pkSeed pkRoot,
+    c13Primitives,
     C13Concrete.c13PrimitivesConcrete, hParse, verifyParsed, hShape, hZero',
     hFors', hFold'']
 
@@ -454,7 +459,9 @@ theorem runC13BodyObserved_revert_on_layer_first_guard_of_fold_reverted
     rfl
   have hExec :=
     SegmentRejectSpec.c13_body_reverts_on_layer_first_guard
-      (mkC13State pkSeed pkRoot message sig) hLen hg3 hguard
+      (mkC13State pkSeed pkRoot message sig) hLen
+      (SegmentRejectSpec.mkC13State_pkSeed_canonical pkSeed pkRoot message sig)
+      (SegmentRejectSpec.mkC13State_pkRoot_canonical pkSeed pkRoot message sig) hg3 hguard
   have hSpec :=
     c13_verifyBytes_none_of_fold_reverted
       pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors hFold
@@ -518,7 +525,9 @@ theorem runC13BodyObserved_revert_on_layer_second_guard_of_fold_reverted
     rfl
   have hExec :=
     SegmentRejectSpec.c13_body_reverts_on_layer_second_guard
-      (mkC13State pkSeed pkRoot message sig) hLen hg3 hguard0 hguard1
+      (mkC13State pkSeed pkRoot message sig) hLen
+      (SegmentRejectSpec.mkC13State_pkSeed_canonical pkSeed pkRoot message sig)
+      (SegmentRejectSpec.mkC13State_pkRoot_canonical pkSeed pkRoot message sig) hg3 hguard0 hguard1
   have hSpec :=
     c13_verifyBytes_none_of_fold_reverted
       pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors hFold

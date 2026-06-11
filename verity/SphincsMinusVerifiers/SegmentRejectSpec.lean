@@ -25,8 +25,8 @@
 
     2. **FORS forced-zero guard** (statement 12; `s3Guard ≠ 0`).  The MODEL side
        is fully discharged (`c13_body_reverts_on_forced_zero`): threading the
-       length-guard pass-through and the S2 straight-line prefix, then reverting
-       at `segmentS3`.  The older low-level joint theorem
+       length guard and public-key guard pass-throughs, then the S2 straight-line
+       prefix, then reverting at `segmentS3`.  The older low-level joint theorem
        `c13_revert_on_forced_zero` still accepts the spec-side `none` result as
        an explicit `hCorr` premise.  The parse-shaped C13 theorem
        `c13_revert_on_forced_zero_of_parse` removes that raw premise by deriving
@@ -46,6 +46,7 @@
 import SphincsMinusVerifiers.SegmentCompose
 import SphincsMinusVerifiers.SegmentAcceptSpec
 import SphincsMinusVerifiers.MkC13State
+import SphincsMinusVerifiers.SegmentS2R
 import SphincsMinusVerifiers.ProofCore
 import SphincsMinusVerifierSpec.Spec
 import SphincsMinusVerifierSpec.C13Concrete
@@ -58,6 +59,7 @@ open SphincsMinusVerifiers
 open SphincsMinusVerifiers.SegmentCompose
 open SphincsMinusVerifiers.MkC13State
 open SphincsMinusVerifierSpec
+open SphincsMinusVerifierSpec.C13Concrete (wordOfHash16)
 
 /-! ## 1. Length-guard revert (fully discharged, both sides).
 
@@ -69,6 +71,60 @@ that lookup is definitionally `sig.size`.  On the complementary domain
 /-- The frozen constructor binds `sig_length` to the raw `sig.size`. -/
 theorem mkC13State_lookup_sigLength (pkSeed pkRoot message sig : ByteArray) :
     lookupValue (mkC13State pkSeed pkRoot message sig).bindings "sig_length" = sig.size := rfl
+
+theorem mkC13State_pkSeed_canonical (pkSeed pkRoot message sig : ByteArray) :
+    lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkSeed" =
+      (Verity.Core.Uint256.and
+        (lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkSeed")
+        (wordNormalize N_MASK)).val := by
+  show wordOfHash16 pkSeed =
+      (Verity.Core.Uint256.and (wordOfHash16 pkSeed) (wordNormalize N_MASK)).val
+  have hwlt : wordOfHash16 pkSeed < 2 ^ 256 :=
+    SegmentS2.wordOfHash16_lt pkSeed
+  have hmasklt : N_MASK < 2 ^ 256 := by decide
+  have hmask : wordNormalize N_MASK = N_MASK := by
+    rw [wordNormalize_eq_mod]
+    exact Nat.mod_eq_of_lt hmasklt
+  rw [hmask]
+  show wordOfHash16 pkSeed =
+      (Verity.Core.Uint256.ofNat
+        (Nat.land (Verity.Core.Uint256.ofNat (wordOfHash16 pkSeed)).val
+          (Verity.Core.Uint256.ofNat N_MASK).val)).val
+  have hwval : (Verity.Core.Uint256.ofNat (wordOfHash16 pkSeed)).val =
+      wordOfHash16 pkSeed := Nat.mod_eq_of_lt hwlt
+  have hmval : (Verity.Core.Uint256.ofNat N_MASK).val = N_MASK :=
+    Nat.mod_eq_of_lt hmasklt
+  rw [hwval, hmval, Verity.Core.Uint256.val_ofNat]
+  rw [SegmentS2R.wordOfHash16_land_nmask]
+  rw [show Verity.Core.Uint256.modulus = 2 ^ 256 from rfl]
+  exact (Nat.mod_eq_of_lt hwlt).symm
+
+theorem mkC13State_pkRoot_canonical (pkSeed pkRoot message sig : ByteArray) :
+    lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkRoot" =
+      (Verity.Core.Uint256.and
+        (lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkRoot")
+        (wordNormalize N_MASK)).val := by
+  show wordOfHash16 pkRoot =
+      (Verity.Core.Uint256.and (wordOfHash16 pkRoot) (wordNormalize N_MASK)).val
+  have hwlt : wordOfHash16 pkRoot < 2 ^ 256 :=
+    SegmentS2.wordOfHash16_lt pkRoot
+  have hmasklt : N_MASK < 2 ^ 256 := by decide
+  have hmask : wordNormalize N_MASK = N_MASK := by
+    rw [wordNormalize_eq_mod]
+    exact Nat.mod_eq_of_lt hmasklt
+  rw [hmask]
+  show wordOfHash16 pkRoot =
+      (Verity.Core.Uint256.ofNat
+        (Nat.land (Verity.Core.Uint256.ofNat (wordOfHash16 pkRoot)).val
+          (Verity.Core.Uint256.ofNat N_MASK).val)).val
+  have hwval : (Verity.Core.Uint256.ofNat (wordOfHash16 pkRoot)).val =
+      wordOfHash16 pkRoot := Nat.mod_eq_of_lt hwlt
+  have hmval : (Verity.Core.Uint256.ofNat N_MASK).val = N_MASK :=
+    Nat.mod_eq_of_lt hmasklt
+  rw [hwval, hmval, Verity.Core.Uint256.val_ofNat]
+  rw [SegmentS2R.wordOfHash16_land_nmask]
+  rw [show Verity.Core.Uint256.modulus = 2 ^ 256 from rfl]
+  exact (Nat.mod_eq_of_lt hwlt).symm
 
 /-- **Model side.**  The compiled `c13VerifyBody` run over `mkC13State …` reverts
 whenever the signature byte length is not the expected `3688`.  Direct
@@ -113,14 +169,19 @@ reverts exactly when the FORS forced-zero guard value `s3Guard (afterS2 st)` is
 non-zero, so the whole body reverts.  Pure control-flow; no data correspondence,
 no bridge axiom. -/
 
-/-- **Model side.**  Under the length guard, a non-zero FORS forced-zero guard
-makes the entire compiled `c13VerifyBody` run revert. -/
+/-- **Model side.**  Under the length guard and public-key canonicality guard, a
+non-zero FORS forced-zero guard makes the entire compiled `c13VerifyBody` run
+revert. -/
 theorem c13_body_reverts_on_forced_zero
     (st : RuntimeState)
     (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688)
+    (hpkSeed : lookupValue st.bindings "pkSeed" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val)
+    (hpkRoot : lookupValue st.bindings "pkRoot" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val)
     (hg3 : SegmentS3.s3Guard (afterS2 st) ≠ 0) :
     execStmtList [] st c13VerifyBody = .revert := by
-  rw [c13VerifyBody_passes_length_guard st hlen, body_reshape]
+  rw [c13VerifyBody_passes_preflight_guards st hlen hpkSeed hpkRoot, body_reshape]
   -- S2 (stmts 1..9) continues to afterS2 st
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ (SegmentS2.execS2 st)]
   -- segmentS3 (stmts 10..13) reverts because the forced-zero guard is non-zero
@@ -143,12 +204,16 @@ private theorem execSingleton_continue (st st' : RuntimeState) (s : Stmt)
     execStmtList [] st [s] = .continue st' := by
   rw [execStmtList_cons_continue st st' s [] h]; rfl
 
-/-- **Model side.**  Under the length guard and forced-zero pass, if the first
-Layer-3 WOTS+C checksum guard fails, the entire compiled `c13VerifyBody` run
-reverts at the layer loop. -/
+/-- **Model side.**  Under the length guard, public-key canonicality guard, and
+forced-zero pass, if the first Layer-3 WOTS+C checksum guard fails, the entire
+compiled `c13VerifyBody` run reverts at the layer loop. -/
 theorem c13_body_reverts_on_layer_first_guard
     (st : RuntimeState)
     (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688)
+    (hpkSeed : lookupValue st.bindings "pkSeed" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val)
+    (hpkRoot : lookupValue st.bindings "pkRoot" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val)
     (hg3 : SegmentS3.s3Guard (afterS2 st) = 0)
     (hguard :
       SegmentLayer3.layerGuard
@@ -157,7 +222,7 @@ theorem c13_body_reverts_on_layer_first_guard
             bindings := bindValue (afterSeed st).bindings "layer" (wordNormalize 0) } 0)
         = false) :
     execStmtList [] st c13VerifyBody = .revert := by
-  rw [c13VerifyBody_passes_length_guard st hlen, body_reshape]
+  rw [c13VerifyBody_passes_preflight_guards st hlen hpkSeed hpkRoot, body_reshape]
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ (SegmentS2.execS2 st)]
   have hS3 : execStmtList [] (SegmentS2.s2Step st) SegmentS3.segmentS3
       = .continue (afterS3 st) := by
@@ -185,12 +250,16 @@ theorem c13_body_reverts_on_layer_first_guard
     execSingleton_revert _ _ (SegmentLayer3.execLayerLoop_reverts_on_first_guard (afterSeed st) hguard)
   exact MemoryKit.execStmtList_append_revert _ _ _ hLayer
 
-/-- **Model side.**  Under the length guard and forced-zero pass, if the first
-Layer-3 WOTS+C checksum guard passes but the second fails, the entire compiled
-`c13VerifyBody` run reverts at the layer loop. -/
+/-- **Model side.**  Under the length guard, public-key canonicality guard, and
+forced-zero pass, if the first Layer-3 WOTS+C checksum guard passes but the
+second fails, the entire compiled `c13VerifyBody` run reverts at the layer loop. -/
 theorem c13_body_reverts_on_layer_second_guard
     (st : RuntimeState)
     (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688)
+    (hpkSeed : lookupValue st.bindings "pkSeed" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val)
+    (hpkRoot : lookupValue st.bindings "pkRoot" =
+      (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val)
     (hg3 : SegmentS3.s3Guard (afterS2 st) = 0)
     (hguard0 :
       SegmentLayer3.layerGuard
@@ -208,7 +277,7 @@ theorem c13_body_reverts_on_layer_second_guard
           1)
         = false) :
     execStmtList [] st c13VerifyBody = .revert := by
-  rw [c13VerifyBody_passes_length_guard st hlen, body_reshape]
+  rw [c13VerifyBody_passes_preflight_guards st hlen hpkSeed hpkRoot, body_reshape]
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ (SegmentS2.execS2 st)]
   have hS3 : execStmtList [] (SegmentS2.s2Step st) SegmentS3.segmentS3
       = .continue (afterS3 st) := by
@@ -251,11 +320,21 @@ theorem c13_revert_on_forced_zero
     (pkSeed pkRoot message sig : ByteArray)
     (hlen : lookupValue (mkC13State pkSeed pkRoot message sig).bindings "sig_length"
               = wordNormalize 3688)
+    (hpkSeed : lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkSeed" =
+      (Verity.Core.Uint256.and
+        (lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkSeed")
+        (wordNormalize N_MASK)).val)
+    (hpkRoot : lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkRoot" =
+      (Verity.Core.Uint256.and
+        (lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkRoot")
+        (wordNormalize N_MASK)).val)
     (hg3 : SegmentS3.s3Guard (afterS2 (mkC13State pkSeed pkRoot message sig)) ≠ 0)
     (hCorr : ByteLevel.verifyBytes c13Primitives c13 pkSeed pkRoot message sig = none) :
     execStmtList [] (mkC13State pkSeed pkRoot message sig) c13VerifyBody = .revert
       ∧ ByteLevel.verifyBytes c13Primitives c13 pkSeed pkRoot message sig = none :=
-  ⟨c13_body_reverts_on_forced_zero (mkC13State pkSeed pkRoot message sig) hlen hg3, hCorr⟩
+  ⟨c13_body_reverts_on_forced_zero
+      (mkC13State pkSeed pkRoot message sig) hlen hpkSeed hpkRoot hg3,
+    hCorr⟩
 
 /-! ## 3. FORS forced-zero guard reject, parse-shaped spec side.
 
@@ -284,7 +363,8 @@ theorem c13_verifyBytes_none_on_forced_zero_of_parse
         { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = false := by
     simpa [C13Concrete.c13PrimitivesConcrete] using hZero
   unfold ByteLevel.verifyBytes
-  simp [hLen, C13Concrete.parsePublicKey_c13, c13Primitives,
+  simp [hLen, C13Concrete.parsePublicKey_c13 pkSeed pkRoot,
+    c13Primitives,
     C13Concrete.c13PrimitivesConcrete, hParse, verifyParsed, hShape, hZero']
 
 /-- Successful C13 parsing plus a non-zero model forced-zero guard pins the
@@ -332,9 +412,21 @@ theorem c13_revert_on_forced_zero_of_parse
   have hZeroFalse :=
     c13_forcedZero_false_of_parse_s3Guard
       pkSeed pkRoot message sig sigParsed hParse hg3
+  have hpkSeed :
+      lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkSeed" =
+        (Verity.Core.Uint256.and
+          (lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkSeed")
+          (wordNormalize N_MASK)).val :=
+    mkC13State_pkSeed_canonical pkSeed pkRoot message sig
+  have hpkRoot :
+      lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkRoot" =
+        (Verity.Core.Uint256.and
+          (lookupValue (mkC13State pkSeed pkRoot message sig).bindings "pkRoot")
+          (wordNormalize N_MASK)).val :=
+    mkC13State_pkRoot_canonical pkSeed pkRoot message sig
   exact
     ⟨c13_body_reverts_on_forced_zero
-        (mkC13State pkSeed pkRoot message sig) hlen hg3,
+        (mkC13State pkSeed pkRoot message sig) hlen hpkSeed hpkRoot hg3,
       c13_verifyBytes_none_on_forced_zero_of_parse
         pkSeed pkRoot message sig sigParsed hParse hZeroFalse⟩
 
@@ -358,59 +450,13 @@ theorem c13_revert_on_forced_zero_false_of_parse
   exact c13_revert_on_forced_zero_of_parse
     pkSeed pkRoot message sig sigParsed hParse hg3
 
-/-! ## 4. C12 length-guard bridge.
-
-C12 now has a concrete byte-facing runner in `ProofCore`; the same frozen ABI
-entry-state constructor is variant-independent, so the C12 bad-length slice can
-be framed at the observable `execC12` boundary too. -/
-
-/-- **Model side, C12.**  The compiled `c12VerifyBody` run over `mkC13State …`
-reverts whenever the signature byte length is not the expected `6512`. -/
-theorem c12_body_reverts_on_bad_length
-    (pkSeed pkRoot message sig : ByteArray)
-    (hlen : sig.size ≠ 6512) :
-    execStmtList [] (mkC13State pkSeed pkRoot message sig) c12VerifyBody = .revert := by
-  apply c12VerifyBody_reverts_on_bad_length
-  rw [mkC13State_lookup_sigLength]
-  have h6512 : wordNormalize 6512 = 6512 :=
-    SegmentS2.wordNormalize_of_lt (by decide : 6512 < 2 ^ 256)
-  rw [h6512]
-  exact hlen
-
-/-- **Spec side, C12.**  The byte spec rejects (`none`) whenever the signature
-byte length is not `c12.sigBytes = 6512`. -/
-theorem c12_verifyBytes_none_on_bad_length
-    (pkSeed pkRoot message sig : ByteArray)
-    (hlen : sig.size ≠ 6512) :
-    ByteLevel.verifyBytes c12Primitives c12 pkSeed pkRoot message sig = none := by
-  apply ByteLevel.verifyBytes_bad_length
-  exact hlen
-
-/-- C12 bad-length correspondence at the raw body/spec boundary. -/
-theorem c12_revert_on_bad_length
-    (pkSeed pkRoot message sig : ByteArray)
-    (hlen : sig.size ≠ 6512) :
-    execStmtList [] (mkC13State pkSeed pkRoot message sig) c12VerifyBody = .revert
-      ∧ ByteLevel.verifyBytes c12Primitives c12 pkSeed pkRoot message sig = none :=
-  ⟨c12_body_reverts_on_bad_length pkSeed pkRoot message sig hlen,
-   c12_verifyBytes_none_on_bad_length pkSeed pkRoot message sig hlen⟩
-
-/-- C12 bad-length correspondence at the concrete observable `execC12` boundary. -/
-theorem execC12_revert_on_bad_length
-    (pkSeed pkRoot message sig : ByteArray)
-    (hlen : sig.size ≠ 6512) :
-    execC12 pkSeed pkRoot message sig =
-      ByteLevel.verifyBytes c12Primitives c12 pkSeed pkRoot message sig := by
-  rcases c12_revert_on_bad_length pkSeed pkRoot message sig hlen with
-    ⟨hExec, hSpec⟩
-  unfold execC12
-  rw [hExec, SphincsMinusVerifiers.observeStmtResultBool_revert, hSpec]
-
-/-! ## 5. Axiom audit. -/
+/-! ## 4. Axiom audit. -/
 
 #print axioms c13_body_reverts_on_bad_length
 #print axioms c13_verifyBytes_none_on_bad_length
 #print axioms c13_revert_on_bad_length
+#print axioms mkC13State_pkSeed_canonical
+#print axioms mkC13State_pkRoot_canonical
 #print axioms c13_body_reverts_on_forced_zero
 #print axioms c13_body_reverts_on_layer_first_guard
 #print axioms c13_body_reverts_on_layer_second_guard
@@ -419,9 +465,5 @@ theorem execC12_revert_on_bad_length
 #print axioms c13_forcedZero_false_of_parse_s3Guard
 #print axioms c13_revert_on_forced_zero_of_parse
 #print axioms c13_revert_on_forced_zero_false_of_parse
-#print axioms c12_body_reverts_on_bad_length
-#print axioms c12_verifyBytes_none_on_bad_length
-#print axioms c12_revert_on_bad_length
-#print axioms execC12_revert_on_bad_length
 
 end SphincsMinusVerifiers.SegmentRejectSpec

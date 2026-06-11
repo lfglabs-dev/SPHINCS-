@@ -1986,7 +1986,6 @@ theorem foldHypertree_c13_ok_root_canonical_of_fors
 #print axioms parseSignatureC13_eq_none_iff
 #print axioms parseSignatureC13_isSome_iff
 #print axioms parseSignatureC13_shape
-#print axioms publicKeyOk_c13
 #print axioms parsePublicKey_c13
 #print axioms parsePublicKey_c13_does_not_force_pkRoot_size
 #print axioms parseSignatureC13_fors_sk_getElem?

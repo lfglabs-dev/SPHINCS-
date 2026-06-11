@@ -1,9 +1,8 @@
-/-
-  Verity compilation models for the three production verifier contracts reviewed
-  in nconsigny/SPHINCS-:
+/- 
+  Verity compilation models for the production verifier contracts reviewed in
+  nconsigny/SPHINCS-:
 
   * src/SPHINCs-C13Asm.sol
-  * src/SPHINCs-C12Asm.sol
   * src/SLH-DSA-SHA2-128-24verifier.sol
 
   These models intentionally mirror the handwritten assembly structure.  They
@@ -230,7 +229,7 @@ def c13PublicKeyGuardTail : List Stmt :=
   publicKeyCanonicalityGuard :: c13VerifyBodyTail
 
 def c13VerifyBody : List Stmt :=
-  c13LengthGuard :: c13VerifyBodyTail
+  c13LengthGuard :: c13PublicKeyGuardTail
 
 private def verifierFunction (body : List Stmt) (pure : Bool := true) : FunctionSpec := {
   name := "verify",
@@ -250,126 +249,6 @@ private def verifierFunction (body : List Stmt) (pure : Bool := true) : Function
       proofStatus := .assumed }
   ]
 }
-
-/-- Model of `SPHINCs-C12Asm.verify`.
-
-This is the plain SPHINCS+/SPX-shaped C12 verifier: Hmsg, FORS root recovery,
-FORS-root compression, WOTS+ public-key recovery, and the 5-layer XMSS climb.
-The structure and constants mirror the Solidity assembly block. -/
-def c12VerifyBody : List Stmt := [
-  .ite (notE (eqE (v "sig_length") (u 6512))) (errorStringRevert invalidSigLengthWord) [],
-  .letVar "seed" (p "pkSeed"),
-  .letVar "root" (p "pkRoot"),
-  .letVar "sigBase" (v "sig_data_offset"),
-  mstore 0x00 (v "seed"),
-  mstore 0x20 (v "root"),
-  mstore 0x40 (cdload (v "sigBase")),
-  mstore 0x60 (p "message"),
-  mstore 0x80 (u 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC),
-  .letVar "dVal" (keccak 0x00 0xA0),
-  .letVar "treeIdx" (andE (shrE (u 140) (v "dVal")) (u 0xFFFF)),
-  .letVar "leafIdx" (andE (shrE (u 156) (v "dVal")) (u 0xF)),
-
-  .letVar "forsBase" (orE (orE (shlE (u 160) (v "treeIdx")) (shlE (u 128) (u 3))) (shlE (u 96) (v "leafIdx"))),
-  .letVar "forsOff" (u 32),
-  .forEach "t" (u 20) [
-    .letVar "mdT" (andE (shrE (mulE (u 7) (v "t")) (v "dVal")) (u 0x7F)),
-    .letVar "treeOff" (addE (v "forsOff") (mulE (v "t") (u 128))),
-    .letVar "sk" (andE (cdload (addE (v "sigBase") (v "treeOff"))) (u N_MASK)),
-    mstore 0x20 (orE (v "forsBase") (orE (shlE (u 7) (v "t")) (v "mdT"))),
-    mstore 0x40 (v "sk"),
-    .letVar "node" (andE (keccak 0x00 0x60) (u N_MASK)),
-    .letVar "authPtr" (addE (v "sigBase") (addE (v "treeOff") (u 16))),
-    .letVar "pathIdx" (v "mdT"),
-    .forEach "j" (u 7) [
-      .letVar "sibling" (andE (cdload (addE (v "authPtr") (shlE (u 4) (v "j")))) (u N_MASK)),
-      .letVar "parentIdx" (shrE (u 1) (v "pathIdx")),
-      .letVar "globalY" (orE (shlE (subE (u 6) (v "j")) (v "t")) (v "parentIdx")),
-      mstore 0x20 (orE (v "forsBase") (orE (shlE (u 32) (addE (v "j") (u 1))) (v "globalY"))),
-      .letVar "s" (shlE (u 5) (andE (v "pathIdx") (u 1))),
-      mstoreE (xorE (u 0x40) (v "s")) (v "node"),
-      mstoreE (xorE (u 0x60) (v "s")) (v "sibling"),
-      .assignVar "node" (andE (keccak 0x00 0x80) (u N_MASK)),
-      .assignVar "pathIdx" (v "parentIdx")
-    ],
-    mstoreE (addE (u 0x80) (shlE (u 5) (v "t"))) (v "node")
-  ],
-
-  .letVar "adrsRoots" (orE (orE (shlE (u 160) (v "treeIdx")) (shlE (u 128) (u 4))) (shlE (u 96) (v "leafIdx"))),
-  mstore 0x20 (v "adrsRoots"),
-  .forEach "t" (u 20) [
-    mstoreE (addE (u 0x40) (shlE (u 5) (v "t"))) (mloadE (addE (u 0x80) (shlE (u 5) (v "t"))))
-  ],
-  .letVar "currentNode" (andE (keccak 0x00 0x2C0) (u N_MASK)),
-  .letVar "curTree" (v "treeIdx"),
-  .letVar "curLeaf" (v "leafIdx"),
-  .letVar "sigOff" (u 2592),
-
-  .forEach "layer" (u 5) [
-    .letVar "wotsBase" (orE (orE (shlE (u 224) (v "layer")) (shlE (u 160) (v "curTree"))) (shlE (u 96) (v "curLeaf"))),
-    .letVar "wotsPtr" (addE (v "sigBase") (v "sigOff")),
-    .letVar "csum" (u 0),
-
-    .forEach "i" (u 42) [
-      .letVar "digit" (andE (shrE (addE (u 128) (mulE (u 3) (v "i"))) (v "currentNode")) (u 7)),
-      .assignVar "csum" (addE (v "csum") (subE (u 7) (v "digit"))),
-      .letVar "val" (andE (cdload (addE (v "wotsPtr") (shlE (u 4) (v "i")))) (u N_MASK)),
-      .letVar "chainBase" (orE (v "wotsBase") (shlE (u 64) (v "i"))),
-      .letVar "steps" (subE (u 7) (v "digit")),
-      .forEach "s" (v "steps") [
-        mstore 0x20 (orE (v "chainBase") (shlE (u 32) (addE (v "digit") (v "s")))),
-        mstore 0x40 (v "val"),
-        .assignVar "val" (andE (keccak 0x00 0x60) (u N_MASK))
-      ],
-      mstoreE (addE (u 0x80) (shlE (u 5) (v "i"))) (v "val")
-    ],
-
-    .letVar "csumShifted" (shlE (u 7) (v "csum")),
-    .forEach "j" (u 3) [
-      .letVar "digit" (andE (shrE (subE (u 13) (mulE (u 3) (v "j"))) (v "csumShifted")) (u 7)),
-      .letVar "i" (addE (u 42) (v "j")),
-      .letVar "val" (andE (cdload (addE (v "wotsPtr") (shlE (u 4) (v "i")))) (u N_MASK)),
-      .letVar "chainBase" (orE (v "wotsBase") (shlE (u 64) (v "i"))),
-      .letVar "steps" (subE (u 7) (v "digit")),
-      .forEach "s" (v "steps") [
-        mstore 0x20 (orE (v "chainBase") (shlE (u 32) (addE (v "digit") (v "s")))),
-        mstore 0x40 (v "val"),
-        .assignVar "val" (andE (keccak 0x00 0x60) (u N_MASK))
-      ],
-      mstoreE (addE (u 0x80) (shlE (u 5) (v "i"))) (v "val")
-    ],
-
-    .letVar "pkAdrs" (orE (orE (shlE (u 224) (v "layer")) (shlE (u 160) (v "curTree"))) (orE (shlE (u 128) (u 1)) (shlE (u 96) (v "curLeaf")))),
-    mstore 0x20 (v "pkAdrs"),
-    .forEach "i" (u 45) [
-      mstoreE (addE (u 0x40) (shlE (u 5) (v "i"))) (mloadE (addE (u 0x80) (shlE (u 5) (v "i"))))
-    ],
-    .letVar "wotsPk" (andE (keccak 0x00 0x5E0) (u N_MASK)),
-
-    .letVar "authOff" (addE (v "sigOff") (u 720)),
-    .letVar "authPtr" (addE (v "sigBase") (v "authOff")),
-    .letVar "xmssBase" (orE (orE (shlE (u 224) (v "layer")) (shlE (u 160) (v "curTree"))) (shlE (u 128) (u 2))),
-    .letVar "merkleNode" (v "wotsPk"),
-    .letVar "mIdx" (v "curLeaf"),
-    .forEach "h" (u 4) [
-      .letVar "sibling" (andE (cdload (addE (v "authPtr") (shlE (u 4) (v "h")))) (u N_MASK)),
-      .letVar "parentIdx" (shrE (u 1) (v "mIdx")),
-      mstore 0x20 (orE (v "xmssBase") (orE (shlE (u 32) (addE (v "h") (u 1))) (v "parentIdx"))),
-      .letVar "s" (shlE (u 5) (andE (v "mIdx") (u 1))),
-      mstoreE (xorE (u 0x40) (v "s")) (v "merkleNode"),
-      mstoreE (xorE (u 0x60) (v "s")) (v "sibling"),
-      .assignVar "merkleNode" (andE (keccak 0x00 0x80) (u N_MASK)),
-      .assignVar "mIdx" (v "parentIdx")
-    ],
-
-    .assignVar "currentNode" (v "merkleNode"),
-    .assignVar "sigOff" (addE (v "authOff") (u 64)),
-    .assignVar "curLeaf" (andE (v "curTree") (u 0xF)),
-    .assignVar "curTree" (shrE (u 4) (v "curTree"))
-  ],
-
-  .letVar "valid" (eqE (v "currentNode") (v "root"))
-] ++ returnBoolFromWord "valid"
 
 /-- Model of `SLH-DSA-SHA2-128-24verifier.verify`.
 
@@ -509,13 +388,6 @@ def c13Model : CompilationModel := {
   functions := [verifierFunction c13VerifyBody true]
 }
 
-def c12Model : CompilationModel := {
-  name := "SPHINCs_C12Asm_VerityModel",
-  fields := [],
-  «constructor» := none,
-  functions := [verifierFunction c12VerifyBody true]
-}
-
 def slhDsaSha2_128_24_Model : CompilationModel := {
   name := "SLH_DSA_SHA2_128_24_VerityModel",
   fields := [],
@@ -594,14 +466,6 @@ theorem c13VerifyBody_reverts_on_bad_length
   verifyBody_reverts_on_bad_length c13VerifyBody 3688 st rfl hlen
 
 open Compiler.Proofs.IRGeneration.SourceSemantics in
-/-- C12 verifier body reverts when the ABI-decoded `sig.length ≠ 6512`. -/
-theorem c12VerifyBody_reverts_on_bad_length
-    (st : RuntimeState)
-    (hlen : lookupValue st.bindings "sig_length" ≠ wordNormalize 6512) :
-    execStmtList [] st c12VerifyBody = .revert :=
-  verifyBody_reverts_on_bad_length c12VerifyBody 6512 st rfl hlen
-
-open Compiler.Proofs.IRGeneration.SourceSemantics in
 /-- SLH-DSA-SHA2-128-24 verifier body reverts when `sig.length ≠ 3856`. -/
 theorem slhDsaSha2VerifyBody_reverts_on_bad_length
     (st : RuntimeState)
@@ -660,17 +524,16 @@ theorem verifyBody_passes_length_guard
 
 open Compiler.Proofs.IRGeneration.SourceSemantics in
 /-- C13: with `sig.length = 3688`, the length guard is a no-op and execution
-proceeds to the named algorithmic body tail.  This matches `SPHINCs-C13Asm.sol`,
-whose C13 verifier has no public-key canonicality guard. -/
+proceeds to the public-key guard tail. -/
 theorem c13VerifyBody_passes_length_guard
     (st : RuntimeState)
     (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688) :
-    execStmtList [] st c13VerifyBody = execStmtList [] st c13VerifyBodyTail := by
-  rw [show c13VerifyBody = c13LengthGuard :: c13VerifyBodyTail from rfl]
+    execStmtList [] st c13VerifyBody = execStmtList [] st c13PublicKeyGuardTail := by
+  rw [show c13VerifyBody = c13LengthGuard :: c13PublicKeyGuardTail from rfl]
   rw [show c13LengthGuard =
     (.ite (notE (eqE (v "sig_length") (u 3688)))
       (errorStringRevert invalidSigLengthWord) [] : Stmt) from rfl]
-  exact verifyBody_passes_length_guard 3688 st c13VerifyBodyTail hlen
+  exact verifyBody_passes_length_guard 3688 st c13PublicKeyGuardTail hlen
 
 open Compiler.Proofs.IRGeneration.SourceSemantics in
 /-- C13: if both ABI public-key words are already canonical high-16-byte values,
@@ -726,24 +589,25 @@ theorem c13PublicKeyGuardTail_passes_public_key_guard
   rw [hite]
 
 open Compiler.Proofs.IRGeneration.SourceSemantics in
-/-- C13: with `sig.length = 3688`, the only C13 preflight guard is a no-op and
-execution proceeds into the named body tail.  The public-key hypotheses are kept
-as unused compatibility arguments for downstream proofs that were written while
-the local model temporarily carried a public-key guard. -/
+/-- C13: with `sig.length = 3688` and canonical public-key words, both preflight
+guards are no-ops and execution proceeds into the named body tail. -/
 theorem c13VerifyBody_passes_preflight_guards
     (st : RuntimeState)
     (hlen : lookupValue st.bindings "sig_length" = wordNormalize 3688)
-    (_hpkSeed : lookupValue st.bindings "pkSeed" =
+    (hpkSeed : lookupValue st.bindings "pkSeed" =
       (Verity.Core.Uint256.and (lookupValue st.bindings "pkSeed") (wordNormalize N_MASK)).val)
-    (_hpkRoot : lookupValue st.bindings "pkRoot" =
+    (hpkRoot : lookupValue st.bindings "pkRoot" =
       (Verity.Core.Uint256.and (lookupValue st.bindings "pkRoot") (wordNormalize N_MASK)).val) :
     execStmtList [] st c13VerifyBody = execStmtList [] st c13VerifyBodyTail := by
-  exact c13VerifyBody_passes_length_guard st hlen
+  calc
+    execStmtList [] st c13VerifyBody = execStmtList [] st c13PublicKeyGuardTail :=
+      c13VerifyBody_passes_length_guard st hlen
+    _ = execStmtList [] st c13VerifyBodyTail :=
+      c13PublicKeyGuardTail_passes_public_key_guard st hpkSeed hpkRoot
 
 open Compiler.Proofs.IRGeneration.SourceSemantics in
-/-- Standalone public-key guard helper: after an already-passed length guard, the
-named guard tail would revert when `pkSeed` is not masked by `N_MASK`.  This
-helper is not part of the active C13 body in `SPHINCs-C13Asm.sol`. -/
+/-- C13 public-key guard helper: after an already-passed length guard, the named
+guard tail reverts when `pkSeed` is not masked by `N_MASK`. -/
 theorem c13PublicKeyGuardTail_reverts_on_bad_pkSeed
     (st : RuntimeState)
     (hpkSeed : lookupValue st.bindings "pkSeed" ≠
@@ -791,9 +655,8 @@ theorem c13PublicKeyGuardTail_reverts_on_bad_pkSeed
   rw [hite]
 
 open Compiler.Proofs.IRGeneration.SourceSemantics in
-/-- Standalone public-key guard helper: after an already-passed length guard, the
-named guard tail would revert when `pkRoot` is not masked by `N_MASK`.  This
-helper is not part of the active C13 body in `SPHINCs-C13Asm.sol`. -/
+/-- C13 public-key guard helper: after an already-passed length guard, the named
+guard tail reverts when `pkRoot` is not masked by `N_MASK`. -/
 theorem c13PublicKeyGuardTail_reverts_on_bad_pkRoot
     (st : RuntimeState)
     (hpkRoot : lookupValue st.bindings "pkRoot" ≠
@@ -839,15 +702,6 @@ theorem c13PublicKeyGuardTail_reverts_on_bad_pkRoot
         | .return rval rst => .return rval rst
         | .revert => .revert) = .revert
   rw [hite]
-
-open Compiler.Proofs.IRGeneration.SourceSemantics in
-/-- C12: with `sig.length = 6512` the length guard is a no-op and execution
-proceeds into the body. Proved, no bridge axiom. -/
-theorem c12VerifyBody_passes_length_guard
-    (st : RuntimeState)
-    (hlen : lookupValue st.bindings "sig_length" = wordNormalize 6512) :
-    execStmtList [] st c12VerifyBody = execStmtList [] st c12VerifyBody.tail :=
-  verifyBody_passes_length_guard 6512 st c12VerifyBody.tail hlen
 
 open Compiler.Proofs.IRGeneration.SourceSemantics in
 /-- SLH-DSA-SHA2-128-24: with `sig.length = 3856` the length guard is a no-op and

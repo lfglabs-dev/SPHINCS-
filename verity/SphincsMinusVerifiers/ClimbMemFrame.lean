@@ -201,8 +201,7 @@ chain-address word and the 3-word preimage is `[seed, wordNormalize v1,
 wordNormalize (prior val)]`.  This is the projection of `stepWots_keccak_value`
 through the final `assignVar "val"` binding, exposing the chain output as a
 binding fact rather than as an `evalExpr` — exactly the form consumed by the
-outer `forEach` fold-invariant.  C13 single-step analogue of the C12
-`c12WotsChainStep_val_eq` shape. -/
+outer `forEach` fold-invariant for the C13 single-step chain shape. -/
 theorem stepWots_val_eq_maskedKeccak (st : RuntimeState) (v1 : Nat)
     (h1 : evalExpr [] st (.bitOr (.localVar "chainBase")
             (.add (.localVar "digit") (.localVar "step"))) = some v1) :
@@ -318,7 +317,7 @@ This is the fold-step shape of `stepWots_val_eq_maskedKeccak`: the bindings
 mirror the spec arguments verbatim, so the outer `forEach "step"` invariant
 can pin `"val"` to `wotsSpecStep …` after each iteration and conclude (via
 `chainHash_eq_specFold`) that the full chain folds to `chainHash`.  C13
-analogue of the C12 `c12WotsChainStep_val_eq` shape. -/
+analogue of the C13 WOTS chain-step value shape. -/
 theorem stepWots_val_eq_wotsSpecStep
     (s : RuntimeState) (seed chainBase digit step prevVal : Nat)
     (hSeed : (s.world.memory 0x00).val = seed)
