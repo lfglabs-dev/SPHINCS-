@@ -69,6 +69,7 @@
 import SphincsMinusVerifiers.ProofCore
 import SphincsMinusVerifiers.C13BridgePrep
 import SphincsMinusVerifiers.C13ChainCells
+import SphincsMinusVerifiers.C13WotsPkKeccak
 import SphincsMinusVerifiers.C12BridgePrep
 import SphincsMinusVerifiers.KeccakBridge
 import SphincsMinusVerifiers.SegmentLayer3AddressCells
@@ -3758,18 +3759,38 @@ theorem c13FoldRevertedBeforeAuthOffWotsPkAddressChainCellsDataLayer0_of_split
   intro d
   exact ⟨hAddr d, hChain d⟩
 
+/-- The historical `SegmentLayer3.suffixBeforeWotsPk` and the lightweight
+`SegmentLayer3AddressCells.suffixBeforeWotsPkFrom` are the *same* statement
+list (the bodies are textual mirrors). -/
+theorem c13_suffixBeforeWotsPk_eq :
+    SegmentLayer3.suffixBeforeWotsPk
+      = SegmentLayer3AddressCells.suffixBeforeWotsPkFrom := rfl
+
+/-- The historical `beforeWotsPk` cutpoint IS the lightweight `beforeWotsPkFrom`
+cutpoint: both run the same suffix from `afterDigit ls`. -/
+theorem c13_beforeWotsPk_eq_beforeWotsPkFrom (ls : RuntimeState) :
+    SegmentLayer3.beforeWotsPk ls
+      = SegmentLayer3AddressCells.beforeWotsPkFrom (SegmentLayer3.afterDigit ls) := by
+  have h1 := SegmentLayer3.beforeWotsPk_eq ls
+  rw [c13_suffixBeforeWotsPk_eq] at h1
+  have h2 := SegmentLayer3AddressCells.beforeWotsPkFrom_eq (SegmentLayer3.afterDigit ls)
+  rw [h1] at h2
+  injection h2
+
 /-- C13 exact seed-cell bridge from the historical `SegmentLayer3.beforeWotsPk`
 cutpoint to the lightweight post-digit prefix cutpoint.  This is intentionally a
 single-cell bridge, not a whole-state equality.
 
-ASSEMBLY OBLIGATION (supporting single-cell bridge — see README "Residual assembly
-axioms"). A 0x00-cell framing equality between two SegmentLayer3-derived states;
-needs SegmentLayer3 reasoning, so undischargeable under the cap on this host. -/
-axiom c13_beforeWotsPk_memory_zero_eq_lightweight
+Now discharged: `SegmentLayer3.beforeWotsPk` is *equal* to the lightweight
+`beforeWotsPkFrom (afterDigit ls)` cutpoint (`c13_beforeWotsPk_eq_beforeWotsPkFrom`
+below — the two suffix statement lists are syntactically the same), so the
+single-cell framing is a rewrite. -/
+theorem c13_beforeWotsPk_memory_zero_eq_lightweight
     (ls : RuntimeState) :
     ((SegmentLayer3.beforeWotsPk ls).world.memory 0x00).val =
       ((SegmentLayer3AddressCells.beforeWotsPkFrom
-        (SegmentLayer3.afterDigit ls)).world.memory 0x00).val
+        (SegmentLayer3.afterDigit ls)).world.memory 0x00).val := by
+  rw [c13_beforeWotsPk_eq_beforeWotsPkFrom]
 
 /-- The reverted layer-0 `beforeWotsPk` seed cell follows from the verified
 WOTS/copy memory-zero frames and the first-layer guarded-state seed slot. -/
@@ -10951,14 +10972,14 @@ theorem c13_refines_byte_spec_of_accept_guard_current_node_and_reverted_digest_s
 cutpoint to the lightweight post-digit prefix cutpoint.  This is intentionally a
 single-cell bridge, not a whole-state equality.
 
-ASSEMBLY OBLIGATION (supporting single-cell bridge — see README "Residual assembly
-axioms"). A 0x20-cell framing equality between two SegmentLayer3-derived states;
-needs SegmentLayer3 reasoning, so undischargeable under the cap on this host. -/
-axiom c13_beforeWotsPk_memory_0x20_eq_lightweight
+Now discharged via `c13_beforeWotsPk_eq_beforeWotsPkFrom`: the two states are
+equal, so the cell framing is a rewrite. -/
+theorem c13_beforeWotsPk_memory_0x20_eq_lightweight
     (ls : RuntimeState) :
     ((SegmentLayer3.beforeWotsPk ls).world.memory 0x20).val =
       ((SegmentLayer3AddressCells.beforeWotsPkFrom
-        (SegmentLayer3.afterDigit ls)).world.memory 0x20).val
+        (SegmentLayer3.afterDigit ls)).world.memory 0x20).val := by
+  rw [c13_beforeWotsPk_eq_beforeWotsPkFrom]
 
 /-- Lightweight C13 WOTS-outer entry state used by the single-cell historical
 bridges. -/
@@ -10971,21 +10992,188 @@ def c13BeforeWotsPkLightState (ls : RuntimeState) : RuntimeState :=
           (SegmentLayer3.afterDigit ls)).bindings
         "i" (wordNormalize 0) }
 
+/-- `beforeWotsPkFrom` factors through the post-WOTS/address-store cutpoint and
+the final copy loop (`beforeWotsPkAfterWotsCopyFrom`); proven by exec-list
+rewriting only — no loop iteration is ever unfolded. -/
+theorem c13_beforeWotsPkFrom_eq_afterWotsCopy (ad : RuntimeState) :
+    SegmentLayer3AddressCells.beforeWotsPkFrom ad
+      = SegmentLayer3AddressCells.beforeWotsPkAfterWotsCopyFrom ad := by
+  unfold SegmentLayer3AddressCells.beforeWotsPkFrom
+    SegmentLayer3AddressCells.suffixBeforeWotsPkFrom
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _
+    (SegmentLayer3AddressCells.beforeWotsPkCopyFrom_eq ad)]
+  rw [SegmentLayer3AddressCells.beforeWotsPkCopyFrom_eq_afterWots ad]
+  rw [show ([Compiler.CompilationModel.Stmt.forEach "i"
+          (Compiler.CompilationModel.Expr.literal 43)
+          SegmentLayer3CopyCells.copyBody] : List Compiler.CompilationModel.Stmt)
+        = SegmentLayer3AddressCells.suffixWotsPkCopyFrom from rfl]
+  rw [SegmentLayer3AddressCells.beforeWotsPkAfterWotsCopyFrom_eq ad]
+
+/-- The WOTS-PK address-store interlude (the `pkAdrs` letVar plus `mstore 0x20`)
+preserves every memory cell other than `0x20`. -/
+theorem c13_addressStore_preserves_cell (ad : RuntimeState) (c : Nat)
+    (hc : c ≠ 0x20) :
+    ((SegmentLayer3AddressCells.beforeWotsPkCopyAfterWotsFrom ad).world.memory c).val =
+      ((SegmentLayer3AddressCells.beforeWotsPkAfterWotsFrom ad).world.memory c).val := by
+  refine SphincsMinusVerifiers.MemoryFrame.execStmtList_preserves_memory_val c
+    SegmentLayer3AddressCells.suffixWotsPkAddressStoreFrom _ _ ?_
+    (SegmentLayer3AddressCells.beforeWotsPkCopyAfterWotsFrom_eq ad)
+  intro s s'' stmt hmem hexec
+  simp [SegmentLayer3AddressCells.suffixWotsPkAddressStoreFrom] at hmem
+  rcases hmem with rfl | rfl
+  · exact SphincsMinusVerifiers.MemoryFrame.execStmt_letVar_preserves_memory_val
+      s s'' c "pkAdrs" _ hexec
+  · refine SphincsMinusVerifiers.MemoryFrame.execStmt_mstore_preserves_memory_val
+      s s'' c _ _ ?_ hexec
+    intro ro rv hoff _
+    cases hoff
+    have h20 : wordNormalize 0x20 = 0x20 := by
+      rw [wordNormalize_eq_mod]; exact Nat.mod_eq_of_lt (by decide)
+    rw [h20]
+    omega
+
+/-- The C13 WOTS-PK copy fold leaves chain-destination cells beyond the copy
+range (`43 ≤ j`) untouched. -/
+theorem c13_copyLoop_preserves_out_slot :
+    ∀ (s : RuntimeState) (idx remaining j : Nat),
+      43 ≤ j → idx + remaining ≤ 43 →
+      ((ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.copyStep s idx remaining).world.memory
+          (0x40 + 32 * j)).val
+        = (s.world.memory (0x40 + 32 * j)).val
+  | s, idx, 0, j, _, _ => by
+      rw [ClimbLoop.foldLoop_zero]
+  | s, idx, remaining + 1, j, hj, hbound => by
+      have hidx : idx < 43 := by omega
+      let s1 : RuntimeState :=
+        SegmentLayer3CopyCells.copyStep
+          { s with bindings := bindValue s.bindings "i" (wordNormalize idx) }
+      rw [ClimbLoop.foldLoop_succ]
+      change ((ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.copyStep s1 (idx + 1)
+          remaining).world.memory (0x40 + 32 * j)).val
+        = (s.world.memory (0x40 + 32 * j)).val
+      rw [c13_copyLoop_preserves_out_slot s1 (idx + 1) remaining j hj (by omega)]
+      exact SegmentLayer3CopyCells.copyStep_preserves_copy_slot s idx j hidx (by omega)
+
+/-- Chain-destination cells of the full lightweight WOTS-PK cutpoint are the
+pre-copy source cells, for in-range `j`.  The copy fold is introduced only via
+`rw [← he]`, so the fold start state is never restated (its spelling stays the
+one produced by `execStmt_forEach_of_step`). -/
+theorem c13_awcf_copied_slot (ls : RuntimeState) (j : Nat) (hj : j < 43) :
+    ((SegmentLayer3AddressCells.beforeWotsPkAfterWotsCopyFrom
+        (SegmentLayer3.afterDigit ls)).world.memory (0x40 + 32 * j)).val =
+      ((SegmentLayer3AddressCells.beforeWotsPkCopyAfterWotsFrom
+        (SegmentLayer3.afterDigit ls)).world.memory (0x80 + 32 * j)).val := by
+  have h := SegmentLayer3AddressCells.beforeWotsPkAfterWotsCopyFrom_eq
+    (SegmentLayer3.afterDigit ls)
+  unfold SegmentLayer3AddressCells.suffixWotsPkCopyFrom at h
+  rw [SphincsMinusVerifiers.ClimbKit.execStmtList_cons_continue _ _ _ []
+    (ClimbLoop.execStmt_forEach_of_step "i" (.literal 43)
+      SegmentLayer3CopyCells.copyBody _ _
+      SegmentLayer3CopyCells.copyStep rfl
+      SegmentLayer3CopyCells.copyStepLemma)] at h
+  have hb : wordNormalize 43 = 43 := by
+    rw [wordNormalize_eq_mod]; exact Nat.mod_eq_of_lt (by decide)
+  rw [hb] at h
+  have hnil : ∀ (s : RuntimeState), execStmtList [] s [] = StmtResult.continue s :=
+    fun _ => rfl
+  rw [hnil] at h
+  have he := StmtResult.continue.inj h
+  rw [← he]
+  exact SegmentLayer3CopyCells.copyFold43_copied_slot _ j hj
+
+/-- Out-of-range chain cells pass through the copy fold untouched. -/
+theorem c13_awcf_out_slot (ls : RuntimeState) (j : Nat) (hj : 43 ≤ j) :
+    ((SegmentLayer3AddressCells.beforeWotsPkAfterWotsCopyFrom
+        (SegmentLayer3.afterDigit ls)).world.memory (0x40 + 32 * j)).val =
+      ((SegmentLayer3AddressCells.beforeWotsPkCopyAfterWotsFrom
+        (SegmentLayer3.afterDigit ls)).world.memory (0x40 + 32 * j)).val := by
+  have h := SegmentLayer3AddressCells.beforeWotsPkAfterWotsCopyFrom_eq
+    (SegmentLayer3.afterDigit ls)
+  unfold SegmentLayer3AddressCells.suffixWotsPkCopyFrom at h
+  rw [SphincsMinusVerifiers.ClimbKit.execStmtList_cons_continue _ _ _ []
+    (ClimbLoop.execStmt_forEach_of_step "i" (.literal 43)
+      SegmentLayer3CopyCells.copyBody _ _
+      SegmentLayer3CopyCells.copyStep rfl
+      SegmentLayer3CopyCells.copyStepLemma)] at h
+  have hb : wordNormalize 43 = 43 := by
+    rw [wordNormalize_eq_mod]; exact Nat.mod_eq_of_lt (by decide)
+  rw [hb] at h
+  have hnil : ∀ (s : RuntimeState), execStmtList [] s [] = StmtResult.continue s :=
+    fun _ => rfl
+  rw [hnil] at h
+  have he := StmtResult.continue.inj h
+  rw [← he]
+  exact c13_copyLoop_preserves_out_slot _ 0 43 j hj (by omega)
+
+/-- The lightweight WOTS outer fold over `c13BeforeWotsPkLightState` IS the
+named post-WOTS cutpoint (same start-state spelling, so `rfl`). -/
+theorem c13_wotsFold_eq_lightweight (ls : RuntimeState) :
+    ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep
+        (c13BeforeWotsPkLightState ls) 0 43
+      = SegmentLayer3AddressCells.beforeWotsPkAfterWotsFrom
+          (SegmentLayer3.afterDigit ls) := rfl
+
 /-- C13 exact chain-cell bridge from the historical `SegmentLayer3.beforeWotsPk`
 cutpoint to the lightweight WOTS-outer/copy-fold state.  This exposes only the
 destination preimage cell requested by downstream WOTS-PK proofs.
 
-ASSEMBLY OBLIGATION (supporting single-cell bridge — see README "Residual assembly
-axioms"). A chain-cell (`0x40 + 32*j`) framing equality between two
-SegmentLayer3-derived states; needs SegmentLayer3 reasoning, so undischargeable under
-the cap on this host. -/
-axiom c13_beforeWotsPk_memory_chain_eq_lightweight
+Now discharged: routed through the lightweight `beforeWotsPkAfterWotsCopyFrom`
+cutpoint (equal to `beforeWotsPk ls` via `c13_beforeWotsPk_eq_beforeWotsPkFrom` and
+`c13_beforeWotsPkFrom_eq_afterWotsCopy`), whose chain cells are identified with the
+copy-fold image by `c13_awcf_copied_slot` / `c13_awcf_out_slot`; both sides then meet
+at the post-WOTS source cells through the address-store frame
+`c13_addressStore_preserves_cell`.  Assembled with `congrArg`/`trans` only — no
+rewriting under the interpreter folds — so elaboration stays in the ~400 MB regime. -/
+theorem c13_beforeWotsPk_memory_chain_eq_lightweight
     (ls : RuntimeState) (j : Nat) :
     ((SegmentLayer3.beforeWotsPk ls).world.memory (0x40 + 32 * j)).val =
       ((ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.copyStep
         (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep
           (c13BeforeWotsPkLightState ls) 0 43)
+        0 43).world.memory (0x40 + 32 * j)).val := by
+  have h12 : SegmentLayer3.beforeWotsPk ls
+      = SegmentLayer3AddressCells.beforeWotsPkAfterWotsCopyFrom
+          (SegmentLayer3.afterDigit ls) :=
+    (c13_beforeWotsPk_eq_beforeWotsPkFrom ls).trans
+      (c13_beforeWotsPkFrom_eq_afterWotsCopy (SegmentLayer3.afterDigit ls))
+  have hA : ((SegmentLayer3.beforeWotsPk ls).world.memory (0x40 + 32 * j)).val
+      = ((SegmentLayer3AddressCells.beforeWotsPkAfterWotsCopyFrom
+          (SegmentLayer3.afterDigit ls)).world.memory (0x40 + 32 * j)).val :=
+    congrArg (fun s => ((s.world.memory (0x40 + 32 * j))).val) h12
+  by_cases hj : j < 43
+  · have hsrc : ((SegmentLayer3AddressCells.beforeWotsPkCopyAfterWotsFrom
+          (SegmentLayer3.afterDigit ls)).world.memory (0x80 + 32 * j)).val
+        = ((SegmentLayer3AddressCells.beforeWotsPkAfterWotsFrom
+            (SegmentLayer3.afterDigit ls)).world.memory (0x80 + 32 * j)).val :=
+      c13_addressStore_preserves_cell (SegmentLayer3.afterDigit ls)
+        (0x80 + 32 * j) (by omega)
+    have hB : ((ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.copyStep
+        (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep
+          (c13BeforeWotsPkLightState ls) 0 43)
         0 43).world.memory (0x40 + 32 * j)).val
+        = ((SegmentLayer3AddressCells.beforeWotsPkAfterWotsFrom
+            (SegmentLayer3.afterDigit ls)).world.memory (0x80 + 32 * j)).val :=
+      (congrArg (fun s => ((ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.copyStep
+          s 0 43).world.memory (0x40 + 32 * j)).val) (c13_wotsFold_eq_lightweight ls)).trans
+        (SegmentLayer3CopyCells.copyFold43_copied_slot _ j hj)
+    exact (hA.trans ((c13_awcf_copied_slot ls j hj).trans hsrc)).trans hB.symm
+  · have hj' : 43 ≤ j := by omega
+    have hcell : ((SegmentLayer3AddressCells.beforeWotsPkCopyAfterWotsFrom
+          (SegmentLayer3.afterDigit ls)).world.memory (0x40 + 32 * j)).val
+        = ((SegmentLayer3AddressCells.beforeWotsPkAfterWotsFrom
+            (SegmentLayer3.afterDigit ls)).world.memory (0x40 + 32 * j)).val :=
+      c13_addressStore_preserves_cell (SegmentLayer3.afterDigit ls)
+        (0x40 + 32 * j) (by omega)
+    have hB : ((ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.copyStep
+        (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep
+          (c13BeforeWotsPkLightState ls) 0 43)
+        0 43).world.memory (0x40 + 32 * j)).val
+        = ((SegmentLayer3AddressCells.beforeWotsPkAfterWotsFrom
+            (SegmentLayer3.afterDigit ls)).world.memory (0x40 + 32 * j)).val :=
+      (congrArg (fun s => ((ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.copyStep
+          s 0 43).world.memory (0x40 + 32 * j)).val) (c13_wotsFold_eq_lightweight ls)).trans
+        (c13_copyLoop_preserves_out_slot _ 0 43 j hj' (by omega))
+    exact (hA.trans ((c13_awcf_out_slot ls j hj').trans hcell)).trans hB.symm
 
 /-- The exact lightweight facts needed to close a C13 WOTS-outer/copy-chain
 cell residual.  This deliberately exposes only seed, digest, WOTS address,
@@ -11135,19 +11323,11 @@ axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_inputs_layer0 :
         d.lsig0.wots.count (C13Concrete.wordOfHash16 forsPk) wotsPtr 1952
 
 /-- The layer-0 C13 calldata/loop closure from exact lightweight WOTS-outer
-inputs to copied chain-end cells.  The premise is intentionally the five-field
-`C13WotsOuterExactInputs` package rather than a whole-state relation.
-
-ASSEMBLY OBLIGATION (mirror of a verified lemma — see README "Residual assembly
-axioms"). Unlike the concrete-state residuals, this is a GENERIC `_of_inputs` closure
-whose exact content is already proven under cap in `C13WotsPkKeccak.lean`
-(`c13Layer0_copyFold43_wotsChainsEnd_cells_of_inputs`, via
-`c13Layer0_copyFold43_wotsChainsEnd_cells_of_wotsOuterFold43` +
-`adrsWotsHashBase_lt_of_bounds`). It is kept as an axiom here only because flipping it to
-a `theorem` is an edit to `Proofs.lean`, which cannot be compiled on this host (~48 GB
-OOM above the 10 GB cap). This is the prime candidate to discharge first on a >~64 GB
-pass: the proof is a one-line `exact` of the verified C13WotsPkKeccak lemma. -/
-axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_of_inputs_layer0 :
+inputs to copied chain-end cells: discharged by the verified
+`c13Layer0_copyFold43_wotsChainsEnd_cells_of_entry` (C13WotsPkKeccak), with the
+entry record built from the inputs record at prefix `0` via `foldLoop_zero`
+and the calldata loads passed through verbatim. -/
+theorem c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_of_inputs_layer0 :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11184,7 +11364,64 @@ axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_of_inputs_layer0 :
             (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
             (C13Concrete.wordOfHash16 forsPk) d.lsig0.wots)[j]'(by
               rw [InitialNodeKeccak.wotsChainsEnd_length]
-              omega)
+              omega):= by
+  intro pkSeed pkRoot message sig sigParsed forsPk specRoot
+    hParse _hZero _hFors _hFold pk digest d st wotsPtr hInputs j hj
+  have hHyLt :
+      (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message).hyperIndex
+        < 2 ^ 22 :=
+    C13Concrete.hMsgC13_hyperIndex_lt pk sigParsed.R message
+  have hDigestLt :
+      C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
+        0 (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+        d.lsig0.wots.count (C13Concrete.wordOfHash16 forsPk) < 2 ^ 256 :=
+    c13_wotsDigest_lt (C13Concrete.wordOfHash16 pkSeed)
+      0 (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+      d.lsig0.wots.count (C13Concrete.wordOfHash16 forsPk)
+  have hAdrsLt :
+      C13Concrete.adrsWotsHashBase 0
+        (digest.hyperIndex / 2048) (digest.hyperIndex % 2048) < 2 ^ 256 := by
+    have hT : (digest.hyperIndex / 2048) <<< 128 < 2 ^ 256 := by
+      rw [Nat.shiftLeft_eq]
+      calc
+        (digest.hyperIndex / 2048) * 2 ^ 128 ≤ 2 ^ 22 * 2 ^ 128 :=
+          Nat.mul_le_mul_right _
+            (le_of_lt (Nat.lt_of_le_of_lt (Nat.div_le_self _ _) hHyLt))
+        _ < 2 ^ 256 := by decide
+    have hL : (digest.hyperIndex % 2048) <<< 64 < 2 ^ 256 := by
+      rw [Nat.shiftLeft_eq]
+      calc
+        (digest.hyperIndex % 2048) * 2 ^ 64 ≤ 2047 * 2 ^ 64 :=
+          Nat.mul_le_mul_right _
+            (Nat.le_of_lt_succ (Nat.mod_lt _ (by decide : 0 < 2048)))
+        _ < 2 ^ 256 := by decide
+    have h224 : (0 : Nat) <<< 224 < 2 ^ 256 := by decide
+    exact Nat.bitwise_lt_two_pow
+      (Nat.bitwise_lt_two_pow h224 hT) hL
+  have e : C13WotsOuterEntry pkSeed st
+      (C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
+        0 (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+        d.lsig0.wots.count (C13Concrete.wordOfHash16 forsPk))
+      (C13Concrete.adrsWotsHashBase 0
+        (digest.hyperIndex / 2048) (digest.hyperIndex % 2048))
+      wotsPtr :=
+    { seed0 := by
+        have h := hInputs.hSeed 0 (by decide)
+        rwa [ClimbLoop.foldLoop_zero] at h
+      d0 := by
+        have h := hInputs.hD 0 (by decide)
+        rwa [ClimbLoop.foldLoop_zero] at h
+      adrs0 := by
+        have h := hInputs.hAdrs 0 (by decide)
+        rwa [ClimbLoop.foldLoop_zero] at h
+      wptr0 := rfl }
+  exact c13Layer0_copyFold43_wotsChainsEnd_cells_of_entry
+    pkSeed pkRoot message sig sigParsed st
+    (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
+    (C13Concrete.wordOfHash16 forsPk) wotsPtr
+    d.lsig0 hParse d.hLayer0 hDigestLt hAdrsLt e
+    (fun j' hj' s h1 h2 h3 => hInputs.hCdLoad j' hj' s h1 h2 h3)
+    j hj
 
 /-- C13 accept-side layer-0 copied WOTS chain-end cells at the lightweight
 WOTS-outer/copy-fold cutpoint: composition of the exact-inputs obligation and

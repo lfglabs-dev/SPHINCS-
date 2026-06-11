@@ -21,11 +21,17 @@ This folder is the verification workbench for the three verifier contracts in
 > start-state record and `c13BeforeWotsPkLightState`; stating the obligations
 > in the named form makes every composition elaborate in ~400 MB), so the
 > headline cones list only the primitive obligations: `c13_refines_spec` rests
-> on Lean's logic plus the three `c13_beforeWotsPk_memory_*_eq_lightweight`
-> single-cell cutpoint bridges, the layer-0 `lightweight_chain_inputs` /
-> `_of_inputs` pair, and the layer-1/reverted lightweight chain-cell twins;
-> `c12_refines_spec` on logic plus the single
-> `c12_layer3_after3_current_node_root_residual`.  Zero `sorry` package-wide.
+> on Lean's logic plus **three** residual assembly axioms — the layer-0
+> `lightweight_chain_inputs_layer0` record obligation and the layer-1/reverted
+> lightweight chain-cell twins; `c12_refines_spec` on logic plus the single
+> `c12_layer3_after3_current_node_root_residual`.  The three
+> `c13_beforeWotsPk_memory_*_eq_lightweight` single-cell cutpoint bridges and the
+> layer-0 `_of_inputs` half are now **theorems** (2026-06-11): `beforeWotsPk` is
+> *equal* to the lightweight `beforeWotsPkFrom` cutpoint (the suffix statement
+> lists are syntactically the same), and the chain-cell bridge is assembled with
+> `congrArg`/`trans` only, never restating an interpreter fold (every defeq
+> between two spellings of a fold start state diverges).  Zero `sorry`
+> package-wide.
 > Build with `verity/scripts/build.sh` (memory-capped) — never bare `lake build`
 > on <64 GB machines.
 
@@ -178,7 +184,9 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
 - `RESIDUAL-ASSEMBLY-CAP` (status 2026-06-08, accepted — option (b)): beyond the 3
   MODEL-EXEC-BRIDGE bridge axioms, the C13 WOTS-PK accept path and the C12 layer-3
   currentNode handoff rest on a small set of **residual assembly axioms** in
-  `Proofs.lean` (4 primary + 3 single-cell bridges + 1 generic mirror). Their generic
+  `Proofs.lean` (3 remaining: the layer-0 inputs record obligation and the
+  layer-1/reverted chain-cell twins; the 3 single-cell bridges and the layer-0
+  `_of_inputs` half were discharged 2026-06-11). Their generic
   mathematical content is already proven axiom-clean under the 10 GB cap in
   `C13WotsPkKeccak.lean` / `C13ChainCells.lean`; each axiom is only the wiring of that
   verified lemma to a concrete `SegmentLayer3`-derived state. They are **not**
