@@ -21,7 +21,19 @@ LEAN_NUM_THREADS=2 lake env lean probes/<probe>.lean
   (Proofs.lean:12014) by reusing the same per-fact lemmas and feeding a
   `C13WotsOuterEntry` into
   `c13RevertedLayer0_copyFold43_wotsChainsEnd_cells_of_inputs`.
+- `probe_layer1.lean` — discharges
+  `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1`
+  (Proofs.lean:11607). Layer-1 analogue of the two layer-0 probes: per-fact
+  lemmas at the layer-1 `c13BeforeWotsPkLightState` (wotsPtr =
+  sigDataOffset + (1952 + 868)), feeding a `C13WotsOuterEntry` into
+  `c13Layer1_copyFold43_wotsChainsEnd_cells_of_inputs`. The `"currentNode"`
+  fact is derived from the LAYER-0-ONLY residual
+  `c13_ok_afterMerkle_initial_wotsPk_residual_layer0` (Proofs.lean:11812) —
+  NOT the layer-1 afterMerkle residual at 11843, which depends on the axiom
+  being discharged. Folding this proof into Proofs.lean therefore requires
+  moving the discharged theorem AFTER line 11812 and reordering its
+  consumers (11645+).
 
-Once both probes compile with clean `#print axioms`, the helper lemmas and
+Once the probes compile with clean `#print axioms`, the helper lemmas and
 proofs are folded into Proofs.lean, replacing the two `axiom` declarations,
 and this directory is removed.
