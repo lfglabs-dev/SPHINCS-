@@ -65,37 +65,56 @@ contract SphincsAccount is BaseAccount {
     }
 
     /// @notice Validate hybrid signature: abi.encode(ecdsaSig, sphincsSig)
+    /// @dev ERC-4337 requires `_validateSignature` to be TOTAL: any signature
+    ///      failure must RETURN `SIG_VALIDATION_FAILED`, never revert (a revert
+    ///      becomes EntryPoint `AA23` and reverts the whole bundle). Two former
+    ///      revert paths are made total here (review C13-acc-g1):
+    ///        (1) `abi.decode` of a malformed `userOp.signature` — wrapped in
+    ///            try/catch via `decodeHybridSignature`;
+    ///        (2) ECDSA recovery on a bad-length / high-`s` / bad-`v` signature —
+    ///            switched from the reverting `recover` to `tryRecover`.
     function _validateSignature(
         PackedUserOperation calldata userOp,
         bytes32 userOpHash
     ) internal view override returns (uint256 validationData) {
-        (bytes memory ecdsaSig, bytes memory sphincsSig) = abi.decode(
-            userOp.signature,
-            (bytes, bytes)
-        );
+        // (1) Total decode: a malformed 2-tuple must fail validation, not revert.
+        try this.decodeHybridSignature(userOp.signature)
+            returns (bytes memory ecdsaSig, bytes memory sphincsSig)
+        {
+            // (2) Verify ECDSA via tryRecover (no revert on bad length/v/high-s).
+            (address recovered, ECDSA.RecoverError err, ) =
+                ECDSA.tryRecover(userOpHash, ecdsaSig);
+            if (err != ECDSA.RecoverError.NoError || recovered != owner) {
+                return SIG_VALIDATION_FAILED;
+            }
 
-        // 1. Verify ECDSA
-        address recovered = userOpHash.recover(ecdsaSig);
-        if (recovered != owner) {
+            // (3) Verify SPHINCS+ via shared verifier.
+            (bool success, bytes memory result) = verifier.staticcall(
+                abi.encodeWithSignature(
+                    "verify(bytes32,bytes32,bytes32,bytes)",
+                    pkSeed, pkRoot, userOpHash, sphincsSig
+                )
+            );
+            if (!success || result.length < 32) {
+                return SIG_VALIDATION_FAILED;
+            }
+            if (!abi.decode(result, (bool))) {
+                return SIG_VALIDATION_FAILED;
+            }
+            return SIG_VALIDATION_SUCCESS;
+        } catch {
             return SIG_VALIDATION_FAILED;
         }
+    }
 
-        // 2. Verify SPHINCS+ via shared verifier
-        (bool success, bytes memory result) = verifier.staticcall(
-            abi.encodeWithSignature(
-                "verify(bytes32,bytes32,bytes32,bytes)",
-                pkSeed, pkRoot, userOpHash, sphincsSig
-            )
-        );
-        if (!success || result.length < 32) {
-            return SIG_VALIDATION_FAILED;
-        }
-        bool valid = abi.decode(result, (bool));
-        if (!valid) {
-            return SIG_VALIDATION_FAILED;
-        }
-
-        return SIG_VALIDATION_SUCCESS;
+    /// @notice External helper so `abi.decode((bytes,bytes))` of the hybrid
+    ///         signature blob can be wrapped in try/catch (a malformed blob then
+    ///         yields `SIG_VALIDATION_FAILED` instead of a revert). Pure; callable
+    ///         only as `this.decodeHybridSignature(...)` from `_validateSignature`.
+    function decodeHybridSignature(bytes calldata sigBlob)
+        external pure returns (bytes memory ecdsaSig, bytes memory sphincsSig)
+    {
+        (ecdsaSig, sphincsSig) = abi.decode(sigBlob, (bytes, bytes));
     }
 
     receive() external payable {}

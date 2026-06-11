@@ -7,6 +7,34 @@ This folder is the verification workbench for the three verifier contracts in
 - `SPHINCs_C12Asm_VerityModel` models `SPHINCs-C12Asm.sol`.
 - `SLH_DSA_SHA2_128_24_VerityModel` models `SLH-DSA-SHA2-128-24verifier.sol`.
 
+> **Status (June 2026, FIPS-FORS migration / PR #6).** The C13 model, spec, and
+> the whole segment-proof chain now use the FIPS 205 §11.2.2 FORS address
+> layout: the model hoists `idxLeaf0`/`idxTree0`/`forsBase` (statements 13–15
+> of `c13VerifyBodyTail`), the spec's `forsClimb`/`fors*C13` family carries the
+> digits derived from `digest.hyperIndex` (`idxTree0C13`/`idxLeaf0C13`), and
+> the per-level climb address is `ClimbKit.forsAdrs`
+> (`or(forsBase, or(shl(32,h+1), or(shl(sub(18,h),i), parentIdx)))`).
+> On this branch `c13_refines_byte_spec` and `c12_refines_byte_spec` are
+> **theorems**, resting on the documented "Residual assembly axioms" family
+> (see below).  All sixteen composition-glue obligations are now proved (the
+> earlier elaboration divergence was a spelling mismatch between the explicit
+> start-state record and `c13BeforeWotsPkLightState`; stating the obligations
+> in the named form makes every composition elaborate in ~400 MB), so the
+> headline cones list only the primitive obligations: `c13_refines_spec` rests
+> on Lean's logic plus **three** residual assembly axioms — the layer-0
+> `lightweight_chain_inputs_layer0` record obligation and the layer-1/reverted
+> lightweight chain-cell twins; `c12_refines_spec` on logic plus the single
+> `c12_layer3_after3_current_node_root_residual`.  The three
+> `c13_beforeWotsPk_memory_*_eq_lightweight` single-cell cutpoint bridges and the
+> layer-0 `_of_inputs` half are now **theorems** (2026-06-11): `beforeWotsPk` is
+> *equal* to the lightweight `beforeWotsPkFrom` cutpoint (the suffix statement
+> lists are syntactically the same), and the chain-cell bridge is assembled with
+> `congrArg`/`trans` only, never restating an interpreter fold (every defeq
+> between two spellings of a fold start state diverges).  Zero `sorry`
+> package-wide.
+> Build with `verity/scripts/build.sh` (memory-capped) — never bare `lake build`
+> on <64 GB machines.
+
 The specs are layered in `SphincsMinusVerifierSpec/Spec.lean`:
 
 - `verifyParsed` is the algorithmic spec over a parsed public key and parsed
@@ -156,7 +184,9 @@ connect `mload` of the output buffer to the digest written by precompile `0x02`.
 - `RESIDUAL-ASSEMBLY-CAP` (status 2026-06-08, accepted — option (b)): beyond the 3
   MODEL-EXEC-BRIDGE bridge axioms, the C13 WOTS-PK accept path and the C12 layer-3
   currentNode handoff rest on a small set of **residual assembly axioms** in
-  `Proofs.lean` (4 primary + 3 single-cell bridges + 1 generic mirror). Their generic
+  `Proofs.lean` (3 remaining: the layer-0 inputs record obligation and the
+  layer-1/reverted chain-cell twins; the 3 single-cell bridges and the layer-0
+  `_of_inputs` half were discharged 2026-06-11). Their generic
   mathematical content is already proven axiom-clean under the 10 GB cap in
   `C13WotsPkKeccak.lean` / `C13ChainCells.lean`; each axiom is only the wiring of that
   verified lemma to a concrete `SegmentLayer3`-derived state. They are **not**

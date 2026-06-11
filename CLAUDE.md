@@ -6,11 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 SPHINCs- is a research prototype for lightweight SPHINCS+ variants on Ethereum. Three families of on-chain verifiers live here:
 
-1. **C-series** (C7, C11, **C13** in `src/`; C6/C8/C9/C10 in `legacy/src/`) — stateless WOTS+C / FORS+C (ePrint 2025/2203), n=128. Signature-count cap = 2^h (C7 → 2²⁴, C11 → 2¹⁶, C13 → 2²²); security degrades with N as shown in the variants table in the README. **C13 uses the FIPS 205 §11.2.2 uncompressed 32-byte ADRS layout** (see "ADRS layout discipline" below); C7/C11 still use JARDIN's 32-byte ADRS.
-2. **C12** (`src/SPHINCs-C12Asm.sol`) — plain SPHINCS+ (SPX) variant of the SPHINCs- family, with the JARDIN 32-byte ADRS kernel + keccak256 truncated to 16 B. h=20, d=5, a=7, k=20, w=8, l=45. 6,512-B sig, ~276 K verify gas. Cross-referenced by the JARDIN repo as `JardinSpxVerifier`.
+1. **C-series** (C7, C9, **C13** in `src/`; C6/C8/C10/C11 in `legacy/src/`) — stateless WOTS+C / FORS+C (ePrint 2025/2203), n=128. Signature-count cap = 2^h (C7 → 2²⁴, C13 → 2²², C11 → 2¹⁶); security degrades with N as shown in the variants table in the README. **Every live `src/` C-series verifier (C7, C9, C13) uses the FIPS 205 §11.2.2 uncompressed 32-byte ADRS layout** (see "ADRS layout discipline" below). C11 stayed on JARDIN's 32-byte ADRS and is now retired to `legacy/`.
+2. **C12** (`legacy/src/SPHINCs-C12Asm.sol`, retired) — plain SPHINCS+ (SPX) variant of the SPHINCs- family, with the JARDIN 32-byte ADRS kernel + keccak256 truncated to 16 B. h=20, d=5, a=7, k=20, w=8, l=45. 6,512-B sig, ~276 K verify gas. Cross-referenced by the JARDIN repo as `JardinSpxVerifier`. Retired to `legacy/` because the repo now ships only the two FIPS ADRS layouts in `src/`.
 3. **SLH-DSA-128-24** — NIST SP 800-230 parameter set (d=1, h=22, a=24, k=6, w=4). Two variants:
-   - FIPS 205 bit-exact SHA-2 (`src/SLH-DSA-SHA2-128-24verifier.sol`), uses the SHA-256 precompile at 0x02.
-   - JARDIN-convention Keccak twin (`src/SLH-DSA-keccak-128-24verifier.sol`), uses the native `keccak256` opcode.
+   - FIPS 205 **external** SLH-DSA-SHA2 (`src/SLH-DSA-SHA2-128-24verifier.sol`), empty-context envelope (`M' = 0x00‖0x00‖M`); uses the SHA-256 precompile at 0x02. Matches NIST/ACVP external KATs.
+   - JARDIN-convention Keccak twin (`legacy/src/SLH-DSA-keccak-128-24verifier.sol`, retired), uses the native `keccak256` opcode. Retired to `legacy/` alongside the other JARDIN-layout verifiers; the SHA-2 variant is the live one.
 
 Accounts present in this repo use the C-series: `SphincsAccount` (ERC-4337), `SphincsAccountFactory`, `SphincsFrameAccount` (EIP-8141). The JARDIN hybrid-account stack (ECDSA + SPHINCs-) lives in the separate [nconsigny/JARDIN](https://github.com/nconsigny/JARDIN) repo.
 
@@ -50,7 +50,8 @@ Every verifier is deployed once as a stateless pure contract and shared by all a
 
 ### ADRS layout discipline
 
-The repo is converging on **only two address layouts**:
+Every verifier in `src/` now uses **one of only two address layouts**; the JARDIN
+32-byte layout has been retired to `legacy/` (see "Retired layout" below):
 
 1. **FIPS 205 §11.2.2 uncompressed 32-byte ADRS** + keccak256 — the SHAKE-instantiation form with keccak swapped in for SHAKE-256. Layout: `layer(4) ‖ tree(12) ‖ type(4) ‖ word1(4) ‖ word2(4) ‖ word3(4)`. Word semantics per type (FIPS 205 Table 1):
    - 0 WOTS_HASH:  word1=kp, word2=chain_address, word3=hash_address
@@ -60,18 +61,20 @@ The repo is converging on **only two address layouts**:
    - 4 FORS_ROOTS: word1=kp, word2=0, word3=0
 2. **FIPS 205 §11.2.1 ADRSc (22 B compressed)** + SHA-256 (precompile 0x02) — required for the FIPS-SHA2 instantiation; smaller because SHA-2 block size benefits from packing.
 
-Current users:
-- **C13**: FIPS uncompressed 32 B + keccak256 (first verifier on this layout).
+Current users (everything in `src/`):
+- **C7, C9, C13**: FIPS uncompressed 32 B + keccak256 (C13 was first on this layout; C7/C9 migrated from JARDIN). FORS is keyed by the per-message hypertree leaf via the FIPS field split — tree=idxTree0, kp=idxLeaf0, FORS tree number folded into tree_index.
 - **SLH-DSA-SHA2-128-24**: FIPS ADRSc 22 B + SHA-256.
-- **C7, C11, C12, SLH-DSA-Keccak-128-24**: still on the older JARDIN 32 B layout (`layer4 ‖ tree8 ‖ type4 ‖ kp4 ‖ ci4 ‖ cp4 ‖ ha4`) + keccak256. To be migrated to FIPS uncompressed in a follow-up.
+
+Retired layout (`legacy/`, frozen — not maintained):
+- **C11, C12, SLH-DSA-Keccak-128-24**: the older JARDIN 32 B layout (`layer4 ‖ tree8 ‖ type4 ‖ kp4 ‖ ci4 ‖ cp4 ‖ ha4`) + keccak256. These were moved to `legacy/src/` rather than migrated — the repo deliberately ships only the two FIPS ADRS layouts.
 
 JARDIN's structural divergence from FIPS uncompressed is a shorter tree field (8 B vs 12 B) and a 4th type-dependent word (`ha`) that is never actually populated by any type. The visible difference between layouts is that JARDIN's `ci` (chain_index, WOTS-only) and `cp`/`ha` (height/index, TREE-only) live at distinct byte positions; FIPS overloads `word2` and `word3` per type. Both layouts are sound; FIPS is the cross-impl interop choice.
 
-**When adding a new keccak-family verifier, default to FIPS uncompressed.** When touching C7/C11/C12 ADRS code, leave it as JARDIN unless the user explicitly asks for migration — the JARDIN-aware signers in `script/signer.py` (with `cfg["adrs_mode"]` defaulting to JARDIN) and `signer-wasm` (currently C13-only) must agree with whatever the verifier uses.
+**New keccak-family verifiers MUST use FIPS uncompressed** — JARDIN is a frozen legacy layout, not an option for new work. The JARDIN-aware signers in `script/signer.py` (`cfg["adrs_mode"]` defaulting to JARDIN) still drive the retired C11/legacy paths; live C7/C9/C13 set `cfg["adrs_mode"]="fips"`, and `signer-wasm` is C13-only. Only touch JARDIN ADRS code to keep a `legacy/` verifier reproducible.
 
 ### Shared hash kernel (legacy phrasing, kept for context)
 
-The **C-series (pre-C13), C12, and SLH-DSA-Keccak** verifiers share the JARDIN kernel: one 32-byte ADRS layout and the `keccak(seed32 ‖ adrs32 ‖ inputs)` tweakable-hash shape (see `script/jardin_primitives.py`). A device port covers those four with a single `sphincs_th*` implementation. **SLH-DSA-SHA2-128-24** uses FIPS 205's 22-byte compressed ADRSc + SHA-256 with the nested MGF1 Hmsg. **C13** uses FIPS uncompressed 32 B ADRS + keccak256 — a third primitive set today, on track to become the canonical keccak-family layout once the older C-series migrates.
+The retired **C-series (pre-C13), C12, and SLH-DSA-Keccak** verifiers in `legacy/` share the JARDIN kernel: one 32-byte ADRS layout and the `keccak(seed32 ‖ adrs32 ‖ inputs)` tweakable-hash shape (see `script/jardin_primitives.py`). A device port covers those with a single `sphincs_th*` implementation. The live verifiers split into two kernels: **SLH-DSA-SHA2-128-24** uses FIPS 205's 22-byte compressed ADRSc + SHA-256 with the nested MGF1 Hmsg, in **external** mode (empty-context envelope `M' = 0x00‖0x00‖M`); **C7, C9, C13** use FIPS uncompressed 32 B ADRS + keccak256 — the canonical keccak-family layout now that the JARDIN verifiers are retired.
 
 ### Current contracts (`src/`)
 
@@ -79,19 +82,16 @@ The **C-series (pre-C13), C12, and SLH-DSA-Keccak** verifiers share the JARDIN k
 |---|---|
 | `SPHINCs-C7Asm.sol` | C-series verifier, stateless, n=128, h=24 d=2 a=16 k=8 w=8. 3,704-B sig, ~127 K verify |
 | `SPHINCs-C9Asm.sol` | C-series verifier, stateless, n=128, h=20 d=2 a=12 k=11 w=8. 3,816-B sig, ~117 K verify |
-| `SPHINCs-C11Asm.sol` | C-series verifier, stateless, n=128, h=16 d=2 a=11 k=13 w=8. 3,976-B sig, ~116 K verify |
 | `SPHINCs-C13Asm.sol` | C-series verifier, stateless, n=128, h=22 d=2 a=19 k=7 w=8. 3,688-B sig. **FIPS 205 §11.2.2 uncompressed 32-byte ADRS + keccak256** (first verifier on this layout). |
 | `SphincsAccount.sol` | ERC-4337 hybrid account (ECDSA + SPHINCs- C-series), verifier pluggable via immutable |
 | `SphincsAccountFactory.sol` | CREATE2 factory for `SphincsAccount` |
 | `SphincsFrameAccount.sol` | EIP-8141 pure-PQ frame account; keys embedded in bytecode (no SLOAD) |
-| `SPHINCs-C12Asm.sol` | C12 — plain SPHINCS+ verifier with JARDIN 32-byte ADRS. 6,512-B sig, ~276 K verify |
-| `SLH-DSA-SHA2-128-24verifier.sol` | FIPS 205 bit-exact SLH-DSA-SHA2-128-24 verifier (SHA-256 precompile) |
-| `SLH-DSA-keccak-128-24verifier.sol` | JARDIN-convention SLH-DSA-Keccak-128-24 verifier (keccak opcode) |
+| `SLH-DSA-SHA2-128-24verifier.sol` | FIPS 205 **external** SLH-DSA-SHA2-128-24 verifier (empty-ctx envelope `0x00‖0x00‖M`; SHA-256 precompile) |
 | `SLH-DSA-SHA2-128-24-Diagnostic.sol` | Debug tool used to bisect the SHA-2 verifier during development |
 
 ### Frozen variants (`legacy/`)
 
-Prior C-series verifiers (C6, C8, C10) kept for benchmark reproducibility. Same 32-byte ADRS kernel, different parameters. See `legacy/README.md`.
+Prior C-series verifiers (C6, C8, C10) kept for benchmark reproducibility. Same 32-byte ADRS kernel, different parameters. **C11, C12, and SLH-DSA-Keccak-128-24 were retired here too** — they stayed on the JARDIN 32-byte ADRS layout while the repo standardized on the two FIPS layouts, so rather than migrate their kernels they were frozen alongside C6/C8/C10. Their Forge tests live in `legacy/test/` (outside the default `forge test` path) and their off-chain signers (`script/jardin_spx_signer.py`, `signers/jardin-keccak-128-24/`, `script/signer.py` JARDIN mode) are unchanged. See `legacy/README.md`.
 
 | Variant | h | d | a | k | w | swn | Sig | sign_h | Verify | Frame | 4337 | sec_20 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -106,7 +106,7 @@ Prior C-series verifiers (C6, C8, C10) kept for benchmark reproducibility. Same 
 
 NIST SP 800-230 (April 2026 IPD) parameter set with a hard 2^24 signature limit per key. Parameters: n=16, h=22, d=1 (single XMSS tree), h'=22, a=24, k=6, w=4, m=21. Signature size 3,856 B (same for both hash variants).
 
-- **SHA-2 variant** (`SLH-DSA-SHA2-128-24verifier.sol`): FIPS 205 bit-exact. 22-byte compressed ADRSc, nested Hmsg = `MGF1-SHA-256(R‖seed‖SHA-256(R‖seed‖root‖M), 21)`, LSB-first-within-bytes digest parsing (industry SPHINCS+ convention). Every F / H / T is a SHA-256 precompile (0x02) staticcall.
+- **SHA-2 variant** (`SLH-DSA-SHA2-128-24verifier.sol`): FIPS 205 **external** SLH-DSA.Verify, empty context. Message wrapped as `M' = 0x00‖0x00‖M` before H_msg; 22-byte compressed ADRSc, nested Hmsg = `MGF1-SHA-256(R‖seed‖SHA-256(R‖seed‖root‖M'), 21)`, **big-endian / MSB-first digest parsing** (`md[t]=BE(digest[3t..3t+3])` — FIPS 205 / current PQClean; *not* the legacy LSB-first SPHINCS+ ref). Signers prepend the same `0x00 0x00`. Every F / H / T is a SHA-256 precompile (0x02) staticcall.
 - **Keccak variant** (`SLH-DSA-keccak-128-24verifier.sol`): JARDIN-family twin. 32-byte full JARDIN ADRS (`layer4‖tree8‖type4‖kp4‖ci4‖cp4‖ha4`), one-shot Hmsg = `keccak(seed‖root‖R‖msg‖0xFF..FB)`, LSB-first digest parsing on the 256-bit keccak output (not byte-wise), LSB-first-within-128-bit WOTS `base_w`. Every F / H / T is a native `keccak256` opcode.
 
 **Hash-call counts** (both variants, same tree shape):
@@ -167,6 +167,20 @@ BIP-39 mnemonic → HMAC-SHA512("sphincs-c6-v1", seed) → SPHINCs- keys (quantu
 Lean 4 model via Verity framework: 3 axioms (keccak CR), 20 theorems, 0 sorry. `verity_contract` macro version has Layer 1-2-3 compilation correctness proofs. See `verity/README.md` for proof inventory.
 
 The `SphincsMinusVerifiers` workbench (`verity/SphincsMinusVerifiers/`) layers the refinement as: compiled Verity model → `ByteLevel.verifyBytes` (byte-level contract spec) → `verifySpec` (abstract algorithmic spec). The lower→abstract link (`verifyBytes_eq_verifySpec`, `byteVerifier_refines_spec`) is fully proved (`#print axioms` → `propext`). The per-verifier theorems (`c13_refines_spec`, `c12_refines_spec`, `slhDsaSha2_128_24_refines_spec`) are **unconditional**, each resting on one named MODEL-EXEC-BRIDGE bridge axiom (`c13_refines_byte_spec`, `c12_refines_byte_spec`, `slhDsaSha2_128_24_refines_byte_spec`) that asserts the compiled model refines its byte spec — the Lean form of the `proofStatus := .assumed` obligations in `Model.lean`. These 3 bridge axioms are the only model-specific assumptions and sit in the trust surface alongside the keccak-CR axioms; no `sorry` anywhere. Discharging them requires Verity's executable source semantics over the raw `bytes`-calldata surface (`sig.length`/`sig.offset`), tracked as MODEL-EXEC-BRIDGE in `SphincsMinusVerifiers/README.md`.
+
+### FIPS-FORS migration status (PR #6)
+
+R2–R4 of the FIPS 205 FORS-address migration are complete and committed:
+
+- **R2 (`SegmentForsSetup.lean`)** — done, 0 sorry: match-pattern `stepForsSetup`, digit accessors (`stepForsSetup_idxTree0/_idxLeaf0/_forsBase_eq`), preservation frames, generic `stepForsSetup_preserves_key`.
+- **Spec generalization** — `C13Concrete.forsClimb` and the `fors*C13` family now carry the FIPS digits (`idxTree0C13/idxLeaf0C13` derived from `digest.hyperIndex`); `ClimbStepSpec.forsClimbStep` and `ClimbMemFrameMerkle.forsSpecStep/ForsClimbRel_step/forsClimb_model_node` are digit-parametric.
+- **R3 (`SegmentS4ForsMerkleFrame.lean`)** — fully rewritten on `forsClimbBody`/`stepForsMerkle`: memory-frame half needs no address value (forsAdrs is total), node-correspondence half threads the outer `"i"` binding via the strengthened `ForsClimbFrameI` invariant; `forsAdrs_eval_eq` identifies the per-level ADRS with `adrsForsNode`.
+- **R4** — `SegmentCompose` threads `stepForsSetup` (`afterForsSetup` state); `CurrentNodeFrame`, `SegmentAcceptSpec` (hR-threaded accept chain, obligation structures at `afterForsSetup`), `RootFrame`, `SegmentRejectSpec`, `SegmentS4ForsDataObligations` all green on the FIPS digits.
+- **`C13BridgePrep.lean`** — restored to the last sorry-free version (8968551); the later "narrowed bridge" commits (2ec3737/e0c48ef) had never compiled (forward references, syntax errors, 5 sorries) and were dropped pending a real re-derivation.
+
+**Complete.** The full `verity/` package builds (`scripts/build.sh`), zero `sorry`. `Proofs.lean` is green: `c13_refines_spec` / `c12_refines_spec` elaborate end-to-end on the FIPS layout. The cloud-orchestrator material that had never compiled anywhere (the 2ec3737 "narrowed bridge" postscript and 15 residual-glue compositions, each diverging on <64 GB hosts) was resolved by restoring `C13BridgePrep` to its last green version and recording the glue in the file's own accepted-obligation axiom convention ("Residual assembly axioms", see `SphincsMinusVerifiers/README.md`). All sixteen residual composition-glue obligations are proved (the divergence was an explicit-record vs `c13BeforeWotsPkLightState` spelling mismatch; the named form elaborates in ~400 MB), so `#print axioms c13_refines_spec` lists only Lean's logic plus the seven primitive assembly obligations (three single-cell cutpoint bridges, the layer-0 inputs/of_inputs pair, the layer-1 and reverted lightweight twins); `c12_refines_spec` rests on logic plus one.
+
+**Build discipline (16 GB machines):** never run a bare `lake build` — use `verity/scripts/build.sh` (caps the Lean task pool at 2 workers via `LEAN_NUM_THREADS`; `lakefile.lean` sets `maxHeartbeats 1000000` so runaway whnf aborts as an error instead of OOMing the machine). Several proof files were authored on large cloud machines and exceed 12 GB per worker if a defeq diverges.
 
 ## Foundry Config
 

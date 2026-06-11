@@ -44,7 +44,7 @@ The FORS climb's seed node binding (`SegmentS4Fors.forsLeafBody` `node`) is
 `and(keccak256(0x00, 0x60), N_MASK)` over the 3-word scratch
 `seed ‖ FORS_LEAF adrs ‖ sk`.  Given those three cells, it resolves to the spec
 `maskN (keccakWords [seed, adrs, sk])` — exactly the `leaf` of
-`forsPkFromSigC13` when `adrs = adrsForsLeaf i treeIdx` and `sk = wordOfHash16 …`. -/
+`forsPkFromSigC13` when `adrs = adrsForsLeaf 0 0 i treeIdx` and `sk = wordOfHash16 …`. -/
 theorem fors_leaf_node_eq (st : RuntimeState) (seed adrs sk : Nat)
     (hm0 : (st.world.memory 0).val = seed)
     (hm1 : (st.world.memory 0x20).val = adrs)
@@ -112,16 +112,19 @@ theorem wots_pk_node_eq (st : RuntimeState) (seed pkAdrs : Nat) (chainsEnd : Lis
 initial-node values (`C13Concrete`'s FORS leaf / `wotsPkWord`). -/
 
 /-- The FORS leaf node in its *spec* shape: with the scratch holding
-`seed ‖ adrsForsLeaf i treeIdx ‖ wordOfHash16 sk`, the model's
+`seed ‖ adrsForsLeaf idxTree0 idxLeaf0 i treeIdx ‖ wordOfHash16 sk`, the model's
 `and(keccak256(0x00,0x60), N_MASK)` resolves to exactly the `leaf` value
-`forsPkFromSigC13` builds (`maskN (keccakWords [seed, adrsForsLeaf i treeIdx, sk])`). -/
-theorem fors_leaf_node_eq_spec (st : RuntimeState) (seed i treeIdx : Nat) (sk : Bytes)
+`forsPkFromSigC13` builds at the FIPS digits. -/
+theorem fors_leaf_node_eq_spec (st : RuntimeState)
+    (seed idxTree0 idxLeaf0 i treeIdx : Nat) (sk : Bytes)
     (hm0 : (st.world.memory 0).val = seed)
-    (hm1 : (st.world.memory 0x20).val = adrsForsLeaf i treeIdx)
+    (hm1 : (st.world.memory 0x20).val = adrsForsLeaf idxTree0 idxLeaf0 i treeIdx)
     (hm2 : (st.world.memory 0x40).val = wordOfHash16 sk) :
     evalExpr [] st (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x60)) (.literal nMask))
-      = some (maskN (keccakWords [seed, adrsForsLeaf i treeIdx, wordOfHash16 sk])) :=
-  fors_leaf_node_eq st seed (adrsForsLeaf i treeIdx) (wordOfHash16 sk) hm0 hm1 hm2
+      = some (maskN
+          (keccakWords [seed, adrsForsLeaf idxTree0 idxLeaf0 i treeIdx, wordOfHash16 sk])) :=
+  fors_leaf_node_eq st seed (adrsForsLeaf idxTree0 idxLeaf0 i treeIdx) (wordOfHash16 sk)
+    hm0 hm1 hm2
 
 /-- The WOTS chain ends of one layer, extracted verbatim from `wotsPkWord`'s
 internal `let chainsEnd`, so the unfolding `wotsPkWord_eq` holds by `rfl`. -/

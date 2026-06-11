@@ -19,7 +19,10 @@
 -/
 
 import SphincsMinusVerifiers.ClimbLoop
-import Compiler.Proofs.Frames
+-- `Compiler.Proofs.Frames` is intentionally not imported: all preserves_*
+-- lemmas below are proved locally and stay independent of upstream PR #1983
+-- even after its merge.  Re-import only if a specific lemma name needs to
+-- be shared with another workspace.
 
 namespace SphincsMinusVerifiers.BindingFrame
 

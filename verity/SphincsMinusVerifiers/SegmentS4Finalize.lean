@@ -391,10 +391,10 @@ theorem forsCopyLoop7_preserves_low_slot
 root-compression copy loop, and the `forsPk` compression keccak. -/
 def forsFinalizeBody : List Stmt :=
   [ .letVar "lastSecret" (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (u 6))))) (u N_MASK))
-  , mstore 0x20 (orE (shlE (u 96) (u 3)) (shlE (u 64) (u 6)))
+  , mstore 0x20 (orE (v "forsBase") (shlE (u 19) (u 6)))
   , mstore 0x40 (v "lastSecret")
   , mstore 0x140 (andE (keccak 0x00 0x60) (u N_MASK))
-  , mstore 0x20 (shlE (u 96) (u 4))
+  , mstore 0x20 (orE (shlE (u 128) (v "idxTree0")) (orE (shlE (u 96) (u 4)) (shlE (u 64) (v "idxLeaf0"))))
   , .forEach "i" (u 7) forsCopyBody
   , .letVar "forsPk" (andE (keccak 0x00 0x120) (u N_MASK)) ]
 
@@ -410,10 +410,10 @@ theorem forsFinalizeBody_mem_cases {P : Stmt → Prop} {stmt : Stmt}
         (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (u 6)))))
           (u N_MASK))))
     (hadrsLeaf :
-      P (mstore 0x20 (orE (shlE (u 96) (u 3)) (shlE (u 64) (u 6)))))
+      P (mstore 0x20 (orE (v "forsBase") (shlE (u 19) (u 6)))))
     (hlastSecretStore : P (mstore 0x40 (v "lastSecret")))
     (hforcedRoot : P (mstore 0x140 (andE (keccak 0x00 0x60) (u N_MASK))))
-    (hadrsRoots : P (mstore 0x20 (shlE (u 96) (u 4))))
+    (hadrsRoots : P (mstore 0x20 (orE (shlE (u 128) (v "idxTree0")) (orE (shlE (u 96) (u 4)) (shlE (u 64) (v "idxLeaf0"))))))
     (hcopy : P (.forEach "i" (u 7) forsCopyBody))
     (hforsPk : P (.letVar "forsPk" (andE (keccak 0x00 0x120) (u N_MASK)))) :
     P stmt := by
@@ -431,25 +431,25 @@ theorem forsFinalizeBody_mem_cases {P : Stmt → Prop} {stmt : Stmt}
 materialises the exact state whose memory is compressed into the FORS public key. -/
 def forsFinalizePrePkBody : List Stmt :=
   [ .letVar "lastSecret" (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (u 6))))) (u N_MASK))
-  , mstore 0x20 (orE (shlE (u 96) (u 3)) (shlE (u 64) (u 6)))
+  , mstore 0x20 (orE (v "forsBase") (shlE (u 19) (u 6)))
   , mstore 0x40 (v "lastSecret")
   , mstore 0x140 (andE (keccak 0x00 0x60) (u N_MASK))
-  , mstore 0x20 (shlE (u 96) (u 4))
+  , mstore 0x20 (orE (shlE (u 128) (v "idxTree0")) (orE (shlE (u 96) (u 4)) (shlE (u 64) (v "idxLeaf0"))))
   , .forEach "i" (u 7) forsCopyBody ]
 
 /-- The finalize prefix before statement 20's copy loop.  This is the state whose
 `0x80 + 32*i` root slots are copied into the final compression preimage. -/
 def forsFinalizePreCopyBody : List Stmt :=
   [ .letVar "lastSecret" (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (u 6))))) (u N_MASK))
-  , mstore 0x20 (orE (shlE (u 96) (u 3)) (shlE (u 64) (u 6)))
+  , mstore 0x20 (orE (v "forsBase") (shlE (u 19) (u 6)))
   , mstore 0x40 (v "lastSecret")
   , mstore 0x140 (andE (keccak 0x00 0x60) (u N_MASK))
-  , mstore 0x20 (shlE (u 96) (u 4)) ]
+  , mstore 0x20 (orE (shlE (u 128) (v "idxTree0")) (orE (shlE (u 96) (u 4)) (shlE (u 64) (v "idxLeaf0")))) ]
 
 /-- Faithfulness: `forsFinalizeBody` is *exactly* statements 15..21 of
 `c13VerifyBody` (the FORS finalize block, copy loop included). -/
 theorem forsFinalizeBody_eq_slice :
-    forsFinalizeBody = (c13VerifyBodyTail.drop 14).take 7 := rfl
+    forsFinalizeBody = (c13VerifyBodyTail.drop 17).take 7 := rfl
 
 /-! ## 4. The finalize-block step lemma. -/
 
@@ -535,49 +535,142 @@ theorem forsFinalizePreCopyStep_preserves_root_source_slot
   simp [execStmtList, MemoryKit.memUpdate, Compiler.Constants.evmModulus,
     hne32, hne64, hne320]
 
+private theorem shl128_lt_of_lt11 (x : Nat) (h : x < 2 ^ 11) :
+    x <<< 128 < 2 ^ 256 := by
+  have h11 : x ≤ 2047 := by
+    rw [show (2 : Nat) ^ 11 = 2048 from by norm_num] at h
+    omega
+  rw [Nat.shiftLeft_eq]
+  calc
+    x * 2 ^ 128 ≤ 2047 * 2 ^ 128 := Nat.mul_le_mul_right _ h11
+    _ < 2 ^ 256 := by norm_num
+
+private theorem shl64_lt_of_lt11 (x : Nat) (h : x < 2 ^ 11) :
+    x <<< 64 < 2 ^ 256 := by
+  have h11 : x ≤ 2047 := by
+    rw [show (2 : Nat) ^ 11 = 2048 from by norm_num] at h
+    omega
+  rw [Nat.shiftLeft_eq]
+  calc
+    x * 2 ^ 64 ≤ 2047 * 2 ^ 64 := Nat.mul_le_mul_right _ h11
+    _ < 2 ^ 256 := by norm_num
+
 set_option maxHeartbeats 4000000 in
 /-- The pre-copy finalize prefix leaves the final FORS-roots address word in
 scratch slot `0x20`, exactly the address preimage used by the `forsPk`
-compression. -/
-theorem forsFinalizePreCopyStep_adrsRoots_slot (st : RuntimeState) :
-    ((forsFinalizePreCopyStep st).world.memory 0x20).val = adrsForsRoots := by
-  unfold forsFinalizePreCopyStep forsFinalizePreCopyBody mstore u
-  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue st "lastSecret" _ _ rfl)]
-  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
-  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
-  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
-  rw [execStmtList_cons_continue _ _ _ _ (execStmt_mstore_continue _ _ _ _ _ rfl rfl)]
-  simp [execStmtList, MemoryKit.memUpdate, Compiler.Constants.evmModulus, adrsForsRoots,
-    Verity.Core.Uint256.shl, Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS]
+compression.  Parametric in the hoisted FIPS digits `idxTree0`/`idxLeaf0`
+(11-bit, supplied by `SegmentForsSetup.stepForsSetup_idxTree0/_idxLeaf0`). -/
+theorem forsFinalizePreCopyStep_adrsRoots_slot
+    (st : RuntimeState) (it0 il0 : Nat)
+    (hT : lookupValue st.bindings "idxTree0" = it0) (hTlt : it0 < 2 ^ 11)
+    (hL : lookupValue st.bindings "idxLeaf0" = il0) (hLlt : il0 < 2 ^ 11) :
+    ((forsFinalizePreCopyStep st).world.memory 0x20).val
+      = SphincsMinusVerifierSpec.C13Concrete.adrsForsRoots it0 il0 := by
+  -- Pin the binder-write values so later states are syntactic records.
+  obtain ⟨w1, hw1⟩ : ∃ w, evalExpr [] st
+      (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (u 6))))) (u N_MASK))
+        = some w := ⟨_, rfl⟩
+  set st1 : RuntimeState := { st with bindings := bindValue st.bindings "lastSecret" w1 }
+    with hst1
+  obtain ⟨w2, hw2⟩ : ∃ w, evalExpr [] st1
+      (orE (v "forsBase") (shlE (u 19) (u 6))) = some w := ⟨_, rfl⟩
+  set st2 : RuntimeState := { st1 with world := { st1.world with
+      memory := MemoryKit.memUpdate st1.world.memory 0x20 w2 } } with hst2
+  obtain ⟨w3, hw3⟩ : ∃ w, evalExpr [] st2 (v "lastSecret") = some w := ⟨_, rfl⟩
+  set st3 : RuntimeState := { st2 with world := { st2.world with
+      memory := MemoryKit.memUpdate st2.world.memory 0x40 w3 } } with hst3
+  obtain ⟨w4, hw4⟩ : ∃ w, evalExpr [] st3
+      (andE (keccak 0x00 0x60) (u N_MASK)) = some w := ⟨_, rfl⟩
+  set st4 : RuntimeState := { st3 with world := { st3.world with
+      memory := MemoryKit.memUpdate st3.world.memory 0x140 w4 } } with hst4
+  -- Eval witness for the FORS_ROOTS address word in `st4`.
+  have hT4 : evalExpr [] st4 (v "idxTree0") = some it0 := by
+    show some (lookupValue (bindValue st.bindings "lastSecret" w1) "idxTree0") = some it0
+    rw [MemoryKit.lookupValue_bindValue_ne _ "lastSecret" "idxTree0" _ (by decide), hT]
+  have hL4 : evalExpr [] st4 (v "idxLeaf0") = some il0 := by
+    show some (lookupValue (bindValue st.bindings "lastSecret" w1) "idxLeaf0") = some il0
+    rw [MemoryKit.lookupValue_bindValue_ne _ "lastSecret" "idxLeaf0" _ (by decide), hL]
+  have hShlT : evalExpr [] st4 (shlE (u 128) (v "idxTree0")) = some (it0 <<< 128) :=
+    ClimbKeccakStep.evalExpr_shl_bounded st4 (u 128) (v "idxTree0") 128 it0 rfl hT4
+      (by norm_num) (lt_trans hTlt (by norm_num)) (shl128_lt_of_lt11 it0 hTlt)
+  have hShlM : evalExpr [] st4 (shlE (u 96) (u 4)) = some ((4 : Nat) <<< 96) :=
+    ClimbKeccakStep.evalExpr_shl_bounded st4 (u 96) (u 4) 96 4 rfl rfl
+      (by norm_num) (by norm_num) (by decide)
+  have hShlL : evalExpr [] st4 (shlE (u 64) (v "idxLeaf0")) = some (il0 <<< 64) :=
+    ClimbKeccakStep.evalExpr_shl_bounded st4 (u 64) (v "idxLeaf0") 64 il0 rfl hL4
+      (by norm_num) (lt_trans hLlt (by norm_num)) (shl64_lt_of_lt11 il0 hLlt)
+  have hInner : evalExpr [] st4 (orE (shlE (u 96) (u 4)) (shlE (u 64) (v "idxLeaf0")))
+      = some ((4 <<< 96) ||| (il0 <<< 64)) :=
+    ClimbKeccakStep.evalExpr_bitOr_bounded st4 _ _ _ _ hShlM hShlL
+      (by decide) (shl64_lt_of_lt11 il0 hLlt)
+  have hInnerLt : (4 <<< 96) ||| (il0 <<< 64) < 2 ^ 256 :=
+    Nat.bitwise_lt_two_pow (by decide) (shl64_lt_of_lt11 il0 hLlt)
+  have hRoots : evalExpr [] st4
+      (orE (shlE (u 128) (v "idxTree0"))
+        (orE (shlE (u 96) (u 4)) (shlE (u 64) (v "idxLeaf0"))))
+      = some ((it0 <<< 128) ||| ((4 <<< 96) ||| (il0 <<< 64))) :=
+    ClimbKeccakStep.evalExpr_bitOr_bounded st4 _ _ _ _ hShlT hInner
+      (shl128_lt_of_lt11 it0 hTlt) hInnerLt
+  have hVLt : (it0 <<< 128) ||| ((4 <<< 96) ||| (il0 <<< 64)) < 2 ^ 256 :=
+    Nat.bitwise_lt_two_pow (shl128_lt_of_lt11 it0 hTlt) hInnerLt
+  have h2 : execStmt [] st1 (mstore 0x20 (orE (v "forsBase") (shlE (u 19) (u 6))))
+      = .continue st2 :=
+    execStmt_mstore_continue st1 (u 0x20) _ 0x20 w2 rfl hw2
+  have h3 : execStmt [] st2 (mstore 0x40 (v "lastSecret")) = .continue st3 :=
+    execStmt_mstore_continue st2 (u 0x40) _ 0x40 w3 rfl hw3
+  have h4 : execStmt [] st3 (mstore 0x140 (andE (keccak 0x00 0x60) (u N_MASK)))
+      = .continue st4 :=
+    execStmt_mstore_continue st3 (u 0x140) _ 0x140 w4 rfl hw4
+  have h5 : execStmt [] st4
+      (mstore 0x20 (orE (shlE (u 128) (v "idxTree0"))
+        (orE (shlE (u 96) (u 4)) (shlE (u 64) (v "idxLeaf0")))))
+      = .continue { st4 with world := { st4.world with
+          memory := MemoryKit.memUpdate st4.world.memory 0x20
+            ((it0 <<< 128) ||| ((4 <<< 96) ||| (il0 <<< 64))) } } :=
+    execStmt_mstore_continue st4 (u 0x20) _ 0x20 _ rfl hRoots
+  unfold forsFinalizePreCopyStep forsFinalizePreCopyBody
+  rw [execStmtList_cons_continue _ _ _ _ (execStmt_letVar_continue st "lastSecret" _ _ hw1)]
+  rw [execStmtList_cons_continue _ _ _ _ h2]
+  rw [execStmtList_cons_continue _ _ _ _ h3]
+  rw [execStmtList_cons_continue _ _ _ _ h4]
+  rw [execStmtList_cons_continue _ _ _ _ h5]
+  simp only [execStmtList]
+  simp [MemoryKit.memUpdate,
+    SphincsMinusVerifierSpec.C13Concrete.adrsForsRoots, Nat.lor_assoc]
+  exact Nat.mod_eq_of_lt (by simpa using hVLt)
 
 set_option maxHeartbeats 4000000 in
 /-- The pre-copy finalize prefix computes the forced-zero seventh FORS root in
-source slot `0x140`, provided the incoming seed cell and seventh secret word are
-the expected spec words.  This isolates the remaining calldata/parser work from
-the local forced-root scratch hash. -/
+source slot `0x140`, provided the incoming seed cell, the hoisted `"forsBase"`
+ADRS-base binding, and the seventh secret word are the expected spec words.
+Stated over a generic bounded base word so it is layout-agnostic; instantiate
+`base := adrsForsBase idxTree0 idxLeaf0` and identify
+`base ||| (6 <<< 19) = adrsForsLeaf idxTree0 idxLeaf0 6 0` via
+`adrsForsLeaf_eq_of_forsBase` + `Nat.lor_zero` at the call site. -/
 theorem forsFinalizePreCopyStep_forced_root_cell
-    (st : RuntimeState) (seed sk : Nat)
+    (st : RuntimeState) (seed base sk : Nat)
     (hmSeed : (st.world.memory 0).val = seed)
+    (hFB : lookupValue st.bindings "forsBase" = base)
+    (hBaseLt : base < 2 ^ 256)
     (hLastSecret :
       evalExpr [] st
         (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (u 6)))))
           (u N_MASK)) = some sk) :
     ((forsFinalizePreCopyStep st).world.memory 0x140).val
-      = maskN (keccakWords [seed, adrsForsLeaf 6 0, sk]) := by
+      = maskN (keccakWords [seed, base ||| (6 <<< 19), sk]) := by
+  have hLeafLt : base ||| (6 <<< 19) < 2 ^ 256 :=
+    Nat.bitwise_lt_two_pow hBaseLt (by decide)
   let st1 : RuntimeState := { st with bindings := bindValue st.bindings "lastSecret" sk }
   let st2 : RuntimeState :=
     { st1 with world := { st1.world with
-        memory := MemoryKit.memUpdate st1.world.memory 0x20 (adrsForsLeaf 6 0) } }
+        memory := MemoryKit.memUpdate st1.world.memory 0x20 (base ||| (6 <<< 19)) } }
   let st3 : RuntimeState :=
     { st2 with world := { st2.world with
         memory := MemoryKit.memUpdate st2.world.memory 0x40 sk } }
-  let node : Nat := maskN (keccakWords [seed, adrsForsLeaf 6 0, sk])
+  let node : Nat := maskN (keccakWords [seed, base ||| (6 <<< 19), sk])
   let st4 : RuntimeState :=
     { st3 with world := { st3.world with
         memory := MemoryKit.memUpdate st3.world.memory 0x140 node } }
-  let st5 : RuntimeState :=
-    { st4 with world := { st4.world with
-        memory := MemoryKit.memUpdate st4.world.memory 0x20 adrsForsRoots } }
   have h1 : execStmt [] st
       (.letVar "lastSecret"
         (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (u 6)))))
@@ -585,12 +678,19 @@ theorem forsFinalizePreCopyStep_forced_root_cell
     unfold st1
     exact execStmt_letVar_continue st "lastSecret" _ _ hLastSecret
   have h2 : execStmt [] st1
-      (mstore 0x20 (orE (shlE (u 96) (u 3)) (shlE (u 64) (u 6))))
+      (mstore 0x20 (orE (v "forsBase") (shlE (u 19) (u 6))))
         = .continue st2 := by
-    unfold st2 mstore u
-    convert execStmt_mstore_continue st1 (.literal 0x20)
-      (orE (shlE (.literal 96) (.literal 3)) (shlE (.literal 64) (.literal 6)))
-      0x20 (adrsForsLeaf 6 0) rfl rfl using 1
+    unfold st2 mstore
+    refine execStmt_mstore_continue st1 (u 0x20)
+      (orE (v "forsBase") (shlE (u 19) (u 6))) 0x20 (base ||| (6 <<< 19)) rfl ?_
+    have hFB1 : evalExpr [] st1 (v "forsBase") = some base := by
+      show some (lookupValue (bindValue st.bindings "lastSecret" sk) "forsBase") = some base
+      rw [MemoryKit.lookupValue_bindValue_ne _ "lastSecret" "forsBase" _ (by decide), hFB]
+    have hShl : evalExpr [] st1 (shlE (u 19) (u 6)) = some ((6 : Nat) <<< 19) :=
+      ClimbKeccakStep.evalExpr_shl_bounded st1 (u 19) (u 6) 19 6 rfl rfl
+        (by norm_num) (by norm_num) (by decide)
+    exact ClimbKeccakStep.evalExpr_bitOr_bounded st1 _ _ _ _ hFB1 hShl
+      hBaseLt (by decide)
   have h3 : execStmt [] st2 (mstore 0x40 (v "lastSecret")) = .continue st3 := by
     unfold st3 mstore u v
     refine execStmt_mstore_continue st2 (.literal 0x40) (.localVar "lastSecret")
@@ -606,22 +706,28 @@ theorem forsFinalizePreCopyStep_forced_root_cell
       evalExpr_bitAnd_result_lt hLastSecret
     unfold andE keccak u
     refine SphincsMinusVerifiers.InitialNodeKeccak.fors_leaf_node_eq
-      _ seed (adrsForsLeaf 6 0) sk ?_ ?_ ?_
+      _ seed (base ||| (6 <<< 19)) sk ?_ ?_ ?_
     · simp [st3, st2, st1, MemoryKit.memUpdate, hmSeed]
     · simp [st3, st2, MemoryKit.memUpdate]
-      exact Nat.mod_eq_of_lt (by
-        decide)
+      exact Nat.mod_eq_of_lt hLeafLt
     · simp [st3, MemoryKit.memUpdate, Nat.mod_eq_of_lt hsk_lt]
   have h4 : execStmt [] st3
       (mstore 0x140 (andE (keccak 0x00 0x60) (u N_MASK))) = .continue st4 := by
     unfold st4 mstore u
     exact execStmt_mstore_continue st3 (.literal 0x140)
       (andE (keccak 0x00 0x60) (.literal N_MASK)) 0x140 node rfl hNode
-  have h5 : execStmt [] st4 (mstore 0x20 (shlE (u 96) (u 4))) = .continue st5 := by
-    unfold st5 mstore u
-    convert execStmt_mstore_continue st4 (.literal 0x20)
-      (shlE (.literal 96) (.literal 4)) 0x20 adrsForsRoots rfl rfl using 1
-  have hExec : execStmtList [] st forsFinalizePreCopyBody = .continue st5 := by
+  obtain ⟨w5, hw5⟩ : ∃ w, evalExpr [] st4
+      (orE (shlE (u 128) (v "idxTree0"))
+        (orE (shlE (u 96) (u 4)) (shlE (u 64) (v "idxLeaf0")))) = some w := ⟨_, rfl⟩
+  have h5 : execStmt [] st4
+      (mstore 0x20 (orE (shlE (u 128) (v "idxTree0"))
+        (orE (shlE (u 96) (u 4)) (shlE (u 64) (v "idxLeaf0")))))
+      = .continue { st4 with world := { st4.world with
+          memory := MemoryKit.memUpdate st4.world.memory 0x20 w5 } } :=
+    execStmt_mstore_continue st4 (u 0x20) _ 0x20 w5 rfl hw5
+  have hExec : execStmtList [] st forsFinalizePreCopyBody
+      = .continue { st4 with world := { st4.world with
+          memory := MemoryKit.memUpdate st4.world.memory 0x20 w5 } } := by
     unfold forsFinalizePreCopyBody
     rw [execStmtList_cons_continue _ _ _ _ h1]
     rw [execStmtList_cons_continue _ _ _ _ h2]
@@ -633,7 +739,7 @@ theorem forsFinalizePreCopyStep_forced_root_cell
   rw [hExec]
   have hnode_lt : node < Verity.Core.Uint256.modulus :=
     evalExpr_bitAnd_result_lt hNode
-  unfold st5 st4
+  unfold st4
   simp [MemoryKit.memUpdate]
   unfold node at hnode_lt ⊢
   exact Nat.mod_eq_of_lt hnode_lt

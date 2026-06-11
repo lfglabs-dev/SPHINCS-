@@ -75,19 +75,25 @@ The 4 primary residual axioms (all in `Proofs.lean`):
   seeding layer 4. All downstream C12 layer-4 residuals are already derived as
   theorems from this single axiom (`C12BridgePrep`).
 
-Supporting single-cell bridge axioms (also `Proofs.lean`, same blocker — framing
-equalities between two `SegmentLayer3`-derived states):
+Discharged 2026-06-11 (now theorems in `Proofs.lean`, no big machine needed):
 
-- `c13_beforeWotsPk_memory_zero_eq_lightweight` (cell `0x00`)
-- `c13_beforeWotsPk_memory_0x20_eq_lightweight` (cell `0x20`)
-- `c13_beforeWotsPk_memory_chain_eq_lightweight` (cells `0x40 + 32*j`)
-
-Mirror axiom (generic content already proven, kept as axiom only because flipping it
-is an uncompilable-here `Proofs.lean` edit — prime first discharge on the big-machine
-pass, proof is a one-line `exact`):
-
-- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_of_inputs_layer0`
-  ← `c13Layer0_copyFold43_wotsChainsEnd_cells_of_inputs` (C13WotsPkKeccak.lean).
+- `c13_beforeWotsPk_memory_zero_eq_lightweight` (cell `0x00`) and
+  `c13_beforeWotsPk_memory_0x20_eq_lightweight` (cell `0x20`): via
+  `c13_beforeWotsPk_eq_beforeWotsPkFrom` — the historical and lightweight
+  cutpoints run the *same* suffix statement list from `afterDigit ls`, so the
+  states are equal and the cell framings are rewrites.
+- `c13_beforeWotsPk_memory_chain_eq_lightweight` (cells `0x40 + 32*j`): via the
+  `beforeWotsPkAfterWotsCopyFrom` factoring (`c13_beforeWotsPkFrom_eq_afterWotsCopy`),
+  `copyFold43_copied_slot` / `c13_copyLoop_preserves_out_slot`, and the
+  address-store frame `c13_addressStore_preserves_cell`.  Elaboration discipline:
+  assembled with `congrArg`/`trans` only; the copy fold enters via `rw [← he]`
+  so its start state is never restated (any defeq between two spellings of a
+  fold start state whnf-unfolds the fold); `StmtResult.continue.inj` instead of
+  the `injection` tactic.
+- `c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_of_inputs_layer0`: via the
+  verified `c13Layer0_copyFold43_wotsChainsEnd_cells_of_entry`
+  (`C13WotsPkKeccak.lean`), with the Entry record obtained from the inputs record
+  at `j = 0` through `ClimbLoop.foldLoop_zero`.
 
 ## Current Standalone Lemma Footprints
 

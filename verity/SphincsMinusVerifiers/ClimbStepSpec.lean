@@ -61,10 +61,13 @@ theorem xmssClimb_zero (seed treeAdrs : Word) (h mIdx : Nat)
 /-! ## 2. FORS climb step. -/
 
 /-- One spec FORS-climb combine: same branchless-swap shape as `xmssClimbStep`, but
-under the FORS-tree address `adrsForsNode i h parentIdx`. -/
-def forsClimbStep (seed i : Word) (h pathIdx : Nat) (node sibling : Word) : Word :=
+under the FIPS 205 FORS-tree address `adrsForsNode idxTree0 idxLeaf0 i h parentIdx`
+(the per-level word folds the tree number as `i <<< (18 - h)` per FIPS 205 Alg 17;
+the `idxTree0`/`idxLeaf0` digits come from the hypertree-leaf field split). -/
+def forsClimbStep (seed i : Word) (idxTree0 idxLeaf0 : Nat) (h pathIdx : Nat)
+    (node sibling : Word) : Word :=
   let parentIdx := pathIdx / 2
-  let adrs := adrsForsNode i h parentIdx
+  let adrs := adrsForsNode idxTree0 idxLeaf0 i h parentIdx
   if pathIdx % 2 == 0 then maskN (keccakWords [seed, adrs, node, sibling])
   else maskN (keccakWords [seed, adrs, sibling, node])
 
@@ -74,46 +77,35 @@ def forsSibling (auth : List Bytes) (h : Nat) : Word :=
 
 /-- **`forsClimb_succ`** — the spec `forsClimb` unfolds one fuel step into a single
 `forsClimbStep`.  Pure `rfl` against `forsClimb`'s `succ` branch. -/
-theorem forsClimb_succ (seed i : Word) (fuel h pathIdx : Nat)
+theorem forsClimb_succ (seed i : Word) (idxTree0 idxLeaf0 fuel h pathIdx : Nat)
     (node : Word) (auth : List Bytes) :
-    forsClimb seed i (fuel + 1) h pathIdx node auth
-      = forsClimb seed i fuel (h + 1) (pathIdx / 2)
-          (forsClimbStep seed i h pathIdx node (forsSibling auth h)) auth := by
+    forsClimb seed i idxTree0 idxLeaf0 (fuel + 1) h pathIdx node auth
+      = forsClimb seed i idxTree0 idxLeaf0 fuel (h + 1) (pathIdx / 2)
+          (forsClimbStep seed i idxTree0 idxLeaf0 h pathIdx node (forsSibling auth h)) auth := by
   simp only [forsClimb, forsClimbStep, forsSibling]
 
 /-- The spec FORS climb on zero fuel is the identity. -/
-theorem forsClimb_zero (seed i : Word) (h pathIdx : Nat)
+theorem forsClimb_zero (seed i : Word) (idxTree0 idxLeaf0 h pathIdx : Nat)
     (node : Word) (auth : List Bytes) :
-    forsClimb seed i 0 h pathIdx node auth = node := by
+    forsClimb seed i idxTree0 idxLeaf0 0 h pathIdx node auth = node := by
   simp only [forsClimb]
 
-/-! ## 3. FORS climb as an XMSS-shaped climb.
+/-! ## 3. FORS node-address decomposition.
 
-The interpreter-side Merkle loop is generic in an address base.  FORS supplies the
-base `(3 <<< 96) ||| (i <<< 64)` and then uses the same level/index suffix as the
-XMSS climb.  These lemmas expose that spec-side correspondence without mentioning
-the interpreter. -/
+Under the FIPS 205 layout the per-level FORS address depends on the loop level
+`h` (`i <<< (18 - h)` folds the tree number into the 19-bit `word3`), so the
+FORS climb is *not* an XMSS-shaped climb at a fixed base any more (the retired
+`forsClimb_eq_xmssClimb` is gone).  Instead, the interpreter-side address
+expression (`ClimbKit.forsAdrs`, right-associated `or` chain) is identified
+with the spec `adrsForsNode` by re-association. -/
 
-/-- The generic Merkle address built from the FORS tree base is definitionally the
+/-- The right-associated interpreter FORS address word is exactly the spec
 FORS node address, up to `Nat.lor` associativity. -/
-theorem forsTreeBase_node_address (i h parentIdx : Nat) :
-    (((3 <<< 96) ||| (i <<< 64)) ||| ((h + 1) <<< 32)) ||| parentIdx
-      = adrsForsNode i h parentIdx := by
-  simp only [adrsForsNode]
-
-/-- FORS climb is the generic XMSS-shaped climb instantiated with the FORS tree
-base `(3 <<< 96) ||| (i <<< 64)`. -/
-theorem forsClimb_eq_xmssClimb (seed i : Word) (fuel h pathIdx : Nat)
-    (node : Word) (auth : List Bytes) :
-    forsClimb seed i fuel h pathIdx node auth
-      = xmssClimb seed ((3 <<< 96) ||| (i <<< 64)) fuel h pathIdx node auth := by
-  induction fuel generalizing h pathIdx node with
-  | zero =>
-      simp only [forsClimb, xmssClimb]
-  | succ fuel ih =>
-      simp only [forsClimb, xmssClimb]
-      rw [forsTreeBase_node_address]
-      exact ih (h + 1) (pathIdx / 2) _
+theorem forsBase_node_address (idxTree0 idxLeaf0 i h parentIdx : Nat) :
+    adrsForsBase idxTree0 idxLeaf0
+        ||| (((h + 1) <<< 32) ||| ((i <<< (18 - h)) ||| parentIdx))
+      = adrsForsNode idxTree0 idxLeaf0 i h parentIdx := by
+  simp only [adrsForsNode, Nat.lor_assoc]
 
 /-! ## 4. Axiom audit. -/
 
@@ -121,7 +113,6 @@ theorem forsClimb_eq_xmssClimb (seed i : Word) (fuel h pathIdx : Nat)
 #print axioms xmssClimb_zero
 #print axioms forsClimb_succ
 #print axioms forsClimb_zero
-#print axioms forsTreeBase_node_address
-#print axioms forsClimb_eq_xmssClimb
+#print axioms forsBase_node_address
 
 end SphincsMinusVerifiers.ClimbStepSpec

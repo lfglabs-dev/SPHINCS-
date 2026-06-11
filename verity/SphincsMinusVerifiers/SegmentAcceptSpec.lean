@@ -942,6 +942,7 @@ theorem accept_path_returns_verifyParsed_bool_from_fors_roots_and_layer_step_ran
     (specStep : Nat → ByteArray → ByteArray)
     (roots : List Nat)
     (hPk : pk = { pkSeed := pkSeed, pkRoot := pkRoot })
+    (hR : sigParsed.R = C13Concrete.read16 sig 0)
     (hShape : signatureShapeOk c13 sigParsed = true)
     (hZero : forcedZeroOk c13
         (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message) = true)
@@ -998,8 +999,24 @@ theorem accept_path_returns_verifyParsed_bool_from_fors_roots_and_layer_step_ran
       CurrentNodeFrame.forsPkCompressWord
         (afterFors (mkC13State pkSeed pkRoot message sig)) = wordOfHash16 forsPk := by
     let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    have hT :
+        lookupValue (afterFors (mkC13State pkSeed pkRoot message sig)).bindings "idxTree0"
+          = C13Concrete.idxTree0C13 digest := by
+      show _ = C13Concrete.idxTree0C13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message)
+      rw [hPk, hR]
+      exact CurrentNodeFrame.afterFors_idxTree0_mkC13State pkSeed pkRoot message sig
+    have hL :
+        lookupValue (afterFors (mkC13State pkSeed pkRoot message sig)).bindings "idxLeaf0"
+          = C13Concrete.idxLeaf0C13 digest := by
+      show _ = C13Concrete.idxLeaf0C13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message)
+      rw [hPk, hR]
+      exact CurrentNodeFrame.afterFors_idxLeaf0_mkC13State pkSeed pkRoot message sig
+    have hTlt : C13Concrete.idxTree0C13 digest < 2 ^ 11 :=
+      C13Concrete.idxTree0C13_lt pk sigParsed.R message
     rw [CurrentNodeFrame.forsPkCompressWord_eq_of_afterFors_mkC13State_six_plus_last_range
-      pkSeed pkRoot message sig digest roots hRootsLen hLeaf hmRlo hmRlast]
+      pkSeed pkRoot message sig digest roots hRootsLen hT hTlt hL hLeaf hmRlo hmRlast]
     exact hForsPkCompress
   exact accept_path_returns_verifyParsed_bool_from_fors_compress_and_layer_step
     pkSeed pkRoot message sig pk sigParsed forsPk specRoot specStep hPk
@@ -1015,6 +1032,7 @@ theorem accept_path_returns_verifyParsed_bool_from_seed_and_fors_roots_and_layer
     (specStep : Nat → ByteArray → ByteArray)
     (roots : List Nat)
     (hPk : pk = { pkSeed := pkSeed, pkRoot := pkRoot })
+    (hR : sigParsed.R = C13Concrete.read16 sig 0)
     (hShape : signatureShapeOk c13 sigParsed = true)
     (hZero : forcedZeroOk c13
         (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message) = true)
@@ -1070,8 +1088,24 @@ theorem accept_path_returns_verifyParsed_bool_from_seed_and_fors_roots_and_layer
       CurrentNodeFrame.forsPkCompressWord
         (afterFors (mkC13State pkSeed pkRoot message sig)) = wordOfHash16 forsPk := by
     let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+    have hT :
+        lookupValue (afterFors (mkC13State pkSeed pkRoot message sig)).bindings "idxTree0"
+          = C13Concrete.idxTree0C13 digest := by
+      show _ = C13Concrete.idxTree0C13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message)
+      rw [hPk, hR]
+      exact CurrentNodeFrame.afterFors_idxTree0_mkC13State pkSeed pkRoot message sig
+    have hL :
+        lookupValue (afterFors (mkC13State pkSeed pkRoot message sig)).bindings "idxLeaf0"
+          = C13Concrete.idxLeaf0C13 digest := by
+      show _ = C13Concrete.idxLeaf0C13
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message)
+      rw [hPk, hR]
+      exact CurrentNodeFrame.afterFors_idxLeaf0_mkC13State pkSeed pkRoot message sig
+    have hTlt : C13Concrete.idxTree0C13 digest < 2 ^ 11 :=
+      C13Concrete.idxTree0C13_lt pk sigParsed.R message
     rw [CurrentNodeFrame.forsPkCompressWord_eq_of_afterFors_seed_mkC13State_six_plus_last
-      pkSeed pkRoot message sig digest roots hRootsLen hmSeed hmRlo hmRlast]
+      pkSeed pkRoot message sig digest roots hRootsLen hT hTlt hL hmSeed hmRlo hmRlast]
     exact hForsPkCompress
   exact accept_path_returns_verifyParsed_bool_from_fors_compress_and_layer_step
     pkSeed pkRoot message sig pk sigParsed forsPk specRoot specStep hPk
@@ -1087,6 +1121,7 @@ theorem accept_path_returns_verifyParsed_bool_from_named_fors_roots_and_layer_st
     (pk : PublicKey) (sigParsed : Signature) (forsPk specRoot : ByteArray)
     (specStep : Nat → ByteArray → ByteArray)
     (hPk : pk = { pkSeed := pkSeed, pkRoot := pkRoot })
+    (hR : sigParsed.R = C13Concrete.read16 sig 0)
     (hShape : signatureShapeOk c13 sigParsed = true)
     (hZero : forcedZeroOk c13
         (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message) = true)
@@ -1156,7 +1191,7 @@ theorem accept_path_returns_verifyParsed_bool_from_named_fors_roots_and_layer_st
   exact accept_path_returns_verifyParsed_bool_from_fors_roots_and_layer_step_range
     pkSeed pkRoot message sig pk sigParsed forsPk specRoot specStep
     (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)
-    hPk hShape hZero hFors hFold hlen hg3 hgL
+    hPk hR hShape hZero hFors hFold hlen hg3 hgL
     (C13Concrete.forsAllRootsC13_length pk digest sigParsed.fors)
     hLeaf
     (by
@@ -1176,6 +1211,7 @@ theorem accept_path_returns_verifyParsed_bool_from_seed_and_named_fors_roots_and
     (pk : PublicKey) (sigParsed : Signature) (forsPk specRoot : ByteArray)
     (specStep : Nat → ByteArray → ByteArray)
     (hPk : pk = { pkSeed := pkSeed, pkRoot := pkRoot })
+    (hR : sigParsed.R = C13Concrete.read16 sig 0)
     (hShape : signatureShapeOk c13 sigParsed = true)
     (hZero : forcedZeroOk c13
         (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message) = true)
@@ -1244,7 +1280,7 @@ theorem accept_path_returns_verifyParsed_bool_from_seed_and_named_fors_roots_and
   exact accept_path_returns_verifyParsed_bool_from_seed_and_fors_roots_and_layer_step
     pkSeed pkRoot message sig pk sigParsed forsPk specRoot specStep
     (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)
-    hPk hShape hZero hFors hFold hlen hg3 hgL
+    hPk hR hShape hZero hFors hFold hlen hg3 hgL
     (C13Concrete.forsAllRootsC13_length pk digest sigParsed.fors)
     hmSeed
     (by
@@ -1264,6 +1300,7 @@ theorem accept_path_returns_verifyParsed_bool_from_named_fors_roots_roundtrip_an
     (pk : PublicKey) (sigParsed : Signature) (forsPk specRoot : ByteArray)
     (specStep : Nat → ByteArray → ByteArray)
     (hPk : pk = { pkSeed := pkSeed, pkRoot := pkRoot })
+    (hR : sigParsed.R = C13Concrete.read16 sig 0)
     (hShape : signatureShapeOk c13 sigParsed = true)
     (hZero : forcedZeroOk c13
         (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message) = true)
@@ -1338,7 +1375,7 @@ theorem accept_path_returns_verifyParsed_bool_from_named_fors_roots_roundtrip_an
     rw [hForsPkByte, hForsPkRoundtrip]
   exact accept_path_returns_verifyParsed_bool_from_named_fors_roots_and_layer_step_range
     pkSeed pkRoot message sig pk sigParsed forsPk specRoot specStep
-    hPk hShape hZero hFors hFold hlen hg3 hgL hLeaf hmRlo hmRlast
+    hPk hR hShape hZero hFors hFold hlen hg3 hgL hLeaf hmRlo hmRlast
     hForsPkWord hLayerStep hSpecFold hWordCmp
 
 /-- Direct seed-cell plus named-root roundtrip form of the final accept adapter.
@@ -1349,6 +1386,7 @@ theorem accept_path_returns_verifyParsed_bool_from_seed_and_named_fors_roots_rou
     (pk : PublicKey) (sigParsed : Signature) (forsPk specRoot : ByteArray)
     (specStep : Nat → ByteArray → ByteArray)
     (hPk : pk = { pkSeed := pkSeed, pkRoot := pkRoot })
+    (hR : sigParsed.R = C13Concrete.read16 sig 0)
     (hShape : signatureShapeOk c13 sigParsed = true)
     (hZero : forcedZeroOk c13
         (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message) = true)
@@ -1422,7 +1460,7 @@ theorem accept_path_returns_verifyParsed_bool_from_seed_and_named_fors_roots_rou
     rw [hForsPkByte, hForsPkRoundtrip]
   exact accept_path_returns_verifyParsed_bool_from_seed_and_named_fors_roots_and_layer_step
     pkSeed pkRoot message sig pk sigParsed forsPk specRoot specStep
-    hPk hShape hZero hFors hFold hlen hg3 hgL hmSeed hmRlo hmRlast
+    hPk hR hShape hZero hFors hFold hlen hg3 hgL hmSeed hmRlo hmRlast
     hForsPkWord hLayerStep hSpecFold hWordCmp
 
 /-! ## Named C13 accept-obligation bundle. -/
@@ -1497,6 +1535,7 @@ theorem accept_path_returns_verifyParsed_bool_from_seed_named_obligations
     (pk : PublicKey) (sigParsed : Signature) (forsPk specRoot : ByteArray)
     (specStep : Nat → ByteArray → ByteArray)
     (hPk : pk = { pkSeed := pkSeed, pkRoot := pkRoot })
+    (hR : sigParsed.R = C13Concrete.read16 sig 0)
     (hShape : signatureShapeOk c13 sigParsed = true)
     (hZero : forcedZeroOk c13
         (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message) = true)
@@ -1515,7 +1554,7 @@ theorem accept_path_returns_verifyParsed_bool_from_seed_named_obligations
         = .return (wordNormalize (boolWord (rootMatchesPk c13 specRoot pk.pkRoot))) finalState := by
   exact accept_path_returns_verifyParsed_bool_from_seed_and_named_fors_roots_roundtrip_and_layer_step
     pkSeed pkRoot message sig pk sigParsed forsPk specRoot specStep
-    hPk hShape hZero hFors hFold hObs.hlen hObs.hg3 hObs.hgL hObs.hmSeed
+    hPk hR hShape hZero hFors hFold hObs.hlen hObs.hg3 hObs.hgL hObs.hmSeed
     hObs.hmRlo hObs.hmRlast hObs.hForsPkRoundtrip hObs.hLayerStep
     hObs.hSpecFold hObs.hWordCmp
 
@@ -2454,6 +2493,7 @@ theorem layerStart_of_seed_named_fors_roots_roundtrip
     (pkSeed pkRoot message sig : ByteArray)
     (pk : PublicKey) (sigParsed : Signature) (forsPk : ByteArray)
     (hPk : pk = { pkSeed := pkSeed, pkRoot := pkRoot })
+    (hR : sigParsed.R = C13Concrete.read16 sig 0)
     (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13 pk
         (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message) sigParsed.fors
           = some forsPk)
@@ -2511,12 +2551,28 @@ theorem layerStart_of_seed_named_fors_roots_roundtrip
         = C13Concrete.wordOfHash16 forsPk := by
     subst hPk
     simpa [digest, C13Concrete.forsPkWordC13] using hForsPkWord
+  have hT :
+      lookupValue (afterFors (mkC13State pkSeed pkRoot message sig)).bindings "idxTree0"
+        = C13Concrete.idxTree0C13 digest := by
+    show _ = C13Concrete.idxTree0C13
+      (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message)
+    rw [hPk, hR]
+    exact CurrentNodeFrame.afterFors_idxTree0_mkC13State pkSeed pkRoot message sig
+  have hLd :
+      lookupValue (afterFors (mkC13State pkSeed pkRoot message sig)).bindings "idxLeaf0"
+        = C13Concrete.idxLeaf0C13 digest := by
+    show _ = C13Concrete.idxLeaf0C13
+      (C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message)
+    rw [hPk, hR]
+    exact CurrentNodeFrame.afterFors_idxLeaf0_mkC13State pkSeed pkRoot message sig
+  have hTlt : C13Concrete.idxTree0C13 digest < 2 ^ 11 :=
+    C13Concrete.idxTree0C13_lt pk sigParsed.R message
   have hForsCompress :
       CurrentNodeFrame.forsPkCompressWord
         (afterFors (mkC13State pkSeed pkRoot message sig)) = wordOfHash16 forsPk := by
     rw [CurrentNodeFrame.forsPkCompressWord_eq_of_afterFors_seed_mkC13State_six_plus_last
       pkSeed pkRoot message sig digest (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)
-      (C13Concrete.forsAllRootsC13_length pk digest sigParsed.fors) hmSeed]
+      (C13Concrete.forsAllRootsC13_length pk digest sigParsed.fors) hT hTlt hLd hmSeed]
     · exact hForsPkCompress
     · intro j hj
       simpa [digest] using hmRlo j hj
@@ -2958,7 +3014,7 @@ structure C13SeedNamedAcceptGuardedPkRootSizeLeafRootObligations
       s.world.calldata
         = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig ∧
       lookupValue s.bindings "authPtr" = sigDataOffset + (128 + 304 * t) ∧
-      lookupValue s.bindings "treeAdrsBase" = base ∧
+      lookupValue s.bindings "forsBase" = base ∧
       base < 2 ^ 256 ∧
       lookupValue s.bindings "pathIdx" < 2 ^ 256
   hNode : ∀ j, (hj : j < 6) →
@@ -2967,17 +3023,17 @@ structure C13SeedNamedAcceptGuardedPkRootSizeLeafRootObligations
         (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
           (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
             { (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
-                { (afterS3 (mkC13State pkSeed pkRoot message sig)) with
+                { (afterForsSetup (mkC13State pkSeed pkRoot message sig)) with
                   bindings :=
-                    bindValue (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+                    bindValue (afterForsSetup (mkC13State pkSeed pkRoot message sig)).bindings
                       "i" (wordNormalize 0) }
                 0 j) with
               bindings :=
                 bindValue
                   (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
-                    { (afterS3 (mkC13State pkSeed pkRoot message sig)) with
+                    { (afterForsSetup (mkC13State pkSeed pkRoot message sig)) with
                       bindings :=
-                        bindValue (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+                        bindValue (afterForsSetup (mkC13State pkSeed pkRoot message sig)).bindings
                           "i" (wordNormalize 0) }
                     0 j).bindings "i" (wordNormalize j) })).bindings "node") =
       (C13Concrete.forsAllRootsC13 { pkSeed := pkSeed, pkRoot := pkRoot }
@@ -3005,7 +3061,7 @@ structure C13SeedNamedAcceptGuardedPkRootSizeSiteRootObligations
       s.world.calldata
         = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig ∧
       lookupValue s.bindings "authPtr" = sigDataOffset + (128 + 304 * t) ∧
-      lookupValue s.bindings "treeAdrsBase" = base ∧
+      lookupValue s.bindings "forsBase" = base ∧
       base < 2 ^ 256 ∧
       lookupValue s.bindings "pathIdx" < 2 ^ 256
   hNode : ∀ j, (hj : j < 6) →
@@ -3014,17 +3070,17 @@ structure C13SeedNamedAcceptGuardedPkRootSizeSiteRootObligations
         (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
           (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
             { (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
-                { (afterS3 (mkC13State pkSeed pkRoot message sig)) with
+                { (afterForsSetup (mkC13State pkSeed pkRoot message sig)) with
                   bindings :=
-                    bindValue (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+                    bindValue (afterForsSetup (mkC13State pkSeed pkRoot message sig)).bindings
                       "i" (wordNormalize 0) }
                 0 j) with
               bindings :=
                 bindValue
                   (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
-                    { (afterS3 (mkC13State pkSeed pkRoot message sig)) with
+                    { (afterForsSetup (mkC13State pkSeed pkRoot message sig)) with
                       bindings :=
-                        bindValue (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+                        bindValue (afterForsSetup (mkC13State pkSeed pkRoot message sig)).bindings
                           "i" (wordNormalize 0) }
                     0 j).bindings "i" (wordNormalize j) })).bindings "node") =
       (C13Concrete.forsAllRootsC13 { pkSeed := pkSeed, pkRoot := pkRoot }
@@ -3090,7 +3146,7 @@ structure C13SeedNamedAcceptConcreteLayerSiteRootObligations
       s.world.calldata
         = headWords pkSeed pkRoot message sig.size ++ bytesToWords sig ∧
       lookupValue s.bindings "authPtr" = sigDataOffset + (128 + 304 * t) ∧
-      lookupValue s.bindings "treeAdrsBase" = base ∧
+      lookupValue s.bindings "forsBase" = base ∧
       base < 2 ^ 256 ∧
       lookupValue s.bindings "pathIdx" < 2 ^ 256
   hNode : ∀ j, (hj : j < 6) →
@@ -3099,17 +3155,17 @@ structure C13SeedNamedAcceptConcreteLayerSiteRootObligations
         (SphincsMinusVerifiers.SegmentS4Fors.forsLeafInnerStep
           (SphincsMinusVerifiers.SegmentS4Fors.forsLeafSetupStep
             { (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
-                { (afterS3 (mkC13State pkSeed pkRoot message sig)) with
+                { (afterForsSetup (mkC13State pkSeed pkRoot message sig)) with
                   bindings :=
-                    bindValue (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+                    bindValue (afterForsSetup (mkC13State pkSeed pkRoot message sig)).bindings
                       "i" (wordNormalize 0) }
                 0 j) with
               bindings :=
                 bindValue
                   (ClimbLoop.foldLoop "i" SphincsMinusVerifiers.SegmentS4Fors.forsLeafStep
-                    { (afterS3 (mkC13State pkSeed pkRoot message sig)) with
+                    { (afterForsSetup (mkC13State pkSeed pkRoot message sig)) with
                       bindings :=
-                        bindValue (afterS3 (mkC13State pkSeed pkRoot message sig)).bindings
+                        bindValue (afterForsSetup (mkC13State pkSeed pkRoot message sig)).bindings
                           "i" (wordNormalize 0) }
                     0 j).bindings "i" (wordNormalize j) })).bindings "node") =
       (C13Concrete.forsAllRootsC13 { pkSeed := pkSeed, pkRoot := pkRoot }
@@ -3380,6 +3436,7 @@ theorem concrete_layer_current_node_two_step_obligations_of_fold_ok_current_node
     · simpa [st, pk, digest, CurrentNodeFrame.c13LayerLoopState1,
         CurrentNodeFrame.c13LayerAfterStep0] using hCurrent1
 
+set_option maxHeartbeats 4000000 in
 /-- Adapter from frozen-calldata/root-node obligations to the older accept
 bundle with explicit FORS root-cell equalities. -/
 theorem seed_named_leaf_obligations_of_leaf_root_obligations
@@ -3393,9 +3450,25 @@ theorem seed_named_leaf_obligations_of_leaf_root_obligations
         pkSeed pkRoot message sig sigParsed forsPk specRoot specStep := by
   let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
   let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
+  have hbaseF :
+      lookupValue (afterFors (mkC13State pkSeed pkRoot message sig)).bindings "forsBase"
+        = C13Concrete.adrsForsBase
+            (C13Concrete.idxTree0C13 digest) (C13Concrete.idxLeaf0C13 digest) := by
+    show lookupValue (afterFors (mkC13State pkSeed pkRoot message sig)).bindings "forsBase"
+        = C13Concrete.adrsForsBase
+            (C13Concrete.idxTree0C13
+              (C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message))
+            (C13Concrete.idxLeaf0C13
+              (C13Concrete.c13PrimitivesConcrete.hMsg c13
+                { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message))
+    rw [C13Concrete.parseSignatureC13_R hParse]
+    exact CurrentNodeFrame.afterFors_forsBase_mkC13State pkSeed pkRoot message sig
+  have hTlt : C13Concrete.idxTree0C13 digest < 2 ^ 11 :=
+    C13Concrete.idxTree0C13_lt pk sigParsed.R message
   have hRoots :=
     CurrentNodeFrame.rootCells_eq_forsAllRootsC13_of_fors_frozen_calldata_nodes_and_parse_range_seed
-      pk digest message sig hParse hObs.hSite hObs.hNode hObs.hLeaf
+      pk digest message sig hParse hbaseF hTlt hObs.hSite hObs.hNode hObs.hLeaf
   exact
     { hLayerGuardStep := hObs.hLayerGuardStep
       hLeaf := hObs.hLeaf
@@ -3493,7 +3566,7 @@ theorem accept_path_returns_verifyParsed_bool_from_seed_named_data_obligations_o
         = .return (wordNormalize (boolWord (rootMatchesPk c13 specRoot pk.pkRoot))) finalState := by
   refine accept_path_returns_verifyParsed_bool_from_seed_named_obligations
     pkSeed pkRoot message sig pk sigParsed forsPk specRoot specStep
-    hPk hShape hZero hFors hFold ?_
+    hPk (C13Concrete.parseSignatureC13_R hParse) hShape hZero hFors hFold ?_
   exact
     { hlen := c13_sig_length_of_parseSignatureC13 pkSeed pkRoot message sig sigParsed hParse
       hg3 := hObs.hg3
@@ -3606,7 +3679,8 @@ theorem accept_path_returns_verifyParsed_bool_from_seed_named_guarded_obligation
     hPk hParse hShape hZero hFors hFold ?_
   exact
     { hLayerStart := layerStart_of_seed_named_fors_roots_roundtrip
-        pkSeed pkRoot message sig pk sigParsed forsPk hPk hFors hObs.hmSeed
+        pkSeed pkRoot message sig pk sigParsed forsPk hPk
+        (C13Concrete.parseSignatureC13_R hParse) hFors hObs.hmSeed
         hObs.hmRlo hObs.hmRlast hObs.hForsPkRoundtrip
       hLayerGuardStep := hObs.hLayerGuardStep
       hmSeed := hObs.hmSeed
@@ -4029,11 +4103,31 @@ theorem accept_path_returns_verifyParsed_bool_from_concrete_layer_current_node_t
       C13Concrete.forsPkWordC13 pk digest sigParsed.fors = wordOfHash16 forsPk := by
     rw [hForsPkByte]
     exact (forsPkWordC13_roundtrip pk digest sigParsed.fors).symm
+  have hTd :
+      lookupValue (afterFors (mkC13State pkSeed pkRoot message sig)).bindings "idxTree0"
+        = C13Concrete.idxTree0C13 digest := by
+    show lookupValue (afterFors (mkC13State pkSeed pkRoot message sig)).bindings "idxTree0"
+        = C13Concrete.idxTree0C13
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+    rw [C13Concrete.parseSignatureC13_R hParse]
+    exact CurrentNodeFrame.afterFors_idxTree0_mkC13State pkSeed pkRoot message sig
+  have hLd :
+      lookupValue (afterFors (mkC13State pkSeed pkRoot message sig)).bindings "idxLeaf0"
+        = C13Concrete.idxLeaf0C13 digest := by
+    show lookupValue (afterFors (mkC13State pkSeed pkRoot message sig)).bindings "idxLeaf0"
+        = C13Concrete.idxLeaf0C13
+            (C13Concrete.c13PrimitivesConcrete.hMsg c13
+              { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+    rw [C13Concrete.parseSignatureC13_R hParse]
+    exact CurrentNodeFrame.afterFors_idxLeaf0_mkC13State pkSeed pkRoot message sig
+  have hTltd : C13Concrete.idxTree0C13 digest < 2 ^ 11 :=
+    C13Concrete.idxTree0C13_lt pk sigParsed.R message
   have hForsCompress :
       CurrentNodeFrame.forsPkCompressWord (afterFors st) = wordOfHash16 forsPk := by
     rw [CurrentNodeFrame.forsPkCompressWord_eq_of_afterFors_concrete_mkC13State_six_plus_last
       pkSeed pkRoot message sig digest (C13Concrete.forsAllRootsC13 pk digest sigParsed.fors)
-      (C13Concrete.forsAllRootsC13_length pk digest sigParsed.fors)]
+      (C13Concrete.forsAllRootsC13_length pk digest sigParsed.fors) hTd hTltd hLd]
     · simpa [pk, digest, C13Concrete.forsPkWordC13] using hForsPkWord
     · intro j hj
       simpa [pk, digest] using hRoots.1 j hj

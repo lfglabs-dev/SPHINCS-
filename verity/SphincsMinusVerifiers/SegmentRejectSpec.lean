@@ -165,9 +165,13 @@ theorem c13_body_reverts_on_layer_first_guard
       = .continue (afterS3 st)
     rw [SegmentS3.execSegmentS3, if_pos hg3]; rfl
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ hS3]
-  have hFors : execStmtList [] (afterS3 st) [SegmentS4Fors.forsOuterStmt]
+  have hSetup : execStmtList [] (afterS3 st) SegmentForsSetup.forsSetupBody
+      = .continue (afterForsSetup st) :=
+    SegmentForsSetup.execForsSetup (afterS3 st)
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ hSetup]
+  have hFors : execStmtList [] (afterForsSetup st) [SegmentS4Fors.forsOuterStmt]
       = .continue (afterFors st) :=
-    execSingleton_continue _ _ _ (SegmentS4Fors.execForsOuter (afterS3 st))
+    execSingleton_continue _ _ _ (SegmentS4Fors.execForsOuter (afterForsSetup st))
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ hFors]
   have hFin : execStmtList [] (afterFors st) SegmentS4Finalize.forsFinalizeBody
       = .continue (afterFinalize st) :=
@@ -212,9 +216,13 @@ theorem c13_body_reverts_on_layer_second_guard
       = .continue (afterS3 st)
     rw [SegmentS3.execSegmentS3, if_pos hg3]; rfl
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ hS3]
-  have hFors : execStmtList [] (afterS3 st) [SegmentS4Fors.forsOuterStmt]
+  have hSetup : execStmtList [] (afterS3 st) SegmentForsSetup.forsSetupBody
+      = .continue (afterForsSetup st) :=
+    SegmentForsSetup.execForsSetup (afterS3 st)
+  rw [MemoryKit.execStmtList_append_continue _ _ _ _ hSetup]
+  have hFors : execStmtList [] (afterForsSetup st) [SegmentS4Fors.forsOuterStmt]
       = .continue (afterFors st) :=
-    execSingleton_continue _ _ _ (SegmentS4Fors.execForsOuter (afterS3 st))
+    execSingleton_continue _ _ _ (SegmentS4Fors.execForsOuter (afterForsSetup st))
   rw [MemoryKit.execStmtList_append_continue _ _ _ _ hFors]
   have hFin : execStmtList [] (afterFors st) SegmentS4Finalize.forsFinalizeBody
       = .continue (afterFinalize st) :=

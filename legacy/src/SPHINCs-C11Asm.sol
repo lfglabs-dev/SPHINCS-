@@ -36,21 +36,38 @@ contract SphincsC11Asm {
             let htIdx := and(shr(143, digest), 0xFFFF)
 
             // FORS+C (K=13, A=11)
+            //
+            // FORS addressing — exact FIPS 205 FORS field split (matches C12,
+            // SPHINCs-C12Asm.sol:80) in the JARDIN layout —
+            //   tree address      = idxTree0 = htIdx >> SUBTREE_H (bottom subtree)
+            //   kp                 = idxLeaf0 = htIdx & (2^SUBTREE_H-1) (bottom leaf)
+            //   ha/tree_index      = (forsTree << (A-height)) | node  (k FORS trees
+            //                        indexed as one forest, FIPS 205 Alg. 17)
+            //   cp/tree_height     = height
+            // so each of the 2^h hypertree leaves selects a distinct FORS
+            // instance. The signer mirrors this and derives the leaf secrets
+            // from the same leaf.
             let dVal := digest
             // Forced-zero: last index (i=12) at bits 132..142
             if and(shr(132, dVal), 0x7FF) { revert(0, 0) }
 
             let sigBase := sig.offset
+            // SUBTREE_H = 8 (h/d = 16/2): split htIdx into bottom subtree + leaf.
+            let idxLeaf0 := and(htIdx, 0xFF)
+            let idxTree0 := shr(8, htIdx)
+            // forsBase: tree=idxTree0 (shl 160), type=3 (shl 128), kp=idxLeaf0 (shl 96).
+            // Per-site we OR in cp=height (shl 32) and ha=tree_index (shl 0).
+            let forsBase := or(shl(160, idxTree0), or(shl(128, 3), shl(96, idxLeaf0)))
             // K-1=12 normal trees
             for { let i := 0 } lt(i, 12) { i := add(i, 1) } {
                 let treeIdx := and(shr(mul(i, 11), dVal), 0x7FF) // 11-bit indices
                 let secretVal := and(calldataload(add(sigBase, add(16, shl(4, i)))), N_MASK)
-                let leafAdrs := or(shl(128, 3), or(shl(96, i), treeIdx))
+                // Leaf hash (height 0): ha = (i << A) | treeIdx, A=11
+                let leafAdrs := or(forsBase, or(shl(11, i), treeIdx))
                 mstore(0x20, leafAdrs)
                 mstore(0x40, secretVal)
                 let node := and(keccak256(0x00, 0x60), N_MASK)
 
-                let treeAdrsBase := or(shl(128, 3), shl(96, i))
                 let pathIdx := treeIdx
                 // AUTH_START=224, auth per tree = 11*16 = 176
                 let authPtr := add(sigBase, add(224, mul(i, 176)))
@@ -59,7 +76,8 @@ contract SphincsC11Asm {
                 for { let h := 0 } lt(h, 11) { h := add(h, 1) } {
                     let sibling := and(calldataload(add(authPtr, shl(4, h))), N_MASK)
                     let parentIdx := shr(1, pathIdx)
-                    mstore(0x20, or(treeAdrsBase, or(shl(32, add(h, 1)), parentIdx)))
+                    // cp=height=h+1; ha = (i << (A-1-h)) | parentIdx, A-1=10
+                    mstore(0x20, or(forsBase, or(shl(32, add(h, 1)), or(shl(sub(10, h), i), parentIdx))))
                     // Branchless Merkle swap
                     let s := shl(5, and(pathIdx, 1))
                     mstore(xor(0x40, s), node)
@@ -73,15 +91,17 @@ contract SphincsC11Asm {
             // Last tree (forced-zero)
             {
                 let lastSecret := and(calldataload(add(sigBase, add(16, shl(4, 12)))), N_MASK) // 16+12*16=208
-                mstore(0x20, or(shl(128, 3), shl(96, 12)))
+                // Forced-zero tree (forsTree=12) as leaf node 0: ha = (12 << A)
+                mstore(0x20, or(forsBase, shl(11, 12)))
                 mstore(0x40, lastSecret)
                 // 0x80 + 12*0x20 = 0x80 + 0x180 = 0x200
                 mstore(0x200, and(keccak256(0x00, 0x60), N_MASK))
             }
 
             // Compress 13 roots: keccak256(seed || rootsAdrs || 13 roots)
+            // FORS_ROOTS: tree=idxTree0 (shl 160), type=4 (shl 128), kp=idxLeaf0 (shl 96).
             // = 32 + 32 + 13*32 = 480 = 0x1E0
-            mstore(0x20, shl(128, 4))
+            mstore(0x20, or(shl(160, idxTree0), or(shl(128, 4), shl(96, idxLeaf0))))
             for { let i := 0 } lt(i, 13) { i := add(i, 1) } {
                 mstore(add(0x40, shl(5, i)), mload(add(0x80, shl(5, i))))
             }

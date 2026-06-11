@@ -51,6 +51,126 @@ private theorem assignVar_continue
 
 /-! ## 1. The branchless-Merkle scratch memory function. -/
 
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_memory
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).world.memory
+      = MemoryKit.memUpdate
+          (MemoryKit.memUpdate
+            (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode)
+          o6 vsib2 := by
+  -- statement 1: letVar "sibling"
+  have hs1 := MemoryKit.execStmt_letVar_continue st "sibling" _ vsib h1
+  set st1 : RuntimeState :=
+    { st with bindings := bindValue st.bindings "sibling" vsib } with hst1
+  -- statement 2: letVar "parentIdx"
+  have hs2 := MemoryKit.execStmt_letVar_continue st1 "parentIdx" _ vpar h2
+  set st2 : RuntimeState :=
+    { st1 with bindings := bindValue st1.bindings "parentIdx" vpar } with hst2
+  -- statement 3: mstore 0x20
+  have hoff3 : evalExpr [] st2 (.literal 0x20) = some 0x20 := rfl
+  have hs3 := MemoryKit.execStmt_mstore_continue st2 (.literal 0x20) _ 0x20 vadr hoff3 h3
+  set st3 : RuntimeState :=
+    { st2 with world := { st2.world with memory := MemoryKit.memUpdate st2.world.memory 0x20 vadr } }
+    with hst3
+  -- statement 4: letVar "s"
+  have hs4 := MemoryKit.execStmt_letVar_continue st3 "s" _ sval h4
+  set st4 : RuntimeState :=
+    { st3 with bindings := bindValue st3.bindings "s" sval } with hst4
+  -- statement 5: mstore (xor 0x40 s) node
+  have hs5 := MemoryKit.execStmt_mstore_continue st4 (.bitXor (.literal 0x40) (.localVar "s")) _
+      o5 vnode h5off h5val
+  set st5 : RuntimeState :=
+    { st4 with world := { st4.world with memory := MemoryKit.memUpdate st4.world.memory o5 vnode } }
+    with hst5
+  -- statement 6: mstore (xor 0x60 s) sibling
+  have hs6 := MemoryKit.execStmt_mstore_continue st5 (.bitXor (.literal 0x60) (.localVar "s")) _
+      o6 vsib2 h6off h6val
+  set st6 : RuntimeState :=
+    { st5 with world := { st5.world with memory := MemoryKit.memUpdate st5.world.memory o6 vsib2 } }
+    with hst6
+  -- statement 7: assignVar nodeVar (and (keccak …) N_MASK) — memory untouched
+  set kv : Nat := (Verity.Core.Uint256.and (keccakMemorySlice st6.world.memory (wordNormalize 0x00) (wordNormalize 0x80)) (wordNormalize N_MASK)).val with hkv
+  have hval7 : evalExpr [] st6
+      (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
+      = some kv := rfl
+  have hs7 := assignVar_continue st6 nodeVar _ _ hval7
+  set st7 : RuntimeState :=
+    { st6 with bindings := bindValue st6.bindings nodeVar kv } with hst7
+  -- statement 8: assignVar idxVar parentIdx — memory untouched
+  have hval8 : evalExpr [] st7 (.localVar "parentIdx")
+      = some (lookupValue st7.bindings "parentIdx") := rfl
+  have hs8 := assignVar_continue st7 idxVar _ _ hval8
+  -- Thread all eight statements through `stepMerkle`.
+  show (match execStmtList [] st
+          (ClimbKit.merkleClimbBodyA nodeVar idxVar authPtrVar adrsE) with
+        | .continue s' => s' | _ => st).world.memory = _
+  show (match execStmtList [] st
+          ([ Stmt.letVar "sibling"
+              (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+                (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK))
+           , Stmt.letVar "parentIdx" (.shr (.literal 1) (.localVar idxVar))
+           , Stmt.mstore (.literal 0x20) adrsE
+           , Stmt.letVar "s" (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1)))
+           , Stmt.mstore (.bitXor (.literal 0x40) (.localVar "s")) (.localVar nodeVar)
+           , Stmt.mstore (.bitXor (.literal 0x60) (.localVar "s")) (.localVar "sibling")
+           , Stmt.assignVar nodeVar
+              (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
+           , Stmt.assignVar idxVar (.localVar "parentIdx") ]) with
+        | .continue s' => s' | _ => st).world.memory = _
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs1]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs2]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs3]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs4]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs5]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs6]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs7]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs8]
+  -- `execStmtList [] _ [] = .continue _`; the assignVars left memory at st6's.
+  show st6.world.memory = _
+  rfl
+
 /-- **`stepMerkle_memory`** — the memory of the state after one branchless-Merkle
 climb body is the base memory with the three writes `0x20 ↦ vadr`, `o5 ↦ vnode`,
 `o6 ↦ vsib` applied in order, where `vadr` is the resolved address word, `o5/o6`
@@ -110,7 +230,64 @@ theorem stepMerkle_memory
       = MemoryKit.memUpdate
           (MemoryKit.memUpdate
             (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode)
-          o6 vsib2 := by
+          o6 vsib2 :=
+  stepMerkleA_memory nodeVar idxVar authPtrVar (ClimbKit.xmssAdrs adrsBaseVar) st
+    vsib vpar vadr sval o5 vnode o6 vsib2 h1 h2 h3 h4 h5off h5val h6off h6val
+
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_node_binding
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (hne : nodeVar ≠ idxVar)
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    lookupValue (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings nodeVar
+      = (Verity.Core.Uint256.and
+          (keccakMemorySlice
+            (MemoryKit.memUpdate
+              (MemoryKit.memUpdate
+                (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode)
+              o6 vsib2)
+            (wordNormalize 0x00) (wordNormalize 0x80))
+          (wordNormalize N_MASK)).val := by
   -- statement 1: letVar "sibling"
   have hs1 := MemoryKit.execStmt_letVar_continue st "sibling" _ vsib h1
   set st1 : RuntimeState :=
@@ -153,26 +330,23 @@ theorem stepMerkle_memory
   have hval8 : evalExpr [] st7 (.localVar "parentIdx")
       = some (lookupValue st7.bindings "parentIdx") := rfl
   have hs8 := assignVar_continue st7 idxVar _ _ hval8
-  -- Thread all eight statements through `stepMerkle`.
-  show (match execStmtList [] st
-          (merkleClimbBody nodeVar idxVar adrsBaseVar authPtrVar) with
-        | .continue s' => s' | _ => st).world.memory = _
-  show (match execStmtList [] st
+  -- Thread all eight statements through `stepMerkle`, projecting the binding.
+  show lookupValue (match execStmtList [] st
+          (ClimbKit.merkleClimbBodyA nodeVar idxVar authPtrVar adrsE) with
+        | .continue s' => s' | _ => st).bindings nodeVar = _
+  show lookupValue (match execStmtList [] st
           ([ Stmt.letVar "sibling"
               (.bitAnd (.calldataload (.add (.localVar authPtrVar)
                 (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK))
            , Stmt.letVar "parentIdx" (.shr (.literal 1) (.localVar idxVar))
-           , Stmt.mstore (.literal 0x20)
-              (.bitOr (.localVar adrsBaseVar)
-                (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
-                  (.localVar "parentIdx")))
+           , Stmt.mstore (.literal 0x20) adrsE
            , Stmt.letVar "s" (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1)))
            , Stmt.mstore (.bitXor (.literal 0x40) (.localVar "s")) (.localVar nodeVar)
            , Stmt.mstore (.bitXor (.literal 0x60) (.localVar "s")) (.localVar "sibling")
            , Stmt.assignVar nodeVar
               (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
            , Stmt.assignVar idxVar (.localVar "parentIdx") ]) with
-        | .continue s' => s' | _ => st).world.memory = _
+        | .continue s' => s' | _ => st).bindings nodeVar = _
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs1]
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs2]
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs3]
@@ -181,9 +355,13 @@ theorem stepMerkle_memory
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs6]
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs7]
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs8]
-  -- `execStmtList [] _ [] = .continue _`; the assignVars left memory at st6's.
-  show st6.world.memory = _
-  rfl
+  -- After stmt 8 the bindings are `bindValue (bindValue st6.bindings nodeVar kv)
+  -- idxVar (…)`; reading `nodeVar` skips the idxVar bind (hne) then hits kv.
+  show lookupValue
+      (bindValue (bindValue st6.bindings nodeVar kv) idxVar
+        (lookupValue st7.bindings "parentIdx")) nodeVar = _
+  rw [MemoryKit.lookupValue_bindValue_ne _ idxVar nodeVar _ (Ne.symm hne),
+      MemoryKit.lookupValue_bindValue_self]
 
 /-- **`stepMerkle_node_binding`** — the binding-projection companion to
 `stepMerkle_memory`.  Statement 7 (`assignVar nodeVar (and (keccak 0x00 0x80)
@@ -253,7 +431,57 @@ theorem stepMerkle_node_binding
                 (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode)
               o6 vsib2)
             (wordNormalize 0x00) (wordNormalize 0x80))
-          (wordNormalize N_MASK)).val := by
+          (wordNormalize N_MASK)).val :=
+  stepMerkleA_node_binding nodeVar idxVar authPtrVar (ClimbKit.xmssAdrs adrsBaseVar) st
+    vsib vpar vadr sval o5 vnode o6 vsib2 hne h1 h2 h3 h4 h5off h5val h6off h6val
+
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_idx_binding
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (hne2 : nodeVar ≠ "parentIdx")
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    lookupValue (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings idxVar
+      = vpar := by
   -- statement 1: letVar "sibling"
   have hs1 := MemoryKit.execStmt_letVar_continue st "sibling" _ vsib h1
   set st1 : RuntimeState :=
@@ -292,30 +520,35 @@ theorem stepMerkle_node_binding
   have hs7 := assignVar_continue st6 nodeVar _ _ hval7
   set st7 : RuntimeState :=
     { st6 with bindings := bindValue st6.bindings nodeVar kv } with hst7
+  -- The `"parentIdx"` binding survives every later write, so it is still `vpar`.
+  have hpval : lookupValue st7.bindings "parentIdx" = vpar := by
+    show lookupValue
+        (bindValue (bindValue (bindValue (bindValue st.bindings "sibling" vsib)
+          "parentIdx" vpar) "s" sval) nodeVar kv) "parentIdx" = vpar
+    rw [MemoryKit.lookupValue_bindValue_ne _ nodeVar "parentIdx" _ hne2,
+        MemoryKit.lookupValue_bindValue_ne _ "s" "parentIdx" _ (by decide),
+        MemoryKit.lookupValue_bindValue_self]
   -- statement 8: assignVar idxVar parentIdx — memory untouched
   have hval8 : evalExpr [] st7 (.localVar "parentIdx")
       = some (lookupValue st7.bindings "parentIdx") := rfl
   have hs8 := assignVar_continue st7 idxVar _ _ hval8
   -- Thread all eight statements through `stepMerkle`, projecting the binding.
   show lookupValue (match execStmtList [] st
-          (merkleClimbBody nodeVar idxVar adrsBaseVar authPtrVar) with
-        | .continue s' => s' | _ => st).bindings nodeVar = _
+          (ClimbKit.merkleClimbBodyA nodeVar idxVar authPtrVar adrsE) with
+        | .continue s' => s' | _ => st).bindings idxVar = _
   show lookupValue (match execStmtList [] st
           ([ Stmt.letVar "sibling"
               (.bitAnd (.calldataload (.add (.localVar authPtrVar)
                 (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK))
            , Stmt.letVar "parentIdx" (.shr (.literal 1) (.localVar idxVar))
-           , Stmt.mstore (.literal 0x20)
-              (.bitOr (.localVar adrsBaseVar)
-                (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
-                  (.localVar "parentIdx")))
+           , Stmt.mstore (.literal 0x20) adrsE
            , Stmt.letVar "s" (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1)))
            , Stmt.mstore (.bitXor (.literal 0x40) (.localVar "s")) (.localVar nodeVar)
            , Stmt.mstore (.bitXor (.literal 0x60) (.localVar "s")) (.localVar "sibling")
            , Stmt.assignVar nodeVar
               (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
            , Stmt.assignVar idxVar (.localVar "parentIdx") ]) with
-        | .continue s' => s' | _ => st).bindings nodeVar = _
+        | .continue s' => s' | _ => st).bindings idxVar = _
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs1]
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs2]
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs3]
@@ -324,13 +557,12 @@ theorem stepMerkle_node_binding
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs6]
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs7]
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs8]
-  -- After stmt 8 the bindings are `bindValue (bindValue st6.bindings nodeVar kv)
-  -- idxVar (…)`; reading `nodeVar` skips the idxVar bind (hne) then hits kv.
+  -- After stmt 8 the `idxVar` binding is `lookupValue st7.bindings "parentIdx"` = vpar.
   show lookupValue
       (bindValue (bindValue st6.bindings nodeVar kv) idxVar
-        (lookupValue st7.bindings "parentIdx")) nodeVar = _
-  rw [MemoryKit.lookupValue_bindValue_ne _ idxVar nodeVar _ (Ne.symm hne),
-      MemoryKit.lookupValue_bindValue_self]
+        (lookupValue st7.bindings "parentIdx")) idxVar = _
+  rw [MemoryKit.lookupValue_bindValue_self]
+  exact hpval
 
 /-- **`stepMerkle_idx_binding`** — the index-component (`.1`) twin of
 `stepMerkle_node_binding`.  Statement 2 binds `"parentIdx"` to `vpar` (the
@@ -391,91 +623,9 @@ theorem stepMerkle_idx_binding
                 bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
             (.localVar "sibling") = some vsib2) :
     lookupValue (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar st).bindings idxVar
-      = vpar := by
-  -- statement 1: letVar "sibling"
-  have hs1 := MemoryKit.execStmt_letVar_continue st "sibling" _ vsib h1
-  set st1 : RuntimeState :=
-    { st with bindings := bindValue st.bindings "sibling" vsib } with hst1
-  -- statement 2: letVar "parentIdx"
-  have hs2 := MemoryKit.execStmt_letVar_continue st1 "parentIdx" _ vpar h2
-  set st2 : RuntimeState :=
-    { st1 with bindings := bindValue st1.bindings "parentIdx" vpar } with hst2
-  -- statement 3: mstore 0x20
-  have hoff3 : evalExpr [] st2 (.literal 0x20) = some 0x20 := rfl
-  have hs3 := MemoryKit.execStmt_mstore_continue st2 (.literal 0x20) _ 0x20 vadr hoff3 h3
-  set st3 : RuntimeState :=
-    { st2 with world := { st2.world with memory := MemoryKit.memUpdate st2.world.memory 0x20 vadr } }
-    with hst3
-  -- statement 4: letVar "s"
-  have hs4 := MemoryKit.execStmt_letVar_continue st3 "s" _ sval h4
-  set st4 : RuntimeState :=
-    { st3 with bindings := bindValue st3.bindings "s" sval } with hst4
-  -- statement 5: mstore (xor 0x40 s) node
-  have hs5 := MemoryKit.execStmt_mstore_continue st4 (.bitXor (.literal 0x40) (.localVar "s")) _
-      o5 vnode h5off h5val
-  set st5 : RuntimeState :=
-    { st4 with world := { st4.world with memory := MemoryKit.memUpdate st4.world.memory o5 vnode } }
-    with hst5
-  -- statement 6: mstore (xor 0x60 s) sibling
-  have hs6 := MemoryKit.execStmt_mstore_continue st5 (.bitXor (.literal 0x60) (.localVar "s")) _
-      o6 vsib2 h6off h6val
-  set st6 : RuntimeState :=
-    { st5 with world := { st5.world with memory := MemoryKit.memUpdate st5.world.memory o6 vsib2 } }
-    with hst6
-  -- statement 7: assignVar nodeVar (and (keccak …) N_MASK) — memory untouched
-  set kv : Nat := (Verity.Core.Uint256.and (keccakMemorySlice st6.world.memory (wordNormalize 0x00) (wordNormalize 0x80)) (wordNormalize N_MASK)).val with hkv
-  have hval7 : evalExpr [] st6
-      (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
-      = some kv := rfl
-  have hs7 := assignVar_continue st6 nodeVar _ _ hval7
-  set st7 : RuntimeState :=
-    { st6 with bindings := bindValue st6.bindings nodeVar kv } with hst7
-  -- The `"parentIdx"` binding survives every later write, so it is still `vpar`.
-  have hpval : lookupValue st7.bindings "parentIdx" = vpar := by
-    show lookupValue
-        (bindValue (bindValue (bindValue (bindValue st.bindings "sibling" vsib)
-          "parentIdx" vpar) "s" sval) nodeVar kv) "parentIdx" = vpar
-    rw [MemoryKit.lookupValue_bindValue_ne _ nodeVar "parentIdx" _ hne2,
-        MemoryKit.lookupValue_bindValue_ne _ "s" "parentIdx" _ (by decide),
-        MemoryKit.lookupValue_bindValue_self]
-  -- statement 8: assignVar idxVar parentIdx — memory untouched
-  have hval8 : evalExpr [] st7 (.localVar "parentIdx")
-      = some (lookupValue st7.bindings "parentIdx") := rfl
-  have hs8 := assignVar_continue st7 idxVar _ _ hval8
-  -- Thread all eight statements through `stepMerkle`, projecting the binding.
-  show lookupValue (match execStmtList [] st
-          (merkleClimbBody nodeVar idxVar adrsBaseVar authPtrVar) with
-        | .continue s' => s' | _ => st).bindings idxVar = _
-  show lookupValue (match execStmtList [] st
-          ([ Stmt.letVar "sibling"
-              (.bitAnd (.calldataload (.add (.localVar authPtrVar)
-                (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK))
-           , Stmt.letVar "parentIdx" (.shr (.literal 1) (.localVar idxVar))
-           , Stmt.mstore (.literal 0x20)
-              (.bitOr (.localVar adrsBaseVar)
-                (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
-                  (.localVar "parentIdx")))
-           , Stmt.letVar "s" (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1)))
-           , Stmt.mstore (.bitXor (.literal 0x40) (.localVar "s")) (.localVar nodeVar)
-           , Stmt.mstore (.bitXor (.literal 0x60) (.localVar "s")) (.localVar "sibling")
-           , Stmt.assignVar nodeVar
-              (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
-           , Stmt.assignVar idxVar (.localVar "parentIdx") ]) with
-        | .continue s' => s' | _ => st).bindings idxVar = _
-  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs1]
-  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs2]
-  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs3]
-  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs4]
-  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs5]
-  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs6]
-  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs7]
-  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs8]
-  -- After stmt 8 the `idxVar` binding is `lookupValue st7.bindings "parentIdx"` = vpar.
-  show lookupValue
-      (bindValue (bindValue st6.bindings nodeVar kv) idxVar
-        (lookupValue st7.bindings "parentIdx")) idxVar = _
-  rw [MemoryKit.lookupValue_bindValue_self]
-  exact hpval
+      = vpar :=
+  stepMerkleA_idx_binding nodeVar idxVar authPtrVar (ClimbKit.xmssAdrs adrsBaseVar) st
+    vsib vpar vadr sval o5 vnode o6 vsib2 hne2 h1 h2 h3 h4 h5off h5val h6off h6val
 
 /-- **`stepMerkle_sibling_reread_eq`** — the sibling value re-read in statement 6
 (`vsib2`, from `mstore (xor 0x60 s) (localVar "sibling")`) is structurally the
@@ -781,6 +931,77 @@ The parity is supplied as the resolved child-slot offsets `o5/o6`
 per-step accumulator-component the `foldLoop` relation `R` carries; no keccak is
 unfolded, no new axioms. -/
 
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_node_value_spec_even
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (seed adrs node sibling : Nat)
+    (hne : nodeVar ≠ idxVar) (ho5 : o5 = 0x40) (ho6 : o6 = 0x60)
+    (hseed : (st.world.memory 0x00).val = seed)
+    (hadr : wordNormalize vadr = adrs)
+    (hnode : wordNormalize vnode = node)
+    (hsib : wordNormalize vsib2 = sibling)
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    lookupValue (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings nodeVar
+      = maskN (keccakWords [seed, adrs, node, sibling]) := by
+  rw [stepMerkleA_node_binding nodeVar idxVar authPtrVar adrsE st
+        vsib vpar vadr sval o5 vnode o6 vsib2 hne h1 h2 h3 h4 h5off h5val h6off h6val,
+      ho5, ho6]
+  -- The masked-keccak *value* over the even triple-write window equals the spec
+  -- preimage's `node'`, via the `evalExpr`-level `merkle_keccak_value_spec_even`.
+  set st' : RuntimeState :=
+    { st with world := { st.world with memory :=
+        (MemoryKit.memUpdate
+          (MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) 0x40 vnode)
+          0x60 vsib2) } } with hst'
+  have hval : evalExpr [] st'
+      (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
+      = some (Verity.Core.Uint256.and
+          (keccakMemorySlice st'.world.memory (wordNormalize 0x00) (wordNormalize 0x80))
+          (wordNormalize N_MASK)).val := rfl
+  have hspec := merkle_keccak_value_spec_even st' st.world.memory vadr vnode vsib2
+      seed adrs node sibling rfl hseed hadr hnode hsib
+  exact Option.some.inj (hval.symm.trans hspec)
+
 /-- **Even-parity per-step node output = spec `node'`.** -/
 theorem stepMerkle_node_value_spec_even
     (nodeVar idxVar adrsBaseVar authPtrVar : String)
@@ -850,6 +1071,75 @@ theorem stepMerkle_node_value_spec_even
           (keccakMemorySlice st'.world.memory (wordNormalize 0x00) (wordNormalize 0x80))
           (wordNormalize N_MASK)).val := rfl
   have hspec := merkle_keccak_value_spec_even st' st.world.memory vadr vnode vsib2
+      seed adrs node sibling rfl hseed hadr hnode hsib
+  exact Option.some.inj (hval.symm.trans hspec)
+
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_node_value_spec_odd
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (seed adrs node sibling : Nat)
+    (hne : nodeVar ≠ idxVar) (ho5 : o5 = 0x60) (ho6 : o6 = 0x40)
+    (hseed : (st.world.memory 0x00).val = seed)
+    (hadr : wordNormalize vadr = adrs)
+    (hnode : wordNormalize vnode = node)
+    (hsib : wordNormalize vsib2 = sibling)
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    lookupValue (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings nodeVar
+      = maskN (keccakWords [seed, adrs, sibling, node]) := by
+  rw [stepMerkleA_node_binding nodeVar idxVar authPtrVar adrsE st
+        vsib vpar vadr sval o5 vnode o6 vsib2 hne h1 h2 h3 h4 h5off h5val h6off h6val,
+      ho5, ho6]
+  set st' : RuntimeState :=
+    { st with world := { st.world with memory :=
+        (MemoryKit.memUpdate
+          (MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) 0x60 vnode)
+          0x40 vsib2) } } with hst'
+  have hval : evalExpr [] st'
+      (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
+      = some (Verity.Core.Uint256.and
+          (keccakMemorySlice st'.world.memory (wordNormalize 0x00) (wordNormalize 0x80))
+          (wordNormalize N_MASK)).val := rfl
+  have hspec := merkle_keccak_value_spec_odd st' st.world.memory vadr vnode vsib2
       seed adrs node sibling rfl hseed hadr hnode hsib
   exact Option.some.inj (hval.symm.trans hspec)
 
@@ -961,6 +1251,36 @@ theorem xmssClimb_eq_specFold
       simp only [xmssClimb, ClimbLoop.specFold_succ, merkleSpecStep]
       exact xmssClimb_eq_specFold seed treeAdrs auth fuel (h + 1) (mIdx / 2) _
 
+/-- One spec FORS-climb step on the `(pathIdx, node)` accumulator: per the FIPS
+205 layout the per-level address is `adrsForsNode t0 l0 i h parentIdx` (the
+`i <<< (18 - h)` tree-number fold makes it `h`-dependent, so the FORS climb is
+*not* `merkleSpecStep` at a fixed base; the `t0`/`l0` digits are the
+hypertree-leaf field split carried by the hoisted `forsBase`).  Verbatim image
+of the `forsClimb` loop body. -/
+def forsSpecStep (seed i t0 l0 : Nat) (auth : List SphincsMinusVerifierSpec.Bytes) :
+    Nat → (Nat × Nat) → (Nat × Nat)
+  | h, (pathIdx, node) =>
+    let sibling := wordOfHash16 ((auth[h]?).getD ⟨#[]⟩)
+    let parentIdx := pathIdx / 2
+    let adrs := SphincsMinusVerifierSpec.C13Concrete.adrsForsNode t0 l0 i h parentIdx
+    let node' :=
+      if pathIdx % 2 == 0 then maskN (keccakWords [seed, adrs, node, sibling])
+      else maskN (keccakWords [seed, adrs, sibling, node])
+    (parentIdx, node')
+
+theorem forsClimb_eq_specFold
+    (seed i t0 l0 : Nat) (auth : List SphincsMinusVerifierSpec.Bytes) :
+    ∀ (fuel h pathIdx node : Nat),
+      SphincsMinusVerifierSpec.C13Concrete.forsClimb seed i t0 l0 fuel h pathIdx node auth
+        = (ClimbLoop.specFold (forsSpecStep seed i t0 l0 auth) (pathIdx, node) h fuel).2
+  | 0, h, pathIdx, node => by
+      simp only [SphincsMinusVerifierSpec.C13Concrete.forsClimb, ClimbLoop.specFold_zero]
+  | fuel + 1, h, pathIdx, node => by
+      simp only [SphincsMinusVerifierSpec.C13Concrete.forsClimb,
+        ClimbLoop.specFold_succ, forsSpecStep]
+      exact forsClimb_eq_specFold seed i t0 l0 auth fuel (h + 1) (pathIdx / 2) _
+
+
 /-! ### Per-step node output = the spec step function `merkleSpecStep`.
 
 The final weld of the per-step node algebra: the interpreter step's `nodeVar`
@@ -974,6 +1294,63 @@ from the same index) plus the spec-shaped value equalities (`adrs = treeAdrs |||
 same `maskN (keccakWords …)`.  This is precisely the `node` half of one
 `foldLoop` step relation `R`, now phrased against `merkleSpecStep` itself.  No
 keccak unfolded, no new axioms. -/
+
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_node_eq_specStep_even
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (seed adrsW h node : Nat) (auth : List SphincsMinusVerifierSpec.Bytes)
+    (hne : nodeVar ≠ idxVar) (ho5 : o5 = 0x40) (ho6 : o6 = 0x60)
+    (hseed : (st.world.memory 0x00).val = seed)
+    (hadr : wordNormalize vadr = adrsW)
+    (hnode : wordNormalize vnode = node)
+    (hsib : wordNormalize vsib2 = wordOfHash16 ((auth[h]?).getD ⟨#[]⟩))
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+
+    lookupValue (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings nodeVar
+      = maskN (keccakWords [seed, adrsW, node, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩)]) :=
+  stepMerkleA_node_value_spec_even nodeVar idxVar authPtrVar adrsE st
+    vsib vpar vadr sval o5 vnode o6 vsib2 seed adrsW node (wordOfHash16 ((auth[h]?).getD ⟨#[]⟩))
+    hne ho5 ho6 hseed hadr hnode hsib h1 h2 h3 h4 h5off h5val h6off h6val
 
 /-- **Even index ⇒ interpreter node output = `(merkleSpecStep …).2`.** -/
 theorem stepMerkle_node_eq_specStep_even
@@ -1036,6 +1413,63 @@ theorem stepMerkle_node_eq_specStep_even
         hne ho5 ho6 hseed hadr hnode hsib h1 h2 h3 h4 h5off h5val h6off h6val]
   simp only [merkleSpecStep, hpar, Nat.reduceBEq, if_true]
 
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_node_eq_specStep_odd
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (seed adrsW h node : Nat) (auth : List SphincsMinusVerifierSpec.Bytes)
+    (hne : nodeVar ≠ idxVar) (ho5 : o5 = 0x60) (ho6 : o6 = 0x40)
+    (hseed : (st.world.memory 0x00).val = seed)
+    (hadr : wordNormalize vadr = adrsW)
+    (hnode : wordNormalize vnode = node)
+    (hsib : wordNormalize vsib2 = wordOfHash16 ((auth[h]?).getD ⟨#[]⟩))
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+
+    lookupValue (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings nodeVar
+      = maskN (keccakWords [seed, adrsW, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩), node]) :=
+  stepMerkleA_node_value_spec_odd nodeVar idxVar authPtrVar adrsE st
+    vsib vpar vadr sval o5 vnode o6 vsib2 seed adrsW node (wordOfHash16 ((auth[h]?).getD ⟨#[]⟩))
+    hne ho5 ho6 hseed hadr hnode hsib h1 h2 h3 h4 h5off h5val h6off h6val
+
 /-- **Odd index ⇒ interpreter node output = `(merkleSpecStep …).2`** (swap). -/
 theorem stepMerkle_node_eq_specStep_odd
     (nodeVar idxVar adrsBaseVar authPtrVar : String)
@@ -1096,6 +1530,61 @@ theorem stepMerkle_node_eq_specStep_odd
         (wordOfHash16 ((auth[h]?).getD ⟨#[]⟩))
         hne ho5 ho6 hseed hadr hnode hsib h1 h2 h3 h4 h5off h5val h6off h6val]
   simp only [merkleSpecStep, hpar, Nat.reduceBEq, Bool.false_eq_true, if_false]
+
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_idx_eq_specStep
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (mIdx : Nat)
+    (hne2 : nodeVar ≠ "parentIdx")
+    (hvpar : vpar = mIdx / 2)
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+
+    lookupValue (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings idxVar
+      = mIdx / 2 := by
+  rw [stepMerkleA_idx_binding nodeVar idxVar authPtrVar adrsE st
+        vsib vpar vadr sval o5 vnode o6 vsib2
+        hne2 h1 h2 h3 h4 h5off h5val h6off h6val]
+  exact hvpar
 
 /-- **Interpreter index output = `(merkleSpecStep …).1`.**  The `.1` companion of
 `stepMerkle_node_eq_specStep_even/odd`.  Unlike the node output, the first
@@ -1174,6 +1663,82 @@ applied to the accumulator `(mIdx, node)`.  This is the exact shape
 discharged; what an eventual `hstep` must still supply is precisely the
 data-correspondence each iteration (blocker #20).  Axiom-clean; no keccak. -/
 
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_eq_merkleSpecStep_even
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (seed adrsW h mIdx node : Nat) (auth : List SphincsMinusVerifierSpec.Bytes)
+    (hne : nodeVar ≠ idxVar) (hne2 : nodeVar ≠ "parentIdx")
+    (ho5 : o5 = 0x40) (ho6 : o6 = 0x60) (hpar : mIdx % 2 = 0)
+    (hvpar : vpar = mIdx / 2)
+    (hseed : (st.world.memory 0x00).val = seed)
+    (hadr : wordNormalize vadr = adrsW)
+    (hnode : wordNormalize vnode = node)
+    (hsib : wordNormalize vsib2 = wordOfHash16 ((auth[h]?).getD ⟨#[]⟩))
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+
+    (lookupValue (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings idxVar,
+        lookupValue (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings nodeVar)
+      = (mIdx / 2,
+          if mIdx % 2 == 0 then
+            maskN (keccakWords [seed, adrsW, node, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩)])
+          else
+            maskN (keccakWords [seed, adrsW, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩), node])) := by
+  have hnode' : lookupValue
+        (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings nodeVar
+      = (if mIdx % 2 == 0 then
+          maskN (keccakWords [seed, adrsW, node, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩)])
+        else
+          maskN (keccakWords [seed, adrsW, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩), node])) := by
+    rw [stepMerkleA_node_eq_specStep_even nodeVar idxVar authPtrVar adrsE st
+          vsib vpar vadr sval o5 vnode o6 vsib2 seed adrsW h node auth
+          hne ho5 ho6 hseed hadr hnode hsib h1 h2 h3 h4 h5off h5val h6off h6val]
+    simp only [hpar, Nat.reduceBEq, if_true]
+  exact Prod.ext
+    (stepMerkleA_idx_eq_specStep nodeVar idxVar authPtrVar adrsE st
+      vsib vpar vadr sval o5 vnode o6 vsib2 mIdx
+      hne2 hvpar h1 h2 h3 h4 h5off h5val h6off h6val)
+    hnode'
+
 /-- **Even index ⇒ interpreter accumulator pair = `merkleSpecStep …`.** -/
 theorem stepMerkle_eq_merkleSpecStep_even
     (nodeVar idxVar adrsBaseVar authPtrVar : String)
@@ -1238,6 +1803,82 @@ theorem stepMerkle_eq_merkleSpecStep_even
       vsib vpar vadr sval o5 vnode o6 vsib2 seed treeAdrs h mIdx node auth
       hne ho5 ho6 hpar hseed hadr hnode hsib h1 h2 h3 h4 h5off h5val h6off h6val)
 
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_eq_merkleSpecStep_odd
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (seed adrsW h mIdx node : Nat) (auth : List SphincsMinusVerifierSpec.Bytes)
+    (hne : nodeVar ≠ idxVar) (hne2 : nodeVar ≠ "parentIdx")
+    (ho5 : o5 = 0x60) (ho6 : o6 = 0x40) (hpar : mIdx % 2 = 1)
+    (hvpar : vpar = mIdx / 2)
+    (hseed : (st.world.memory 0x00).val = seed)
+    (hadr : wordNormalize vadr = adrsW)
+    (hnode : wordNormalize vnode = node)
+    (hsib : wordNormalize vsib2 = wordOfHash16 ((auth[h]?).getD ⟨#[]⟩))
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+
+    (lookupValue (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings idxVar,
+        lookupValue (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings nodeVar)
+      = (mIdx / 2,
+          if mIdx % 2 == 0 then
+            maskN (keccakWords [seed, adrsW, node, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩)])
+          else
+            maskN (keccakWords [seed, adrsW, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩), node])) := by
+  have hnode' : lookupValue
+        (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings nodeVar
+      = (if mIdx % 2 == 0 then
+          maskN (keccakWords [seed, adrsW, node, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩)])
+        else
+          maskN (keccakWords [seed, adrsW, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩), node])) := by
+    rw [stepMerkleA_node_eq_specStep_odd nodeVar idxVar authPtrVar adrsE st
+          vsib vpar vadr sval o5 vnode o6 vsib2 seed adrsW h node auth
+          hne ho5 ho6 hseed hadr hnode hsib h1 h2 h3 h4 h5off h5val h6off h6val]
+    simp only [hpar, Nat.reduceBEq, Bool.false_eq_true, if_false]
+  exact Prod.ext
+    (stepMerkleA_idx_eq_specStep nodeVar idxVar authPtrVar adrsE st
+      vsib vpar vadr sval o5 vnode o6 vsib2 mIdx
+      hne2 hvpar h1 h2 h3 h4 h5off h5val h6off h6val)
+    hnode'
+
 /-- **Odd index ⇒ interpreter accumulator pair = `merkleSpecStep …`** (swap). -/
 theorem stepMerkle_eq_merkleSpecStep_odd
     (nodeVar idxVar adrsBaseVar authPtrVar : String)
@@ -1301,6 +1942,77 @@ theorem stepMerkle_eq_merkleSpecStep_odd
     (stepMerkle_node_eq_specStep_odd nodeVar idxVar adrsBaseVar authPtrVar st
       vsib vpar vadr sval o5 vnode o6 vsib2 seed treeAdrs h mIdx node auth
       hne ho5 ho6 hpar hseed hadr hnode hsib h1 h2 h3 h4 h5off h5val h6off h6val)
+
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_eq_merkleSpecStep
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (seed adrsW h mIdx node : Nat) (auth : List SphincsMinusVerifierSpec.Bytes)
+    (hne : nodeVar ≠ idxVar) (hne2 : nodeVar ≠ "parentIdx")
+    (hparOff : (mIdx % 2 = 0 ∧ o5 = 0x40 ∧ o6 = 0x60)
+             ∨ (mIdx % 2 = 1 ∧ o5 = 0x60 ∧ o6 = 0x40))
+    (hvpar : vpar = mIdx / 2)
+    (hseed : (st.world.memory 0x00).val = seed)
+    (hadr : wordNormalize vadr = adrsW)
+    (hnode : wordNormalize vnode = node)
+    (hsib : wordNormalize vsib2 = wordOfHash16 ((auth[h]?).getD ⟨#[]⟩))
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+
+    (lookupValue (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings idxVar,
+        lookupValue (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings nodeVar)
+      = (mIdx / 2,
+          if mIdx % 2 == 0 then
+            maskN (keccakWords [seed, adrsW, node, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩)])
+          else
+            maskN (keccakWords [seed, adrsW, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩), node])) := by
+  rcases hparOff with ⟨hpar, ho5, ho6⟩ | ⟨hpar, ho5, ho6⟩
+  · exact stepMerkleA_eq_merkleSpecStep_even nodeVar idxVar authPtrVar adrsE st
+      vsib vpar vadr sval o5 vnode o6 vsib2 seed adrsW h mIdx node auth
+      hne hne2 ho5 ho6 hpar hvpar hseed hadr hnode hsib
+      h1 h2 h3 h4 h5off h5val h6off h6val
+  · exact stepMerkleA_eq_merkleSpecStep_odd nodeVar idxVar authPtrVar adrsE st
+      vsib vpar vadr sval o5 vnode o6 vsib2 seed adrsW h mIdx node auth
+      hne hne2 ho5 ho6 hpar hvpar hseed hadr hnode hsib
+      h1 h2 h3 h4 h5off h5val h6off h6val
 
 /-- **Parity-unified per-step accumulator equality.**  A single lemma covering
 both index parities, dispatched by the disjunction `hparOff`, which couples the
@@ -1560,6 +2272,16 @@ theorem merkleSpecStep_snd_normalized (seed treeAdrs : Nat)
   simp only [merkleSpecStep]
   split <;> exact wordNormalize_maskN _
 
+/-- The spec FORS node output `forsSpecStep.2` is `wordNormalize`-stable (both
+parity branches are `maskN`-masked). -/
+theorem forsSpecStep_snd_normalized (seed i t0 l0 : Nat)
+    (auth : List SphincsMinusVerifierSpec.Bytes) (h : Nat) (a : Nat × Nat) :
+    wordNormalize (forsSpecStep seed i t0 l0 auth h a).2
+      = (forsSpecStep seed i t0 l0 auth h a).2 := by
+  obtain ⟨pathIdx, node⟩ := a
+  simp only [forsSpecStep]
+  split <;> exact wordNormalize_maskN _
+
 /-- Exact-node variant of `MerkleClimbRel`.  It carries the raw node binding,
 not only its EVM normalization, plus the fact that the spec node is already
 normalized.  This is useful for consumers that must prove exact data-cell
@@ -1687,6 +2409,17 @@ theorem StepDataObligations.sib {st : RuntimeState} {vadr vsib2 seed treeAdrs h 
     {auth : List SphincsMinusVerifierSpec.Bytes}
     (h' : StepDataObligations st vadr vsib2 seed treeAdrs h mIdx auth) :
     wordNormalize vsib2 = wordOfHash16 ((auth[h]?).getD ⟨#[]⟩) := h'.2.2
+
+/-- Address-word-parametric (`adrsW`) generalization of `StepDataObligations`:
+the assembled ADRS word equals an arbitrary spec address word, rather than the
+hard-wired XMSS `treeAdrs ||| ((h+1) <<< 32) ||| mIdx / 2` layout.  Used by the
+`adrsE`-generalized step lemmas so the FIPS FORS climb (whose per-level address
+is `adrsForsNode …`, an `h`-dependent word) can reuse them. -/
+def StepDataObligationsW (st : RuntimeState) (vadr vsib2 seed adrsW h mIdx : Nat)
+    (auth : List SphincsMinusVerifierSpec.Bytes) : Prop :=
+  (st.world.memory 0x00).val = seed
+  ∧ wordNormalize vadr = adrsW
+  ∧ wordNormalize vsib2 = wordOfHash16 ((auth[h]?).getD ⟨#[]⟩)
 
 /-- **`MerkleClimbData`** — the *index-indexed* data-obligation family for the whole
 Merkle climb, in exactly the `D : Nat → Prop` shape `ClimbLoop.foldLoop_invariant_cond`
@@ -1931,7 +2664,7 @@ theorem xmss_climb_data_range
 
 /-- **`fors_climb_data_range`** — the FORS analog of `xmss_climb_data_range`.  The FORS
 outer loop's inner Merkle climb (`SegmentS4Fors.forsLeafBody`, the
-`forEach "h" (u 19) (merkleClimbBody "node" "pathIdx" "treeAdrsBase" "authPtr")`) is the
+`forEach "h" (u 19) (merkleClimbBody "node" "pathIdx" "forsBase" "authPtr")`) is the
 *same* `merkleClimbBody`, so its per-height datum is again `MerkleClimbData`.  For FORS
 tree `t < 6` the body sets `authPtr = sigBase + (128 + 304·t)`, hence the per-height read
 sits at `sigDataOffset + (128 + 304·t + 16·h)`; (hcd) is the offset-arithmetic identity
@@ -2113,6 +2846,94 @@ theorem address_assembly_eq
       show Compiler.Constants.evmModulus = 2 ^ 256 from rfl]
   exact Nat.mod_eq_of_lt (Nat.bitwise_lt_two_pow (Nat.bitwise_lt_two_pow hAlt hSlt) hPlt)
 
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem MerkleClimbRelA_step
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (seed adrsW h mIdx node : Nat) (auth : List SphincsMinusVerifierSpec.Bytes)
+    (hne : nodeVar ≠ idxVar) (hne2 : nodeVar ≠ "parentIdx")
+    (hparOff : (mIdx % 2 = 0 ∧ o5 = 0x40 ∧ o6 = 0x60)
+             ∨ (mIdx % 2 = 1 ∧ o5 = 0x60 ∧ o6 = 0x40))
+    (hvpar : vpar = mIdx / 2)
+    (hnode : wordNormalize vnode = node)
+    (hdata : StepDataObligationsW st vadr vsib2 seed adrsW h mIdx auth)
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+
+    MerkleClimbRel nodeVar idxVar
+      (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st)
+      (mIdx / 2,
+          if mIdx % 2 == 0 then
+            maskN (keccakWords [seed, adrsW, node, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩)])
+          else
+            maskN (keccakWords [seed, adrsW, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩), node])) := by
+  obtain ⟨hseed, hadr, hsib⟩ := hdata
+  have hpair := stepMerkleA_eq_merkleSpecStep nodeVar idxVar authPtrVar adrsE st
+    vsib vpar vadr sval o5 vnode o6 vsib2 seed adrsW h mIdx node auth
+    hne hne2 hparOff hvpar hseed hadr hnode hsib
+    h1 h2 h3 h4 h5off h5val h6off h6val
+  have hidx : lookupValue
+      (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings idxVar
+      = mIdx / 2 := (Prod.ext_iff.mp hpair).1
+  have hn : lookupValue
+      (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings nodeVar
+      = (if mIdx % 2 == 0 then
+          maskN (keccakWords [seed, adrsW, node, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩)])
+        else
+          maskN (keccakWords [seed, adrsW, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩), node])) :=
+    (Prod.ext_iff.mp hpair).2
+  refine MerkleClimbRel.intro hidx ?_
+  rw [hn]
+  have hsn : wordNormalize
+      (if mIdx % 2 == 0 then
+        maskN (keccakWords [seed, adrsW, node, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩)])
+      else
+        maskN (keccakWords [seed, adrsW, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩), node]))
+    = (if mIdx % 2 == 0 then
+        maskN (keccakWords [seed, adrsW, node, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩)])
+      else
+        maskN (keccakWords [seed, adrsW, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩), node])) := by
+    split <;> exact wordNormalize_maskN _
+  exact hsn
+
 /-- **`MerkleClimbRel_step`** — the per-iteration climb-invariant advance, stated with
 the entire open per-step data surface collapsed into the single `StepDataObligations`
 bundle.  Given the bookkeeping hypotheses of `stepMerkle_eq_merkleSpecStep` (all
@@ -2188,6 +3009,72 @@ theorem MerkleClimbRel_step
     hne hne2 hparOff hvpar hseed hadr hnode hsib
     h1 h2 h3 h4 h5off h5val h6off h6val
 
+/-- **`ForsClimbRel_step`** — the FIPS FORS instantiation of
+`MerkleClimbRelA_step` (`adrsE := ClimbKit.forsAdrs`,
+`adrsW := adrsForsNode t0 l0 i h (mIdx / 2)`), folded back to the named
+`forsSpecStep` accumulator.  This is the per-iteration `hstep` kernel for the
+FORS inner Merkle climb (`ClimbKit.stepForsMerkle`). -/
+theorem ForsClimbRel_step
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (seed i t0 l0 h mIdx node : Nat) (auth : List SphincsMinusVerifierSpec.Bytes)
+    (hparOff : (mIdx % 2 = 0 ∧ o5 = 0x40 ∧ o6 = 0x60)
+             ∨ (mIdx % 2 = 1 ∧ o5 = 0x60 ∧ o6 = 0x40))
+    (hvpar : vpar = mIdx / 2)
+    (hnode : wordNormalize vnode = node)
+    (hdata : StepDataObligationsW st vadr vsib2 seed
+              (SphincsMinusVerifierSpec.C13Concrete.adrsForsNode t0 l0 i h (mIdx / 2))
+              h mIdx auth)
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar "authPtr")
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar "pathIdx")) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            ClimbKit.forsAdrs = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar "pathIdx") (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "node") = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    MerkleClimbRel "node" "pathIdx" (ClimbKit.stepForsMerkle st)
+      (forsSpecStep seed i t0 l0 auth h (mIdx, node)) := by
+  have hres := MerkleClimbRelA_step "node" "pathIdx" "authPtr" ClimbKit.forsAdrs st
+    vsib vpar vadr sval o5 vnode o6 vsib2 seed
+    (SphincsMinusVerifierSpec.C13Concrete.adrsForsNode t0 l0 i h (mIdx / 2)) h mIdx node auth
+    (by decide) (by decide) hparOff hvpar hnode hdata h1 h2 h3 h4 h5off h5val h6off h6val
+  show MerkleClimbRel "node" "pathIdx"
+      (ClimbKit.stepMerkleA "node" "pathIdx" "authPtr" ClimbKit.forsAdrs st)
+      (forsSpecStep seed i t0 l0 auth h (mIdx, node))
+  simp only [forsSpecStep]
+  exact hres
+
 /-- Even index ⇒ selector `s = 0`. -/
 theorem merkle_selector_even (n : Nat) (h : n % 2 = 0) : (n &&& 1) <<< 5 = 0 := by
   rw [Nat.and_one_is_mod, h]; rfl
@@ -2220,6 +3107,123 @@ Each is a binding/memory-projection of the same eight-statement thread that
 leaving `selector`, `world.calldata`, `mem[0x00]`, and every other binding untouched.
 These are the frame half of the eventual `MerkleClimbFrame` preservation; no keccak
 or calldata correspondence is involved.  Axiom-clean. -/
+
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_selector_calldata
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).selector = st.selector
+    ∧ (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).world.calldata
+        = st.world.calldata := by
+  have hs1 := MemoryKit.execStmt_letVar_continue st "sibling" _ vsib h1
+  set st1 : RuntimeState :=
+    { st with bindings := bindValue st.bindings "sibling" vsib } with hst1
+  have hs2 := MemoryKit.execStmt_letVar_continue st1 "parentIdx" _ vpar h2
+  set st2 : RuntimeState :=
+    { st1 with bindings := bindValue st1.bindings "parentIdx" vpar } with hst2
+  have hoff3 : evalExpr [] st2 (.literal 0x20) = some 0x20 := rfl
+  have hs3 := MemoryKit.execStmt_mstore_continue st2 (.literal 0x20) _ 0x20 vadr hoff3 h3
+  set st3 : RuntimeState :=
+    { st2 with world := { st2.world with memory := MemoryKit.memUpdate st2.world.memory 0x20 vadr } }
+    with hst3
+  have hs4 := MemoryKit.execStmt_letVar_continue st3 "s" _ sval h4
+  set st4 : RuntimeState :=
+    { st3 with bindings := bindValue st3.bindings "s" sval } with hst4
+  have hs5 := MemoryKit.execStmt_mstore_continue st4 (.bitXor (.literal 0x40) (.localVar "s")) _
+      o5 vnode h5off h5val
+  set st5 : RuntimeState :=
+    { st4 with world := { st4.world with memory := MemoryKit.memUpdate st4.world.memory o5 vnode } }
+    with hst5
+  have hs6 := MemoryKit.execStmt_mstore_continue st5 (.bitXor (.literal 0x60) (.localVar "s")) _
+      o6 vsib2 h6off h6val
+  set st6 : RuntimeState :=
+    { st5 with world := { st5.world with memory := MemoryKit.memUpdate st5.world.memory o6 vsib2 } }
+    with hst6
+  set kv : Nat := (Verity.Core.Uint256.and (keccakMemorySlice st6.world.memory (wordNormalize 0x00) (wordNormalize 0x80)) (wordNormalize N_MASK)).val with hkv
+  have hval7 : evalExpr [] st6
+      (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
+      = some kv := rfl
+  have hs7 := assignVar_continue st6 nodeVar _ _ hval7
+  set st7 : RuntimeState :=
+    { st6 with bindings := bindValue st6.bindings nodeVar kv } with hst7
+  have hval8 : evalExpr [] st7 (.localVar "parentIdx")
+      = some (lookupValue st7.bindings "parentIdx") := rfl
+  have hs8 := assignVar_continue st7 idxVar _ _ hval8
+  show ((match execStmtList [] st
+            ([ Stmt.letVar "sibling"
+                (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+                  (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK))
+             , Stmt.letVar "parentIdx" (.shr (.literal 1) (.localVar idxVar))
+             , Stmt.mstore (.literal 0x20) adrsE
+             , Stmt.letVar "s" (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1)))
+             , Stmt.mstore (.bitXor (.literal 0x40) (.localVar "s")) (.localVar nodeVar)
+             , Stmt.mstore (.bitXor (.literal 0x60) (.localVar "s")) (.localVar "sibling")
+             , Stmt.assignVar nodeVar
+                (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
+             , Stmt.assignVar idxVar (.localVar "parentIdx") ]) with
+          | .continue s' => s' | _ => st).selector = st.selector)
+      ∧ ((match execStmtList [] st
+            ([ Stmt.letVar "sibling"
+                (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+                  (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK))
+             , Stmt.letVar "parentIdx" (.shr (.literal 1) (.localVar idxVar))
+             , Stmt.mstore (.literal 0x20) adrsE
+             , Stmt.letVar "s" (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1)))
+             , Stmt.mstore (.bitXor (.literal 0x40) (.localVar "s")) (.localVar nodeVar)
+             , Stmt.mstore (.bitXor (.literal 0x60) (.localVar "s")) (.localVar "sibling")
+             , Stmt.assignVar nodeVar
+                (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
+             , Stmt.assignVar idxVar (.localVar "parentIdx") ]) with
+          | .continue s' => s' | _ => st).world.calldata = st.world.calldata)
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs1]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs2]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs3]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs4]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs5]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs6]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs7]
+  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs8]
+  exact ⟨rfl, rfl⟩
 
 /-- **`stepMerkle_selector_calldata`** — one climb step preserves both the EVM
 `selector` and the `world.calldata` image: the body's eight statements are all
@@ -2273,7 +3277,58 @@ theorem stepMerkle_selector_calldata
             (.localVar "sibling") = some vsib2) :
     (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar st).selector = st.selector
     ∧ (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar st).world.calldata
-        = st.world.calldata := by
+        = st.world.calldata :=
+  stepMerkleA_selector_calldata nodeVar idxVar authPtrVar (ClimbKit.xmssAdrs adrsBaseVar) st
+    vsib vpar vadr sval o5 vnode o6 vsib2 h1 h2 h3 h4 h5off h5val h6off h6val
+
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_binding_frozen
+    (nodeVar idxVar authPtrVar w : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (hwsib : w ≠ "sibling") (hwpar : w ≠ "parentIdx") (hws : w ≠ "s")
+    (hwnode : w ≠ nodeVar) (hwidx : w ≠ idxVar)
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    lookupValue (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).bindings w
+      = lookupValue st.bindings w := by
   have hs1 := MemoryKit.execStmt_letVar_continue st "sibling" _ vsib h1
   set st1 : RuntimeState :=
     { st with bindings := bindValue st.bindings "sibling" vsib } with hst1
@@ -2308,38 +3363,19 @@ theorem stepMerkle_selector_calldata
   have hval8 : evalExpr [] st7 (.localVar "parentIdx")
       = some (lookupValue st7.bindings "parentIdx") := rfl
   have hs8 := assignVar_continue st7 idxVar _ _ hval8
-  show ((match execStmtList [] st
-            ([ Stmt.letVar "sibling"
-                (.bitAnd (.calldataload (.add (.localVar authPtrVar)
-                  (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK))
-             , Stmt.letVar "parentIdx" (.shr (.literal 1) (.localVar idxVar))
-             , Stmt.mstore (.literal 0x20)
-                (.bitOr (.localVar adrsBaseVar)
-                  (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
-                    (.localVar "parentIdx")))
-             , Stmt.letVar "s" (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1)))
-             , Stmt.mstore (.bitXor (.literal 0x40) (.localVar "s")) (.localVar nodeVar)
-             , Stmt.mstore (.bitXor (.literal 0x60) (.localVar "s")) (.localVar "sibling")
-             , Stmt.assignVar nodeVar
-                (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
-             , Stmt.assignVar idxVar (.localVar "parentIdx") ]) with
-          | .continue s' => s' | _ => st).selector = st.selector)
-      ∧ ((match execStmtList [] st
-            ([ Stmt.letVar "sibling"
-                (.bitAnd (.calldataload (.add (.localVar authPtrVar)
-                  (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK))
-             , Stmt.letVar "parentIdx" (.shr (.literal 1) (.localVar idxVar))
-             , Stmt.mstore (.literal 0x20)
-                (.bitOr (.localVar adrsBaseVar)
-                  (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
-                    (.localVar "parentIdx")))
-             , Stmt.letVar "s" (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1)))
-             , Stmt.mstore (.bitXor (.literal 0x40) (.localVar "s")) (.localVar nodeVar)
-             , Stmt.mstore (.bitXor (.literal 0x60) (.localVar "s")) (.localVar "sibling")
-             , Stmt.assignVar nodeVar
-                (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
-             , Stmt.assignVar idxVar (.localVar "parentIdx") ]) with
-          | .continue s' => s' | _ => st).world.calldata = st.world.calldata)
+  show lookupValue (match execStmtList [] st
+          ([ Stmt.letVar "sibling"
+              (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+                (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK))
+           , Stmt.letVar "parentIdx" (.shr (.literal 1) (.localVar idxVar))
+           , Stmt.mstore (.literal 0x20) adrsE
+           , Stmt.letVar "s" (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1)))
+           , Stmt.mstore (.bitXor (.literal 0x40) (.localVar "s")) (.localVar nodeVar)
+           , Stmt.mstore (.bitXor (.literal 0x60) (.localVar "s")) (.localVar "sibling")
+           , Stmt.assignVar nodeVar
+              (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
+           , Stmt.assignVar idxVar (.localVar "parentIdx") ]) with
+        | .continue s' => s' | _ => st).bindings w = lookupValue st.bindings w
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs1]
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs2]
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs3]
@@ -2348,7 +3384,17 @@ theorem stepMerkle_selector_calldata
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs6]
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs7]
   rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs8]
-  exact ⟨rfl, rfl⟩
+  show lookupValue
+      (bindValue (bindValue st6.bindings nodeVar kv) idxVar
+        (lookupValue st7.bindings "parentIdx")) w = lookupValue st.bindings w
+  rw [MemoryKit.lookupValue_bindValue_ne _ idxVar w _ (Ne.symm hwidx),
+      MemoryKit.lookupValue_bindValue_ne _ nodeVar w _ (Ne.symm hwnode)]
+  show lookupValue
+      (bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval) w
+        = lookupValue st.bindings w
+  rw [MemoryKit.lookupValue_bindValue_ne _ "s" w _ (Ne.symm hws),
+      MemoryKit.lookupValue_bindValue_ne _ "parentIdx" w _ (Ne.symm hwpar),
+      MemoryKit.lookupValue_bindValue_ne _ "sibling" w _ (Ne.symm hwsib)]
 
 /-- **`stepMerkle_binding_frozen`** — one climb step preserves the binding of any
 variable `w` distinct from the five the body rebinds (`sibling`, `parentIdx`, `s`,
@@ -2403,76 +3449,63 @@ theorem stepMerkle_binding_frozen
                 bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
             (.localVar "sibling") = some vsib2) :
     lookupValue (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar st).bindings w
-      = lookupValue st.bindings w := by
-  have hs1 := MemoryKit.execStmt_letVar_continue st "sibling" _ vsib h1
-  set st1 : RuntimeState :=
-    { st with bindings := bindValue st.bindings "sibling" vsib } with hst1
-  have hs2 := MemoryKit.execStmt_letVar_continue st1 "parentIdx" _ vpar h2
-  set st2 : RuntimeState :=
-    { st1 with bindings := bindValue st1.bindings "parentIdx" vpar } with hst2
-  have hoff3 : evalExpr [] st2 (.literal 0x20) = some 0x20 := rfl
-  have hs3 := MemoryKit.execStmt_mstore_continue st2 (.literal 0x20) _ 0x20 vadr hoff3 h3
-  set st3 : RuntimeState :=
-    { st2 with world := { st2.world with memory := MemoryKit.memUpdate st2.world.memory 0x20 vadr } }
-    with hst3
-  have hs4 := MemoryKit.execStmt_letVar_continue st3 "s" _ sval h4
-  set st4 : RuntimeState :=
-    { st3 with bindings := bindValue st3.bindings "s" sval } with hst4
-  have hs5 := MemoryKit.execStmt_mstore_continue st4 (.bitXor (.literal 0x40) (.localVar "s")) _
-      o5 vnode h5off h5val
-  set st5 : RuntimeState :=
-    { st4 with world := { st4.world with memory := MemoryKit.memUpdate st4.world.memory o5 vnode } }
-    with hst5
-  have hs6 := MemoryKit.execStmt_mstore_continue st5 (.bitXor (.literal 0x60) (.localVar "s")) _
-      o6 vsib2 h6off h6val
-  set st6 : RuntimeState :=
-    { st5 with world := { st5.world with memory := MemoryKit.memUpdate st5.world.memory o6 vsib2 } }
-    with hst6
-  set kv : Nat := (Verity.Core.Uint256.and (keccakMemorySlice st6.world.memory (wordNormalize 0x00) (wordNormalize 0x80)) (wordNormalize N_MASK)).val with hkv
-  have hval7 : evalExpr [] st6
-      (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
-      = some kv := rfl
-  have hs7 := assignVar_continue st6 nodeVar _ _ hval7
-  set st7 : RuntimeState :=
-    { st6 with bindings := bindValue st6.bindings nodeVar kv } with hst7
-  have hval8 : evalExpr [] st7 (.localVar "parentIdx")
-      = some (lookupValue st7.bindings "parentIdx") := rfl
-  have hs8 := assignVar_continue st7 idxVar _ _ hval8
-  show lookupValue (match execStmtList [] st
-          ([ Stmt.letVar "sibling"
-              (.bitAnd (.calldataload (.add (.localVar authPtrVar)
-                (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK))
-           , Stmt.letVar "parentIdx" (.shr (.literal 1) (.localVar idxVar))
-           , Stmt.mstore (.literal 0x20)
-              (.bitOr (.localVar adrsBaseVar)
-                (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
-                  (.localVar "parentIdx")))
-           , Stmt.letVar "s" (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1)))
-           , Stmt.mstore (.bitXor (.literal 0x40) (.localVar "s")) (.localVar nodeVar)
-           , Stmt.mstore (.bitXor (.literal 0x60) (.localVar "s")) (.localVar "sibling")
-           , Stmt.assignVar nodeVar
-              (.bitAnd (.keccak256 (.literal 0x00) (.literal 0x80)) (.literal N_MASK))
-           , Stmt.assignVar idxVar (.localVar "parentIdx") ]) with
-        | .continue s' => s' | _ => st).bindings w = lookupValue st.bindings w
-  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs1]
-  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs2]
-  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs3]
-  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs4]
-  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs5]
-  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs6]
-  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs7]
-  rw [ClimbKit.execStmtList_cons_continue _ _ _ _ hs8]
-  show lookupValue
-      (bindValue (bindValue st6.bindings nodeVar kv) idxVar
-        (lookupValue st7.bindings "parentIdx")) w = lookupValue st.bindings w
-  rw [MemoryKit.lookupValue_bindValue_ne _ idxVar w _ (Ne.symm hwidx),
-      MemoryKit.lookupValue_bindValue_ne _ nodeVar w _ (Ne.symm hwnode)]
-  show lookupValue
-      (bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval) w
-        = lookupValue st.bindings w
-  rw [MemoryKit.lookupValue_bindValue_ne _ "s" w _ (Ne.symm hws),
-      MemoryKit.lookupValue_bindValue_ne _ "parentIdx" w _ (Ne.symm hwpar),
-      MemoryKit.lookupValue_bindValue_ne _ "sibling" w _ (Ne.symm hwsib)]
+      = lookupValue st.bindings w :=
+  stepMerkleA_binding_frozen nodeVar idxVar authPtrVar w (ClimbKit.xmssAdrs adrsBaseVar) st
+    vsib vpar vadr sval o5 vnode o6 vsib2 hwsib hwpar hws hwnode hwidx
+    h1 h2 h3 h4 h5off h5val h6off h6val
+
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_mem_zero
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (ho5 : (0x00 : Nat) ≠ o5) (ho6 : (0x00 : Nat) ≠ o6)
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).world.memory 0x00
+      = st.world.memory 0x00 := by
+  rw [stepMerkleA_memory nodeVar idxVar authPtrVar adrsE st
+        vsib vpar vadr sval o5 vnode o6 vsib2 h1 h2 h3 h4 h5off h5val h6off h6val]
+  rw [MemoryKit.memUpdate_diff _ o6 0x00 vsib2 ho6,
+      MemoryKit.memUpdate_diff _ o5 0x00 vnode ho5,
+      MemoryKit.memUpdate_diff _ 0x20 0x00 vadr (by decide)]
 
 /-- **`stepMerkle_mem_zero`** — one climb step preserves the seed cell `mem[0x00]`.
 The body's three memory writes land at `0x20` and the parity-xored child slots
@@ -2532,6 +3565,59 @@ theorem stepMerkle_mem_zero
       MemoryKit.memUpdate_diff _ o5 0x00 vnode ho5,
       MemoryKit.memUpdate_diff _ 0x20 0x00 vadr (by decide)]
 
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_mem_val_of_ne
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (addr vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (h20 : addr ≠ 0x20) (ho5 : addr ≠ o5) (ho6 : addr ≠ o6)
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    ((ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).world.memory addr).val =
+      (st.world.memory addr).val := by
+  rw [stepMerkleA_memory nodeVar idxVar authPtrVar adrsE st
+        vsib vpar vadr sval o5 vnode o6 vsib2 h1 h2 h3 h4 h5off h5val h6off h6val]
+  rw [MemoryKit.memUpdate_diff _ o6 addr vsib2 ho6,
+      MemoryKit.memUpdate_diff _ o5 addr vnode ho5,
+      MemoryKit.memUpdate_diff _ 0x20 addr vadr h20]
+
 /-- Generic value-frame form of `stepMerkle_mem_zero`: any address disjoint from
 the three Merkle scratch writes (`0x20`, `o5`, `o6`) is preserved by one
 branchless-Merkle step. -/
@@ -2587,6 +3673,63 @@ theorem stepMerkle_mem_val_of_ne
   rw [MemoryKit.memUpdate_diff _ o6 addr vsib2 ho6,
       MemoryKit.memUpdate_diff _ o5 addr vnode ho5,
       MemoryKit.memUpdate_diff _ 0x20 addr vadr h20]
+
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_mem_zero_of_parity
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (mIdx : Nat)
+    (hparOff : (mIdx % 2 = 0 ∧ o5 = 0x40 ∧ o6 = 0x60)
+             ∨ (mIdx % 2 = 1 ∧ o5 = 0x60 ∧ o6 = 0x40))
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).world.memory 0x00
+      = st.world.memory 0x00 := by
+  have ho5 : (0x00 : Nat) ≠ o5 := by
+    rcases hparOff with ⟨_, h5, _⟩ | ⟨_, h5, _⟩ <;> rw [h5] <;> decide
+  have ho6 : (0x00 : Nat) ≠ o6 := by
+    rcases hparOff with ⟨_, _, h6⟩ | ⟨_, _, h6⟩ <;> rw [h6] <;> decide
+  exact stepMerkleA_mem_zero nodeVar idxVar authPtrVar adrsE st
+    vsib vpar vadr sval o5 vnode o6 vsib2 ho5 ho6
+    h1 h2 h3 h4 h5off h5val h6off h6val
 
 /-- Parity-packaged form of `stepMerkle_mem_zero`: the usual Merkle child-slot
 offset disjunction (`o5/o6` are `0x40/0x60` in either order) is enough to prove
@@ -2647,6 +3790,59 @@ theorem stepMerkle_mem_zero_of_parity
   exact stepMerkle_mem_zero nodeVar idxVar adrsBaseVar authPtrVar st
     vsib vpar vadr sval o5 vnode o6 vsib2 ho5 ho6
     h1 h2 h3 h4 h5off h5val h6off h6val
+
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem stepMerkleA_mem_zero_val_of_parity
+    (nodeVar idxVar authPtrVar : String) (adrsE : Expr)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (mIdx : Nat)
+    (hparOff : (mIdx % 2 = 0 ∧ o5 = 0x40 ∧ o6 = 0x60)
+             ∨ (mIdx % 2 = 1 ∧ o5 = 0x60 ∧ o6 = 0x40))
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    ((ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st).world.memory 0x00).val
+      = (st.world.memory 0x00).val := by
+  rw [stepMerkleA_mem_zero_of_parity nodeVar idxVar authPtrVar adrsE st
+    vsib vpar vadr sval o5 vnode o6 vsib2 mIdx hparOff
+    h1 h2 h3 h4 h5off h5val h6off h6val]
 
 /-- Value-projection corollary of `stepMerkle_mem_zero_of_parity`, matching the
 memory-frame premise shape used by the loop adapters. -/
@@ -2767,6 +3963,105 @@ theorem eval_childOffset_xor (s : RuntimeState) (off sval : Nat)
     show some (lookupValue s.bindings "s") = some sval; rw [hs]
   exact SphincsMinusVerifiers.ClimbKeccakStep.evalExpr_bitXor_bounded s (.literal off)
     (.localVar "s") off sval hlit hv hofflt hsvalt
+
+/-- Address-parametric (`adrsE`) generalization; the classic lemma is the
+`ClimbKit.xmssAdrs adrsBaseVar` instantiation (see the wrapper below). -/
+theorem MerkleClimbFrameA_step
+    (nodeVar idxVar adrsBaseVar authPtrVar : String) (adrsE : Expr)
+    (pkSeed pkRoot message sig : ByteArray)
+    (seed treeAdrs merklePtr adrsW : Nat)
+    (st : RuntimeState) (vsib vpar vadr sval o5 vnode o6 vsib2 : Nat)
+    (h mIdx node : Nat) (auth : List SphincsMinusVerifierSpec.Bytes)
+    (hframe : MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+                pkSeed pkRoot message sig seed treeAdrs merklePtr st (mIdx, node))
+    (hparOff : (mIdx % 2 = 0 ∧ o5 = 0x40 ∧ o6 = 0x60)
+             ∨ (mIdx % 2 = 1 ∧ o5 = 0x60 ∧ o6 = 0x40))
+    (hvpar : vpar = mIdx / 2)
+    (hnode : wordNormalize vnode = node)
+    (hdata : StepDataObligationsW st vadr vsib2 seed adrsW h mIdx auth)
+    (h1 : evalExpr [] st
+            (.bitAnd (.calldataload (.add (.localVar authPtrVar)
+              (.shl (.literal 4) (.localVar "h")))) (.literal N_MASK)) = some vsib)
+    (h2 : evalExpr [] { st with bindings := bindValue st.bindings "sibling" vsib }
+            (.shr (.literal 1) (.localVar idxVar)) = some vpar)
+    (h3 : evalExpr []
+            { st with bindings :=
+              bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            adrsE = some vadr)
+    (h4 : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar }
+            (.shl (.literal 5) (.bitAnd (.localVar idxVar) (.literal 1))) = some sval)
+    (h5off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x40) (.localVar "s")) = some o5)
+    (h5val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate st.world.memory 0x20 vadr },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar nodeVar) = some vnode)
+    (h6off : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.bitXor (.literal 0x60) (.localVar "s")) = some o6)
+    (h6val : evalExpr []
+            { st with
+              world := { st.world with memory := MemoryKit.memUpdate (MemoryKit.memUpdate st.world.memory 0x20 vadr) o5 vnode },
+              bindings :=
+                bindValue (bindValue (bindValue st.bindings "sibling" vsib) "parentIdx" vpar) "s" sval }
+            (.localVar "sibling") = some vsib2) :
+    MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
+      pkSeed pkRoot message sig seed treeAdrs merklePtr
+      (ClimbKit.stepMerkleA nodeVar idxVar authPtrVar adrsE st)
+      (mIdx / 2,
+          if mIdx % 2 == 0 then
+            maskN (keccakWords [seed, adrsW, node, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩)])
+          else
+            maskN (keccakWords [seed, adrsW, wordOfHash16 ((auth[h]?).getD ⟨#[]⟩), node])) := by
+  obtain ⟨hN_i, hN_p, hN_sib, hN_s, hN_h, hI_sib, hI_p, hI_s, hI_h,
+          hA_sib, hA_p, hA_s, hA_n, hA_i, hA_h,
+          hP_sib, hP_p, hP_s, hP_n, hP_i, hP_h⟩ := hframe.2.2.2.2.2.2
+  have hrel := hframe.1
+  have hadrs := hframe.2.1
+  have hauth := hframe.2.2.1
+  have hmem0 := hframe.2.2.2.1
+  have hsel := hframe.2.2.2.2.1
+  have hcd := hframe.2.2.2.2.2.1
+  have ho5 : (0x00 : Nat) ≠ o5 := by
+    rcases hparOff with ⟨_, h5, _⟩ | ⟨_, h5, _⟩ <;> rw [h5] <;> decide
+  have ho6 : (0x00 : Nat) ≠ o6 := by
+    rcases hparOff with ⟨_, _, h6⟩ | ⟨_, _, h6⟩ <;> rw [h6] <;> decide
+  have hsc := stepMerkleA_selector_calldata nodeVar idxVar authPtrVar adrsE st
+    vsib vpar vadr sval o5 vnode o6 vsib2 h1 h2 h3 h4 h5off h5val h6off h6val
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_,
+    hN_i, hN_p, hN_sib, hN_s, hN_h, hI_sib, hI_p, hI_s, hI_h,
+    hA_sib, hA_p, hA_s, hA_n, hA_i, hA_h,
+    hP_sib, hP_p, hP_s, hP_n, hP_i, hP_h⟩
+  · exact MerkleClimbRelA_step nodeVar idxVar authPtrVar adrsE st
+      vsib vpar vadr sval o5 vnode o6 vsib2 seed adrsW h mIdx node auth
+      hN_i hN_p hparOff hvpar hnode hdata h1 h2 h3 h4 h5off h5val h6off h6val
+  · rw [stepMerkleA_binding_frozen nodeVar idxVar authPtrVar adrsBaseVar adrsE st
+        vsib vpar vadr sval o5 vnode o6 vsib2 hA_sib hA_p hA_s hA_n hA_i
+        h1 h2 h3 h4 h5off h5val h6off h6val]
+    exact hadrs
+  · rw [stepMerkleA_binding_frozen nodeVar idxVar authPtrVar authPtrVar adrsE st
+        vsib vpar vadr sval o5 vnode o6 vsib2 hP_sib hP_p hP_s hP_n hP_i
+        h1 h2 h3 h4 h5off h5val h6off h6val]
+    exact hauth
+  · rw [stepMerkleA_mem_zero nodeVar idxVar authPtrVar adrsE st
+        vsib vpar vadr sval o5 vnode o6 vsib2 ho5 ho6
+        h1 h2 h3 h4 h5off h5val h6off h6val]
+    exact hmem0
+  · rw [hsc.1]; exact hsel
+  · rw [hsc.2]; exact hcd
 
 /-- **`MerkleClimbFrame_step`** — STEP-2 frame self-preservation: one `stepMerkle`
 step carries the *whole* `MerkleClimbFrame` (relation + static frame) forward,
@@ -3132,31 +4427,31 @@ theorem xmssClimbRaw_model_node
   rw [xmssClimb_eq_specFold]
   exact hrel.node
 
-/-- **`forsClimb_model_node`** — FORS-specialised wrapper around
-`xmssClimb_model_node`.  The generic Merkle loop is instantiated with the FORS tree
-base `(3 <<< 96) ||| (i <<< 64)`, then rewritten to the named C13 `forsClimb`
-spec function. -/
+/-- **`forsClimb_model_node`** — FORS loop lift.  Under the FIPS 205 layout the
+per-level FORS address is `h`-dependent (`i <<< (18 - h)`), so this is a direct
+`foldLoop_invariant_cond` instantiation over `ClimbKit.stepForsMerkle` and
+`forsSpecStep`, folded to the named C13 `forsClimb` spec function. -/
 theorem forsClimb_model_node
-    (nodeVar idxVar adrsBaseVar authPtrVar : String)
-    (seed i : Nat) (auth : List SphincsMinusVerifierSpec.Bytes) (cdAt : Nat → Nat)
+    (seed i t0 l0 : Nat) (auth : List SphincsMinusVerifierSpec.Bytes) (cdAt : Nat → Nat)
     (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
-        MerkleClimbData auth cdAt idx → MerkleClimbRel nodeVar idxVar s a →
-        MerkleClimbRel nodeVar idxVar
-          (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar
+        MerkleClimbData auth cdAt idx → MerkleClimbRel "node" "pathIdx" s a →
+        MerkleClimbRel "node" "pathIdx"
+          (SphincsMinusVerifiers.ClimbKit.stepForsMerkle
             { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
-          (merkleSpecStep seed ((3 <<< 96) ||| (i <<< 64)) auth idx a))
+          (forsSpecStep seed i t0 l0 auth idx a))
     (state : RuntimeState) (pathIdx node h fuel : Nat)
     (hD : ∀ idx, h ≤ idx → idx < h + fuel → MerkleClimbData auth cdAt idx)
-    (hR : MerkleClimbRel nodeVar idxVar state (pathIdx, node)) :
+    (hR : MerkleClimbRel "node" "pathIdx" state (pathIdx, node)) :
     wordNormalize (lookupValue
-        (ClimbLoop.foldLoop "h" (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar)
-          state h fuel).bindings nodeVar)
-      = SphincsMinusVerifierSpec.C13Concrete.forsClimb seed i fuel h pathIdx node auth := by
-  have hx := xmssClimb_model_node nodeVar idxVar adrsBaseVar authPtrVar
-    seed ((3 <<< 96) ||| (i <<< 64)) auth cdAt hstep state pathIdx node h fuel hD hR
-  exact hx.trans
-    (SphincsMinusVerifiers.ClimbStepSpec.forsClimb_eq_xmssClimb
-      seed i fuel h pathIdx node auth).symm
+        (ClimbLoop.foldLoop "h" SphincsMinusVerifiers.ClimbKit.stepForsMerkle
+          state h fuel).bindings "node")
+      = SphincsMinusVerifierSpec.C13Concrete.forsClimb seed i t0 l0 fuel h pathIdx node auth := by
+  have hrel := ClimbLoop.foldLoop_invariant_cond "h"
+    SphincsMinusVerifiers.ClimbKit.stepForsMerkle
+    (forsSpecStep seed i t0 l0 auth) (MerkleClimbRel "node" "pathIdx")
+    (MerkleClimbData auth cdAt) hstep state (pathIdx, node) h fuel hD hR
+  rw [forsClimb_eq_specFold]
+  exact hrel.node
 
 /-! ## 6c. STEP-3 frame-carrying loop lift: whole-loop `MerkleClimbFrame` ↔
 `specFold`/`xmssClimb`.
@@ -3246,37 +4541,40 @@ theorem xmssClimbFrame_model_node
   rw [xmssClimb_eq_specFold]
   exact hframe.toRel.node
 
-/-- **`forsClimbFrame_model_node`** — frame-carrying FORS-specialised wrapper around
-`xmssClimbFrame_model_node`, returning the named C13 `forsClimb` root expression. -/
+/-- **`forsClimbFrame_model_node`** — frame-carrying FORS loop lift over
+`ClimbKit.stepForsMerkle` / `forsSpecStep`, returning the named C13 `forsClimb`
+root expression.  The frame's `adrsBaseVar` slot carries the hoisted
+`"forsBase"` binding (its value `forsBase` is the FIPS `adrsForsBase`). -/
 theorem forsClimbFrame_model_node
-    (nodeVar idxVar adrsBaseVar authPtrVar : String)
     (pkSeed pkRoot message sig : ByteArray)
-    (seed i merklePtr : Nat)
+    (seed i t0 l0 forsBase merklePtr : Nat)
     (auth : List SphincsMinusVerifierSpec.Bytes) (cdAt : Nat → Nat)
     (hstep : ∀ (s : RuntimeState) (a : Nat × Nat) (idx : Nat),
         MerkleClimbData auth cdAt idx →
-        MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
-          pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64)) merklePtr s a →
-        MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
-          pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64)) merklePtr
-          (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar
+        MerkleClimbFrame "node" "pathIdx" "forsBase" "authPtr"
+          pkSeed pkRoot message sig seed forsBase merklePtr s a →
+        MerkleClimbFrame "node" "pathIdx" "forsBase" "authPtr"
+          pkSeed pkRoot message sig seed forsBase merklePtr
+          (SphincsMinusVerifiers.ClimbKit.stepForsMerkle
             { s with bindings := bindValue s.bindings "h" (wordNormalize idx) })
-          (merkleSpecStep seed ((3 <<< 96) ||| (i <<< 64)) auth idx a))
+          (forsSpecStep seed i t0 l0 auth idx a))
     (state : RuntimeState) (pathIdx node h fuel : Nat)
     (hD : ∀ idx, h ≤ idx → idx < h + fuel → MerkleClimbData auth cdAt idx)
-    (hR : MerkleClimbFrame nodeVar idxVar adrsBaseVar authPtrVar
-            pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64)) merklePtr
+    (hR : MerkleClimbFrame "node" "pathIdx" "forsBase" "authPtr"
+            pkSeed pkRoot message sig seed forsBase merklePtr
             state (pathIdx, node)) :
     wordNormalize (lookupValue
-        (ClimbLoop.foldLoop "h" (stepMerkle nodeVar idxVar adrsBaseVar authPtrVar)
-          state h fuel).bindings nodeVar)
-      = SphincsMinusVerifierSpec.C13Concrete.forsClimb seed i fuel h pathIdx node auth := by
-  have hx := xmssClimbFrame_model_node nodeVar idxVar adrsBaseVar authPtrVar
-    pkSeed pkRoot message sig seed ((3 <<< 96) ||| (i <<< 64)) merklePtr auth cdAt
-    hstep state pathIdx node h fuel hD hR
-  exact hx.trans
-    (SphincsMinusVerifiers.ClimbStepSpec.forsClimb_eq_xmssClimb
-      seed i fuel h pathIdx node auth).symm
+        (ClimbLoop.foldLoop "h" SphincsMinusVerifiers.ClimbKit.stepForsMerkle
+          state h fuel).bindings "node")
+      = SphincsMinusVerifierSpec.C13Concrete.forsClimb seed i t0 l0 fuel h pathIdx node auth := by
+  have hframe := ClimbLoop.foldLoop_invariant_cond "h"
+    SphincsMinusVerifiers.ClimbKit.stepForsMerkle
+    (forsSpecStep seed i t0 l0 auth)
+    (MerkleClimbFrame "node" "pathIdx" "forsBase" "authPtr"
+      pkSeed pkRoot message sig seed forsBase merklePtr)
+    (MerkleClimbData auth cdAt) hstep state (pathIdx, node) h fuel hD hR
+  rw [forsClimb_eq_specFold]
+  exact hframe.toRel.node
 
 /-! ## 6d. Memory-frame loop adapters. -/
 
@@ -3403,6 +4701,76 @@ theorem execStmt_forEach_h_merkleClimb_preserves_memory_val_range
   exact merkleFold_preserves_memory_val_range
     nodeVar idxVar adrsBaseVar authPtrVar addr n D hstep state hD
 
+/-! ## 6e. FORS statement-level memory-frame adapters.
+
+The FIPS FORS inner climb statement is `.forEach "h" (.literal n)
+ClimbKit.forsClimbBody` (the `forsAdrs`-instantiated body), so the
+`merkleClimbBody`-shaped adapters in §6d do not dispatch on it.  These are the
+same three foldLoop reductions over `ClimbKit.stepForsMerkle`, dispatched via
+`ClimbLoop.execStmt_forEach_forsClimb`. -/
+
+/-- Statement-level memory-frame adapter for the FIPS FORS climb statement. -/
+theorem execStmt_forEach_h_forsClimb_preserves_memory_val_of_step
+    (addr n : Nat)
+    (hstep : ∀ s,
+      ((SphincsMinusVerifiers.ClimbKit.stepForsMerkle s).world.memory addr).val
+        = (s.world.memory addr).val)
+    (state s' : RuntimeState)
+    (h : execStmt [] state
+        (.forEach "h" (.literal n) SphincsMinusVerifiers.ClimbKit.forsClimbBody)
+        = .continue s') :
+    (s'.world.memory addr).val = (state.world.memory addr).val := by
+  rw [ClimbLoop.execStmt_forEach_forsClimb "h" n state] at h
+  injection h with hs'
+  subst s'
+  rw [ClimbLoop.foldLoop_preserves_memory_val "h"
+    SphincsMinusVerifiers.ClimbKit.stepForsMerkle addr hstep
+    { state with bindings := bindValue state.bindings "h" (wordNormalize 0) }
+    0 (wordNormalize n)]
+
+/-- Statement-level bounded-index memory-frame adapter for the FIPS FORS climb
+statement. -/
+theorem execStmt_forEach_h_forsClimb_preserves_memory_val_bound
+    (addr n : Nat)
+    (hstep : ∀ (s : RuntimeState) (idx : Nat),
+      ((SphincsMinusVerifiers.ClimbKit.stepForsMerkle
+          { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }).world.memory addr).val
+        = (s.world.memory addr).val)
+    (state s' : RuntimeState)
+    (h : execStmt [] state
+        (.forEach "h" (.literal n) SphincsMinusVerifiers.ClimbKit.forsClimbBody)
+        = .continue s') :
+    (s'.world.memory addr).val = (state.world.memory addr).val := by
+  rw [ClimbLoop.execStmt_forEach_forsClimb "h" n state] at h
+  injection h with hs'
+  subst s'
+  rw [ClimbLoop.foldLoop_preserves_memory_val_bound "h"
+    SphincsMinusVerifiers.ClimbKit.stepForsMerkle addr hstep
+    { state with bindings := bindValue state.bindings "h" (wordNormalize 0) }
+    0 (wordNormalize n)]
+
+/-- Statement-level range-gated memory-frame adapter for the FIPS FORS climb
+statement. -/
+theorem execStmt_forEach_h_forsClimb_preserves_memory_val_range
+    (addr n : Nat) (D : Nat → Prop)
+    (hstep : ∀ (s : RuntimeState) (idx : Nat), D idx →
+      ((SphincsMinusVerifiers.ClimbKit.stepForsMerkle
+          { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }).world.memory addr).val
+        = (s.world.memory addr).val)
+    (state s' : RuntimeState)
+    (hD : ∀ i, 0 ≤ i → i < 0 + wordNormalize n → D i)
+    (h : execStmt [] state
+        (.forEach "h" (.literal n) SphincsMinusVerifiers.ClimbKit.forsClimbBody)
+        = .continue s') :
+    (s'.world.memory addr).val = (state.world.memory addr).val := by
+  rw [ClimbLoop.execStmt_forEach_forsClimb "h" n state] at h
+  injection h with hs'
+  subst s'
+  rw [ClimbLoop.foldLoop_preserves_memory_val_range "h"
+    SphincsMinusVerifiers.ClimbKit.stepForsMerkle addr D hstep
+    { state with bindings := bindValue state.bindings "h" (wordNormalize 0) }
+    0 (wordNormalize n) hD]
+
 /-! ## 7. Axiom audit. -/
 
 #print axioms StepDataObligations.intro
@@ -3437,6 +4805,27 @@ theorem execStmt_forEach_h_merkleClimb_preserves_memory_val_range
 #print axioms sibling_load_eq_maskN
 #print axioms address_assembly_eq
 #print axioms MerkleClimbRel_step
+#print axioms StepDataObligationsW
+#print axioms stepMerkleA_memory
+#print axioms stepMerkleA_node_binding
+#print axioms stepMerkleA_idx_binding
+#print axioms stepMerkleA_node_value_spec_even
+#print axioms stepMerkleA_node_value_spec_odd
+#print axioms stepMerkleA_node_eq_specStep_even
+#print axioms stepMerkleA_node_eq_specStep_odd
+#print axioms stepMerkleA_idx_eq_specStep
+#print axioms stepMerkleA_eq_merkleSpecStep_even
+#print axioms stepMerkleA_eq_merkleSpecStep_odd
+#print axioms stepMerkleA_eq_merkleSpecStep
+#print axioms MerkleClimbRelA_step
+#print axioms stepMerkleA_selector_calldata
+#print axioms stepMerkleA_binding_frozen
+#print axioms stepMerkleA_mem_zero
+#print axioms stepMerkleA_mem_val_of_ne
+#print axioms stepMerkleA_mem_zero_of_parity
+#print axioms stepMerkleA_mem_zero_val_of_parity
+#print axioms MerkleClimbFrameA_step
+#print axioms ForsClimbRel_step
 #print axioms stepMerkle_node_value_spec_even
 #print axioms stepMerkle_node_value_spec_odd
 #print axioms stepMerkle_node_eq_specStep_even
@@ -3492,5 +4881,8 @@ theorem execStmt_forEach_h_merkleClimb_preserves_memory_val_range
 #print axioms execStmt_forEach_h_merkleClimb_preserves_memory_val_of_step
 #print axioms execStmt_forEach_h_merkleClimb_preserves_memory_val_bound
 #print axioms execStmt_forEach_h_merkleClimb_preserves_memory_val_range
+#print axioms execStmt_forEach_h_forsClimb_preserves_memory_val_of_step
+#print axioms execStmt_forEach_h_forsClimb_preserves_memory_val_bound
+#print axioms execStmt_forEach_h_forsClimb_preserves_memory_val_range
 
 end SphincsMinusVerifiers.ClimbMemFrameMerkle

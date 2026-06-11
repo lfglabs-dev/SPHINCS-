@@ -49,7 +49,7 @@ The remaining proof obligation is therefore the single hypothesis `hstep`: one
 branchless Merkle swap step never clobbers `mem[0x00]`. -/
 theorem hLeaf_of_stepMerkle_seed_frame
     (hstep : ∀ (s : RuntimeState) (hidx : Nat),
-      ((SphincsMinusVerifiers.ClimbKit.stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+      ((SphincsMinusVerifiers.ClimbKit.stepMerkle "node" "pathIdx" "forsBase" "authPtr"
           { s with bindings := bindValue s.bindings "h" (wordNormalize hidx) }).world.memory 0).val
         = (s.world.memory 0).val) :
     ∀ (s : RuntimeState) (idx : Nat), idx < 6 →
@@ -158,7 +158,7 @@ Merkle swap step preserves `mem[0x00]` for *every* state — no `pathIdx < 2^256
 hypothesis.  This is exactly the residual `hstep` of
 `hLeaf_of_stepMerkle_seed_frame`. -/
 theorem stepMerkle_seed_frame_unconditional (s : RuntimeState) (idx : Nat) :
-    ((SphincsMinusVerifiers.ClimbKit.stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+    ((SphincsMinusVerifiers.ClimbKit.stepMerkle "node" "pathIdx" "forsBase" "authPtr"
         { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }).world.memory 0).val
       = (s.world.memory 0).val := by
   let stH : RuntimeState := { s with bindings := bindValue s.bindings "h" (wordNormalize idx) }
@@ -180,7 +180,7 @@ theorem stepMerkle_seed_frame_unconditional (s : RuntimeState) (idx : Nat) :
   obtain ⟨vadr, h3⟩ : ∃ v, evalExpr []
       { stH with bindings :=
         bindValue (bindValue stH.bindings "sibling" vsib) "parentIdx" vpar }
-      (.bitOr (.localVar "treeAdrsBase")
+      (.bitOr (.localVar "forsBase")
         (.bitOr (.shl (.literal 32) (.add (.localVar "h") (.literal 1)))
           (.localVar "parentIdx"))) = some v := ⟨_, rfl⟩
   let vnode : Nat :=
@@ -309,10 +309,10 @@ theorem stepMerkle_seed_frame_unconditional (s : RuntimeState) (idx : Nat) :
         change (0x60 : Nat) ^^^ ((n &&& 1) <<< 5) = 0x40
         exact ho.2
       exact ⟨hone, ho5, ho6⟩
-  show ((SphincsMinusVerifiers.ClimbKit.stepMerkle "node" "pathIdx" "treeAdrsBase" "authPtr"
+  show ((SphincsMinusVerifiers.ClimbKit.stepMerkle "node" "pathIdx" "forsBase" "authPtr"
       stH).world.memory 0).val = (stH.world.memory 0).val
   exact SphincsMinusVerifiers.ClimbMemFrameMerkle.stepMerkle_mem_zero_val_of_parity
-    "node" "pathIdx" "treeAdrsBase" "authPtr" stH
+    "node" "pathIdx" "forsBase" "authPtr" stH
     vsib vpar vadr sval o5 vnode o6 vsib2 n hparOff h1 h2 h3 h4 h5off h5val h6off h6val
 
 /-- **`hLeaf` fully discharged.**  Combining `hLeaf_of_stepMerkle_seed_frame`

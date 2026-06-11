@@ -122,20 +122,27 @@ def c13VerifyBodyTail : List Stmt := [
   .ite (andE (shrE (u 114) (v "dVal")) (u 0x7FFFF)) revert0 [],
   .letVar "sigBase" (v "sig_data_offset"),
 
+  .letVar "idxLeaf0" (andE (v "htIdx") (u 0x7FF)),
+  .letVar "idxTree0" (shrE (u 11) (v "htIdx")),
+  .letVar "forsBase"
+    (orE (shlE (u 128) (v "idxTree0"))
+      (orE (shlE (u 96) (u 3)) (shlE (u 64) (v "idxLeaf0")))),
+
   .forEach "i" (u 6) [
     .letVar "treeIdx" (andE (shrE (mulE (v "i") (u 19)) (v "dVal")) (u 0x7FFFF)),
     .letVar "secretVal" (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (v "i"))))) (u N_MASK)),
-    .letVar "leafAdrs" (orE (shlE (u 96) (u 3)) (orE (shlE (u 64) (v "i")) (v "treeIdx"))),
+    .letVar "leafAdrs" (orE (v "forsBase") (orE (shlE (u 19) (v "i")) (v "treeIdx"))),
     mstore 0x20 (v "leafAdrs"),
     mstore 0x40 (v "secretVal"),
     .letVar "node" (andE (keccak 0x00 0x60) (u N_MASK)),
-    .letVar "treeAdrsBase" (orE (shlE (u 96) (u 3)) (shlE (u 64) (v "i"))),
     .letVar "pathIdx" (v "treeIdx"),
     .letVar "authPtr" (addE (v "sigBase") (addE (u 128) (mulE (v "i") (u 304)))),
     .forEach "h" (u 19) [
       .letVar "sibling" (andE (cdload (addE (v "authPtr") (shlE (u 4) (v "h")))) (u N_MASK)),
       .letVar "parentIdx" (shrE (u 1) (v "pathIdx")),
-      mstore 0x20 (orE (v "treeAdrsBase") (orE (shlE (u 32) (addE (v "h") (u 1))) (v "parentIdx"))),
+      mstore 0x20 (orE (v "forsBase")
+        (orE (shlE (u 32) (addE (v "h") (u 1)))
+          (orE (shlE (subE (u 18) (v "h")) (v "i")) (v "parentIdx")))),
       .letVar "s" (shlE (u 5) (andE (v "pathIdx") (u 1))),
       mstoreE (xorE (u 0x40) (v "s")) (v "node"),
       mstoreE (xorE (u 0x60) (v "s")) (v "sibling"),
@@ -146,11 +153,13 @@ def c13VerifyBodyTail : List Stmt := [
   ],
 
   .letVar "lastSecret" (andE (cdload (addE (v "sigBase") (addE (u 16) (shlE (u 4) (u 6))))) (u N_MASK)),
-  mstore 0x20 (orE (shlE (u 96) (u 3)) (shlE (u 64) (u 6))),
+  mstore 0x20 (orE (v "forsBase") (shlE (u 19) (u 6))),
   mstore 0x40 (v "lastSecret"),
   mstore 0x140 (andE (keccak 0x00 0x60) (u N_MASK)),
 
-  mstore 0x20 (shlE (u 96) (u 4)),
+  mstore 0x20
+    (orE (shlE (u 128) (v "idxTree0"))
+      (orE (shlE (u 96) (u 4)) (shlE (u 64) (v "idxLeaf0")))),
   .forEach "i" (u 7) [
     mstoreE (addE (u 0x40) (shlE (u 5) (v "i"))) (mloadE (addE (u 0x80) (shlE (u 5) (v "i"))))
   ],

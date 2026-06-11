@@ -497,10 +497,14 @@ def main():
     msg_hex = args.message_hex.replace("0x", "")
     if len(msg_hex) % 2:
         msg_hex = "0" + msg_hex
-    # Pad to 32 bytes (we sign a bytes32 message — matches our Solidity verifier)
-    msg_bytes = bytes.fromhex(msg_hex).rjust(32, b"\x00") if msg_hex \
-                 else b"\x00" * 32
-    msg_bytes = msg_bytes[-32:]
+    msg_raw = bytes.fromhex(msg_hex) if msg_hex else b""
+    # FIPS 205 EXTERNAL SLH-DSA.Sign with empty context: sign
+    #   M' = toByte(0,1) ‖ toByte(|ctx|,1) ‖ ctx ‖ M = 0x00 ‖ 0x00 ‖ M.
+    # We sign the RAW message bytes (no rjust/truncate to 32 — that was the
+    # SLH-S-f1 divergence from the C reference); the on-chain bytes32 verifier
+    # is the 32-byte-M case of this and prepends the same envelope. (review
+    # SLH-S-f1 / SLH-X-f1)
+    msg_bytes = b"\x00\x00" + msg_raw
 
     h_param = args.height
     a_param = args.a

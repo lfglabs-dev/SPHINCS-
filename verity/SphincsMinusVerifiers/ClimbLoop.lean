@@ -348,6 +348,32 @@ theorem execForEachLoop_merkleClimb
     (ClimbKit.merkleClimbStep nodeVar idxVar adrsBaseVar authPtrVar)
     state index remaining
 
+/-- The FIPS C13 FORS climb `forEach` (body `ClimbKit.forsClimbBody`, the
+address-parametric `merkleClimbBodyA` at `forsAdrs`) folds to repeated
+`ClimbKit.stepForsMerkle`. -/
+theorem execForEachLoop_forsClimb
+    (varName : String) (state : RuntimeState) (index remaining : Nat) :
+    execForEachLoop varName
+        (fun ls => execStmtList [] ls ClimbKit.forsClimbBody)
+        state index remaining
+      = .continue
+          (foldLoop varName ClimbKit.stepForsMerkle state index remaining) :=
+  execForEachLoop_of_step varName _ ClimbKit.stepForsMerkle
+    ClimbKit.forsClimbStep state index remaining
+
+/-- A literal-count FIPS FORS climb `.forEach varName (.literal n) forsClimbBody`
+statement reduces to `foldLoop … stepForsMerkle … (wordNormalize n)`. -/
+theorem execStmt_forEach_forsClimb
+    (varName : String) (n : Nat) (state : RuntimeState) :
+    execStmt [] state
+        (.forEach varName (.literal n) ClimbKit.forsClimbBody)
+      = .continue
+          (foldLoop varName ClimbKit.stepForsMerkle
+            { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+            0 (wordNormalize n)) :=
+  execStmt_forEach_of_step varName (.literal n) _ state (wordNormalize n)
+    ClimbKit.stepForsMerkle rfl ClimbKit.forsClimbStep
+
 /-- The WOTS-chain `forEach` folds to repeated `ClimbKit.stepWots`. -/
 theorem execForEachLoop_wotsChain
     (varName : String) (state : RuntimeState) (index remaining : Nat) :
