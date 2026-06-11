@@ -37,8 +37,8 @@ already-verified generic chain lemma (see `C13WotsPkKeccak.lean` and
 `C13ChainCells.lean`) to the concrete interpreter state at the
 `beforeAuthOff` cut. They are proof debt inside the Lean development, not
 claims about source-to-model transcription fidelity. Discharging them is
-tracked in issue #7; the `probes/` directory contains work-in-progress
-proofs toward that.
+tracked in issue #7; work-in-progress proofs toward that live on the
+`wip/axiom-discharge` branch.
 
 ## SLH-DSA-SHA2-128-24
 
