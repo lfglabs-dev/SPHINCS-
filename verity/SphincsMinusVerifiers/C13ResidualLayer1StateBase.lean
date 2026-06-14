@@ -1,0 +1,6 @@
+import SphincsMinusVerifiers.C13ResidualLayer1FirstStateFacts
+import SphincsMinusVerifiers.C13ResidualLayer1SecondStateDef
+
+namespace SphincsMinusVerifiers
+
+end SphincsMinusVerifiers

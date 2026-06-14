@@ -671,6 +671,28 @@ theorem stepLayer_preserves_memory_zero_of_layerFrozenSite_range
   exact afterMerkle_preserves_memory_zero_of_layerFrozenSite_range
     ls layer pkSeed pkRoot message sig hWots hCopy hlayer hsite
 
+/-- One accepting layer iteration preserves seed cell `0x00` back to the layer
+entry state when the frozen Merkle site and WOTS/copy loop frames are supplied. -/
+theorem stepLayer_preserves_entry_memory_zero_of_layerFrozenSite_range
+    (ls : RuntimeState) (layer : Nat)
+    (pkSeed pkRoot message sig : ByteArray)
+    (hWots :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (.literal 43) SegmentLayer3.wotsOuterBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hCopy :
+      ∀ (s s'' : RuntimeState),
+        execStmt [] s (.forEach "i" (.literal 43) SegmentLayer3.copyBody) = .continue s'' →
+        (s''.world.memory 0x00).val = (s.world.memory 0x00).val)
+    (hlayer : layer < 2)
+    (hsite : LayerFrozenSite layer pkSeed pkRoot message sig (SegmentLayer3.beforeMerkle ls)) :
+    ((SegmentLayer3.stepLayer ls).world.memory 0x00).val =
+      (ls.world.memory 0x00).val := by
+  exact
+    (stepLayer_preserves_memory_zero_of_layerFrozenSite_range
+      ls layer pkSeed pkRoot message sig hWots hCopy hlayer hsite).trans
+      (SegmentLayer3.afterDigit_preserves_memory_zero ls)
+
 /-- One accepting layer iteration preserves seed cell `0x00` once the WOTS/copy
 loop frames are supplied and the Merkle loop's per-height site facts are reduced
 to `LayerMerkleEvalFacts`. -/
@@ -708,6 +730,7 @@ theorem stepLayer_preserves_memory_zero_of_layer_eval_range
 #print axioms foldLoop_preserves_seed_slot_of_layerFrozenSite_range
 #print axioms afterMerkle_preserves_memory_zero_of_layerFrozenSite_range
 #print axioms stepLayer_preserves_memory_zero_of_layerFrozenSite_range
+#print axioms stepLayer_preserves_entry_memory_zero_of_layerFrozenSite_range
 #print axioms stepLayer_preserves_memory_zero_of_layer_eval_range
 
 end SphincsMinusVerifiers.SegmentLayer3MerkleFrame

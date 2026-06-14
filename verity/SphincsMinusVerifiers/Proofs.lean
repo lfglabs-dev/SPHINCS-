@@ -71,6 +71,10 @@ import SphincsMinusVerifiers.C13BridgePrep
 import SphincsMinusVerifiers.C13ChainCells
 import SphincsMinusVerifiers.C13WotsPkKeccak
 import SphincsMinusVerifiers.KeccakBridge
+import SphincsMinusVerifiers.C13ResidualInterface
+import SphincsMinusVerifiers.C13ResidualLayer0Assembly
+import SphincsMinusVerifiers.C13ResidualLayer1Assembly
+import SphincsMinusVerifiers.C13ResidualRevertedLayer0Assembly
 import SphincsMinusVerifiers.SegmentLayer3AddressCells
 import SphincsMinusVerifiers.SegmentLayer3MerkleFrame
 import SphincsMinusVerifiers.SiblingCalldata
@@ -10954,17 +10958,6 @@ theorem c13_beforeWotsPk_memory_0x20_eq_lightweight
         (SegmentLayer3.afterDigit ls)).world.memory 0x20).val := by
   rw [c13_beforeWotsPk_eq_beforeWotsPkFrom]
 
-/-- Lightweight C13 WOTS-outer entry state used by the single-cell historical
-bridges. -/
-def c13BeforeWotsPkLightState (ls : RuntimeState) : RuntimeState :=
-  { SegmentLayer3AddressCells.beforeWotsPkWotsPtrFrom
-      (SegmentLayer3.afterDigit ls) with
-    bindings :=
-      bindValue
-        (SegmentLayer3AddressCells.beforeWotsPkWotsPtrFrom
-          (SegmentLayer3.afterDigit ls)).bindings
-        "i" (wordNormalize 0) }
-
 /-- `beforeWotsPkFrom` factors through the post-WOTS/address-store cutpoint and
 the final copy loop (`beforeWotsPkAfterWotsCopyFrom`); proven by exec-list
 rewriting only — no loop iteration is ever unfolded. -/
@@ -11148,38 +11141,6 @@ theorem c13_beforeWotsPk_memory_chain_eq_lightweight
         (c13_copyLoop_preserves_out_slot _ 0 43 j hj' (by omega))
     exact (hA.trans ((c13_awcf_out_slot ls j hj').trans hcell)).trans hB.symm
 
-/-- The exact lightweight facts needed to close a C13 WOTS-outer/copy-chain
-cell residual.  This deliberately exposes only seed, digest, WOTS address,
-WOTS pointer, and the calldata load relation for the lightweight loop state. -/
-structure C13WotsOuterExactInputs
-    (pkSeed pkRoot message sig : Bytes) (st : RuntimeState)
-    (layer treeIdx leafIdx count node wotsPtr calldataBase : Nat) : Prop where
-  hSeed : ∀ j, j < 43 →
-    ((ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 j).world.memory 0x00).val =
-      C13Concrete.wordOfHash16 pkSeed
-  hD : ∀ j, j < 43 →
-    lookupValue (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 j).bindings "d" =
-      C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
-        layer treeIdx leafIdx count node
-  hAdrs : ∀ j, j < 43 →
-    lookupValue (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 j).bindings
-        "wotsAdrs" =
-      C13Concrete.adrsWotsHashBase layer treeIdx leafIdx
-  hWPtr : ∀ j, j < 43 →
-    lookupValue (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 j).bindings
-        "wotsPtr" = wotsPtr
-  hCdLoad : ∀ j, j < 43 → ∀ (s : RuntimeState),
-      lookupValue s.bindings "wotsPtr" = wotsPtr →
-      lookupValue s.bindings "i" = j →
-      s.world = (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 j).world →
-      evalExpr [] s
-          (.calldataload
-            (.add (.localVar "wotsPtr")
-              (.shl (.literal 4) (.localVar "i")))) =
-        some (Compiler.Proofs.YulGeneration.calldataloadWord 0
-          (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
-          (sigDataOffset + (calldataBase + 16 * j)))
-
 /-- C13 accept-side layer-0 WOTS-PK address cell at the `beforeWotsPk`
 cutpoint, discharged from the executable WOTS-PK address store. -/
 theorem c13_ok_beforeAuthOff_wotsPk_address_cell_residual_layer0 :
@@ -11266,7 +11227,7 @@ under cap in `C13WotsPkKeccak.lean` (`c13Layer0_copyFold43_wotsChainsEnd_cells_o
 remains. Cannot be discharged on the current host: `Proofs.lean`/`SegmentLayer3.lean`
 each peak ~48 GB as single modules (OOM above the 10 GB cap). Discharge needs a
 >~64 GB pass; tracked in project memory. -/
-axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_inputs_layer0 :
+theorem c13_ok_beforeAuthOff_wotsPk_lightweight_chain_inputs_layer0 :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11293,7 +11254,8 @@ axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_inputs_layer0 :
       let wotsPtr := lookupValue st.bindings "wotsPtr"
       C13WotsOuterExactInputs pkSeed pkRoot message sig st
         0 (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
-        d.lsig0.wots.count (C13Concrete.wordOfHash16 forsPk) wotsPtr 1952
+        d.lsig0.wots.count (C13Concrete.wordOfHash16 forsPk) wotsPtr 1952 :=
+  c13_ok_beforeAuthOff_wotsPk_lightweight_chain_inputs_layer0_proved
 
 /-- The layer-0 C13 calldata/loop closure from exact lightweight WOTS-outer
 inputs to copied chain-end cells: discharged by the verified
@@ -11565,19 +11527,8 @@ theorem c13_ok_beforeAuthOff_wotsPk_address_cell_residual_layer1 :
       (by decide : 2048 < 2 ^ 32))
 
 /-- Residual C13 accept-side layer-1 copied WOTS chain-end cells at the
-lightweight WOTS-outer/copy-fold cutpoint.
-
-ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
-Asserts the 43 copied chain-end memory cells (`0x40 + 32*j`) equal
-`InitialNodeKeccak.wotsChainsEnd … d.root0 …` at the *concrete* layer-1 entry state
-`beforeWotsPkWotsPtrFrom (SegmentLayer3.afterDigit (c13LayerLoopState1 (mkC13State …)))`.
-Minimal honest assembly obligation: the generic copy-fold/chain-cells closure is already
-verified under cap in `C13WotsPkKeccak.lean`
-(`c13Layer1_copyFold43_wotsChainsEnd_cells_of_inputs` / `_of_entry`); what remains is only
-pinning it to this concrete `afterDigit`-derived state, which needs SegmentLayer3 reasoning.
-Cannot be discharged on the current host (Proofs.lean/SegmentLayer3.lean peak ~48 GB,
-OOM above the 10 GB cap); needs a >~64 GB pass. -/
-axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1 :
+lightweight WOTS-outer/copy-fold cutpoint. -/
+theorem c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1 :
   ∀ pkSeed pkRoot message sig sigParsed forsPk specRoot,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -11611,7 +11562,8 @@ axiom c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1 :
             ((digest.hyperIndex / 2048) % 2048)
             (C13Concrete.wordOfHash16 d.root0) d.lsig1.wots)[j]'(by
               rw [InitialNodeKeccak.wotsChainsEnd_length]
-              omega)
+              omega) :=
+  c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1_proved
 
 /-- C13 accept-side layer-1 copied WOTS chain-end cells at the historical
 `beforeWotsPk` cutpoint, reduced to the lightweight copy-fold residual. -/
@@ -11973,18 +11925,8 @@ theorem c13_reverted_layer0_beforeAuthOff_wotsPk_address_cell_residual :
       (by decide : 2048 < 2 ^ 32))
 
 /-- Residual C13 reverted-at-layer-1 layer-0 copied WOTS chain-end cells at the
-lightweight WOTS-outer/copy-fold cutpoint.
-
-ASSEMBLY OBLIGATION (accepted axiom — see README "Residual assembly axioms").
-The reverted-path twin of the layer-0 chain-cells closure: asserts the 43 copied
-chain-end cells equal `wotsChainsEnd …` at the concrete reverted-layer-0 entry state.
-Minimal honest assembly obligation: the generic reverted closure is already verified
-under cap in `C13WotsPkKeccak.lean`
-(`c13RevertedLayer0_copyFold43_wotsChainsEnd_cells_of_inputs`,
-`c13RevertedLayer0_copyFold43_wotsPk_keccak_of_inputs`); only the concrete-state
-instantiation (built on `SegmentLayer3.afterDigit`) remains. Cannot be discharged on
-the current host (~48 GB OOM above the 10 GB cap); needs a >~64 GB pass. -/
-axiom c13_reverted_layer0_beforeAuthOff_wotsPk_lightweight_chain_cells_residual :
+lightweight WOTS-outer/copy-fold cutpoint. -/
+theorem c13_reverted_layer0_beforeAuthOff_wotsPk_lightweight_chain_cells_residual :
   ∀ pkSeed pkRoot message sig sigParsed forsPk,
     C13Concrete.parseSignatureC13 c13 sig = some sigParsed →
     forcedZeroOk c13
@@ -12016,7 +11958,19 @@ axiom c13_reverted_layer0_beforeAuthOff_wotsPk_lightweight_chain_cells_residual 
             (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
             (C13Concrete.wordOfHash16 forsPk) d.lsig0.wots)[j]'(by
               rw [InitialNodeKeccak.wotsChainsEnd_length]
-              omega)
+              omega) := by
+  intro pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors hFold
+    pk digest d j h
+  have hState :
+      c13FirstLayerGuardState pkSeed pkRoot message sig =
+        c13ResidualLayer0GuardState pkSeed pkRoot message sig := by
+    rw [c13FirstLayerGuardState_eq_c13LayerLoopState0,
+      c13ResidualLayer0GuardState_eq_c13LayerLoopState0]
+  rw [hState]
+  exact
+    c13_reverted_layer0_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_proved
+      pkSeed pkRoot message sig sigParsed forsPk hParse hZero hFors hFold
+      d j h
 
 /-- C13 reverted-at-layer-1 layer-0 copied WOTS chain-end cells at the
 historical `beforeWotsPk` cutpoint, reduced to the lightweight copy-fold

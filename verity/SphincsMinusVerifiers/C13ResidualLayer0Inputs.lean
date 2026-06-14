@@ -1,0 +1,6 @@
+import SphincsMinusVerifiers.C13ResidualLayer0InputSeed
+import SphincsMinusVerifiers.C13ResidualLayer0InputD
+import SphincsMinusVerifiers.C13ResidualLayer0InputAdrs
+import SphincsMinusVerifiers.C13ResidualLayer0InputWptr
+import SphincsMinusVerifiers.C13ResidualLayer0InputCd
+import SphincsMinusVerifiers.C13WotsOuterInputs
