@@ -1,4 +1,4 @@
-import SphincsMinusVerifiers.C13ResidualLayer0Inputs
+import SphincsMinusVerifiers.C13ResidualLayer0AssemblyFields
 
 namespace SphincsMinusVerifiers
 
@@ -38,34 +38,15 @@ theorem c13_ok_beforeAuthOff_wotsPk_lightweight_chain_inputs_layer0_proved :
         d.lsig0.wots.count (C13Concrete.wordOfHash16 forsPk) wotsPtr 1952 := by
   intro pkSeed pkRoot message sig sigParsed forsPk specRoot
     hParse _hZero hFors _hFold pk digest d
-  rw [← c13FirstLayerGuardState_eq_c13LayerLoopState0 pkSeed pkRoot message sig]
+  rw [← c13ResidualLayer0GuardState_eq_c13LayerLoopState0 pkSeed pkRoot message sig]
   intro st wotsPtr
-  have hWPtrVal : wotsPtr = sigDataOffset + 1952 :=
-    c13_layer0_light_wptr0 pkSeed pkRoot message sig
-  have hCdSt : st.world.calldata =
-      headWords pkSeed pkRoot message sig.size ++ bytesToWords sig :=
-    c13_layer0_light_cd0 pkSeed pkRoot message sig
   refine
-    { hSeed := ?_, hD := ?_, hAdrs := ?_, hWPtr := ?_, hCdLoad := ?_ }
-  · intro j hj
-    rw [wotsOuterFold_preserves_seed_cell st j (by omega)]
-    exact c13_layer0_light_seed0 pkSeed pkRoot message sig
-  · intro j _hj
-    rw [wotsOuterFold_preserves_binding st "d"
-      (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) j]
-    exact c13_layer0_light_d0 pkSeed pkRoot message sig sigParsed forsPk d.lsig0
-      hParse hFors d.hLayer0
-  · intro j _hj
-    rw [wotsOuterFold_preserves_binding st "wotsAdrs"
-      (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) j]
-    exact c13_layer0_light_adrs0 pkSeed pkRoot message sig sigParsed hParse
-  · intro j _hj
-    rw [wotsOuterFold_preserves_binding st "wotsPtr"
-      (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) j]
-    rfl
-  · intro j hj s h1 h2 h3
-    exact wotsOuterFold_cdload_raw pkSeed pkRoot message sig st 1952
-      (by decide) hCdSt j hj s (h1.trans hWPtrVal) h2 h3
+    { hSeed := c13_layer0_exact_seed_field pkSeed pkRoot message sig,
+      hD := c13_layer0_exact_d_field pkSeed pkRoot message sig sigParsed forsPk d.lsig0
+        hParse hFors d.hLayer0,
+      hAdrs := c13_layer0_exact_adrs_field pkSeed pkRoot message sig sigParsed hParse,
+      hWPtr := c13_layer0_exact_wptr_field pkSeed pkRoot message sig,
+      hCdLoad := c13_layer0_exact_cdload_field pkSeed pkRoot message sig }
 
 #print axioms c13_ok_beforeAuthOff_wotsPk_lightweight_chain_inputs_layer0_proved
 

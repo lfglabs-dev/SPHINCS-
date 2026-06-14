@@ -1,4 +1,5 @@
 import SphincsMinusVerifiers.C13ResidualLayer0Inputs
+import SphincsMinusVerifiers.C13WotsPkKeccak
 
 namespace SphincsMinusVerifiers
 
@@ -32,7 +33,7 @@ theorem c13_reverted_layer0_beforeAuthOff_wotsPk_lightweight_chain_cells_residua
         ((ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.copyStep
           (ClimbLoop.foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep
             (c13BeforeWotsPkLightState
-              (c13FirstLayerGuardState pkSeed pkRoot message sig))
+              (c13ResidualLayer0GuardState pkSeed pkRoot message sig))
             0 43)
           0 43).world.memory (0x40 + 32 * j)).val =
           (InitialNodeKeccak.wotsChainsEnd
@@ -57,7 +58,7 @@ theorem c13_reverted_layer0_beforeAuthOff_wotsPk_lightweight_chain_cells_residua
       C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
         0 (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
         d.lsig0.wots.count (C13Concrete.wordOfHash16 forsPk) < 2 ^ 256 :=
-    c13_wotsDigest_lt (C13Concrete.wordOfHash16 pkSeed)
+    c13Residual_wotsDigest_lt (C13Concrete.wordOfHash16 pkSeed)
       0 (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
       d.lsig0.wots.count (C13Concrete.wordOfHash16 forsPk)
   have hAdrsLt :
@@ -82,7 +83,7 @@ theorem c13_reverted_layer0_beforeAuthOff_wotsPk_lightweight_chain_cells_residua
       (Nat.bitwise_lt_two_pow h224 hT) hL
   have e : C13WotsOuterEntry pkSeed
       (c13BeforeWotsPkLightState
-        (c13FirstLayerGuardState pkSeed pkRoot message sig))
+        (c13ResidualLayer0GuardState pkSeed pkRoot message sig))
       (C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
         0 (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
         d.lsig0.wots.count (C13Concrete.wordOfHash16 forsPk))
@@ -94,7 +95,7 @@ theorem c13_reverted_layer0_beforeAuthOff_wotsPk_lightweight_chain_cells_residua
     c13RevertedLayer0_copyFold43_wotsChainsEnd_cells_of_inputs
       pkSeed pkRoot message sig sigParsed
       (c13BeforeWotsPkLightState
-        (c13FirstLayerGuardState pkSeed pkRoot message sig))
+        (c13ResidualLayer0GuardState pkSeed pkRoot message sig))
       (digest.hyperIndex / 2048) (digest.hyperIndex % 2048)
       (C13Concrete.wordOfHash16 forsPk)
       pk digest forsPk d hParse hDigestLt hAdrsLt e hCdSt

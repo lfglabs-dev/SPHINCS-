@@ -129,6 +129,38 @@ structure C13WotsOuterEntry (pkSeed : Bytes) (st : RuntimeState)
   adrs0 : lookupValue st.bindings "wotsAdrs" = adrs
   wptr0 : lookupValue st.bindings "wotsPtr" = wotsPtr
 
+/-- The exact lightweight facts needed to close a C13 WOTS-outer/copy-chain
+cell residual.  This deliberately exposes only seed, digest, WOTS address,
+WOTS pointer, and the calldata load relation for the lightweight loop state. -/
+structure C13WotsOuterExactInputs
+    (pkSeed pkRoot message sig : Bytes) (st : RuntimeState)
+    (layer treeIdx leafIdx count node wotsPtr calldataBase : Nat) : Prop where
+  hSeed : ∀ j, j < 43 →
+    ((foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 j).world.memory 0x00).val =
+      C13Concrete.wordOfHash16 pkSeed
+  hD : ∀ j, j < 43 →
+    lookupValue (foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 j).bindings "d" =
+      C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
+        layer treeIdx leafIdx count node
+  hAdrs : ∀ j, j < 43 →
+    lookupValue (foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 j).bindings
+        "wotsAdrs" =
+      C13Concrete.adrsWotsHashBase layer treeIdx leafIdx
+  hWPtr : ∀ j, j < 43 →
+    lookupValue (foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 j).bindings
+        "wotsPtr" = wotsPtr
+  hCdLoad : ∀ j, j < 43 → ∀ (s : RuntimeState),
+      lookupValue s.bindings "wotsPtr" = wotsPtr →
+      lookupValue s.bindings "i" = j →
+      s.world = (foldLoop "i" SegmentLayer3CopyCells.wotsOuterStep st 0 j).world →
+      evalExpr [] s
+          (.calldataload
+            (.add (.localVar "wotsPtr")
+              (.shl (.literal 4) (.localVar "i")))) =
+        some (Compiler.Proofs.YulGeneration.calldataloadWord 0
+          (headWords pkSeed pkRoot message sig.size ++ bytesToWords sig)
+          (sigDataOffset + (calldataBase + 16 * j)))
+
 namespace C13WotsOuterEntry
 
 variable {pkSeed : Bytes} {st : RuntimeState} {digest adrs wotsPtr : Nat}

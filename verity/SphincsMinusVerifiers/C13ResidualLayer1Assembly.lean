@@ -1,4 +1,5 @@
 import SphincsMinusVerifiers.C13ResidualLayer1Inputs
+import SphincsMinusVerifiers.C13WotsPkKeccak
 
 namespace SphincsMinusVerifiers
 
@@ -45,19 +46,16 @@ theorem c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1_prov
               omega) := by
   intro pkSeed pkRoot message sig sigParsed forsPk specRoot
     hParse hZero hFors hFold pk digest d
-  rw [← c13SecondLayerGuardState_eq_c13LayerLoopState1 pkSeed pkRoot message sig]
+  rw [← c13ResidualSecondLayerGuardState_eq_c13LayerLoopState1 pkSeed pkRoot message sig]
   have hStepSeed :
       ((SegmentLayer3.stepLayer
-        (c13FirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+        (c13ResidualFirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
         C13Concrete.wordOfHash16 pkSeed :=
-    c13FirstStepLayer_seed_slot_of_memory_zero pkSeed pkRoot message sig
-      (by
-        simpa [c13FirstLayerGuardState_eq_c13LayerLoopState0] using
-          c13FirstLayerStep_preserves_memory_zero_of_parse
-            pkSeed pkRoot message sig sigParsed hParse)
-  have hSeed1 := c13_layer1_light_seed1 pkSeed pkRoot message sig sigParsed hParse
+    c13ResidualFirstLayerStep_seed_slot_of_parse
+      pkSeed pkRoot message sig sigParsed hParse
+  have hSeed1 := c13_layer1_light_seed1 pkSeed pkRoot message sig hStepSeed
   have hCurrent0Root :=
-    c13_layer1_current0Root pkSeed pkRoot message sig sigParsed forsPk specRoot
+    c13Residual_layer1_current0Root pkSeed pkRoot message sig sigParsed forsPk specRoot
       hParse hZero hFors hFold d
   have hD1 := c13_layer1_light_d1 pkSeed pkRoot message sig sigParsed d.root0 d.lsig1
     hParse d.hLayer1 hStepSeed hCurrent0Root
@@ -72,7 +70,7 @@ theorem c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1_prov
       C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
         1 ((digest.hyperIndex / 2048) / 2048) ((digest.hyperIndex / 2048) % 2048)
         d.lsig1.wots.count (C13Concrete.wordOfHash16 d.root0) < 2 ^ 256 :=
-    c13_wotsDigest_lt (C13Concrete.wordOfHash16 pkSeed)
+    c13Residual_wotsDigest_lt (C13Concrete.wordOfHash16 pkSeed)
       1 ((digest.hyperIndex / 2048) / 2048) ((digest.hyperIndex / 2048) % 2048)
       d.lsig1.wots.count (C13Concrete.wordOfHash16 d.root0)
   have hAdrsLt :
@@ -99,7 +97,7 @@ theorem c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1_prov
       (Nat.bitwise_lt_two_pow h224 hT) hL
   have e : C13WotsOuterEntry pkSeed
       (c13BeforeWotsPkLightState
-        (c13SecondLayerGuardState pkSeed pkRoot message sig))
+        (c13ResidualSecondLayerGuardState pkSeed pkRoot message sig))
       (C13Concrete.wotsDigest (C13Concrete.wordOfHash16 pkSeed)
         1 ((digest.hyperIndex / 2048) / 2048) ((digest.hyperIndex / 2048) % 2048)
         d.lsig1.wots.count (C13Concrete.wordOfHash16 d.root0))
@@ -112,7 +110,7 @@ theorem c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1_prov
     c13Layer1_copyFold43_wotsChainsEnd_cells_of_inputs
       pkSeed pkRoot message sig sigParsed
       (c13BeforeWotsPkLightState
-        (c13SecondLayerGuardState pkSeed pkRoot message sig))
+        (c13ResidualSecondLayerGuardState pkSeed pkRoot message sig))
       ((digest.hyperIndex / 2048) / 2048) ((digest.hyperIndex / 2048) % 2048)
       (C13Concrete.wordOfHash16 d.root0)
       d.lsig1 hParse d.hLayer1 hDigestLt hAdrsLt e hCdSt
