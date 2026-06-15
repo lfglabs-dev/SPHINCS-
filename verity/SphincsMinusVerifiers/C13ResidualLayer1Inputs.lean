@@ -9,13 +9,6 @@ open Compiler.Proofs.IRGeneration.SourceSemantics
 open SphincsMinusVerifiers.MkC13State
 open SphincsMinusVerifiers.SegmentCompose
 
-axiom c13ResidualFirstLayerStep_seed_slot_of_parse
-    (pkSeed pkRoot message sig : Bytes) (sigParsed : Signature)
-    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed) :
-    ((SegmentLayer3.stepLayer
-      (c13ResidualFirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
-      C13Concrete.wordOfHash16 pkSeed
-
 set_option maxHeartbeats 2000000 in
 theorem c13_layer1_light_seed1 (pkSeed pkRoot message sig : Bytes)
     (hStepSeed :
@@ -31,30 +24,6 @@ theorem c13_layer1_light_seed1 (pkSeed pkRoot message sig : Bytes)
   unfold c13ResidualSecondLayerGuardState
   rw [ClimbLoopGuarded.loopState_preserves_memory_val]
   exact hStepSeed
-
-axiom c13Residual_layer1_current0Root (pkSeed pkRoot message sig : Bytes)
-    (sigParsed : Signature) (forsPk specRoot : Bytes)
-    (hParse : C13Concrete.parseSignatureC13 c13 sig = some sigParsed)
-    (hZero : forcedZeroOk c13
-      (C13Concrete.c13PrimitivesConcrete.hMsg c13
-        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message) = true)
-    (hFors : C13Concrete.c13PrimitivesConcrete.forsPkFromSig c13
-      { pkSeed := pkSeed, pkRoot := pkRoot }
-      (C13Concrete.c13PrimitivesConcrete.hMsg c13
-        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
-      sigParsed.fors = some forsPk)
-    (hFold : foldHypertree C13Concrete.c13PrimitivesConcrete c13
-      { pkSeed := pkSeed, pkRoot := pkRoot }
-      (C13Concrete.c13PrimitivesConcrete.hMsg c13
-        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
-      forsPk sigParsed.layers = .ok specRoot)
-    (d : C13Concrete.FoldHypertreeC13OkTwoLayerData
-      { pkSeed := pkSeed, pkRoot := pkRoot }
-      (C13Concrete.c13PrimitivesConcrete.hMsg c13
-        { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
-      forsPk sigParsed.layers specRoot) :
-    lookupValue (c13ResidualSecondLayerGuardState pkSeed pkRoot message sig).bindings
-        "currentNode" = C13Concrete.wordOfHash16 d.root0
 
 set_option maxHeartbeats 2000000 in
 theorem c13_layer1_light_d1 (pkSeed pkRoot message sig : Bytes)

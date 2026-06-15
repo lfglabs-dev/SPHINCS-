@@ -25,6 +25,16 @@ theorem c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1_prov
       (C13Concrete.c13PrimitivesConcrete.hMsg c13
         { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
       forsPk sigParsed.layers = .ok specRoot →
+    ((SegmentLayer3.stepLayer
+      (c13ResidualFirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
+      C13Concrete.wordOfHash16 pkSeed →
+    (∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
+        { pkSeed := pkSeed, pkRoot := pkRoot }
+        (C13Concrete.c13PrimitivesConcrete.hMsg c13
+          { pkSeed := pkSeed, pkRoot := pkRoot } sigParsed.R message)
+        forsPk sigParsed.layers specRoot,
+      lookupValue (c13ResidualSecondLayerGuardState pkSeed pkRoot message sig).bindings
+          "currentNode" = C13Concrete.wordOfHash16 d.root0) →
     let pk : PublicKey := { pkSeed := pkSeed, pkRoot := pkRoot }
     let digest := C13Concrete.c13PrimitivesConcrete.hMsg c13 pk sigParsed.R message
     ∀ d : C13Concrete.FoldHypertreeC13OkTwoLayerData
@@ -45,18 +55,11 @@ theorem c13_ok_beforeAuthOff_wotsPk_lightweight_chain_cells_residual_layer1_prov
               rw [InitialNodeKeccak.wotsChainsEnd_length]
               omega) := by
   intro pkSeed pkRoot message sig sigParsed forsPk specRoot
-    hParse hZero hFors hFold pk digest d
+    hParse hZero hFors hFold hStepSeed hCurrent0RootBridge pk digest d
   rw [← c13ResidualSecondLayerGuardState_eq_c13LayerLoopState1 pkSeed pkRoot message sig]
-  have hStepSeed :
-      ((SegmentLayer3.stepLayer
-        (c13ResidualFirstLayerGuardState pkSeed pkRoot message sig)).world.memory 0x00).val =
-        C13Concrete.wordOfHash16 pkSeed :=
-    c13ResidualFirstLayerStep_seed_slot_of_parse
-      pkSeed pkRoot message sig sigParsed hParse
   have hSeed1 := c13_layer1_light_seed1 pkSeed pkRoot message sig hStepSeed
   have hCurrent0Root :=
-    c13Residual_layer1_current0Root pkSeed pkRoot message sig sigParsed forsPk specRoot
-      hParse hZero hFors hFold d
+    hCurrent0RootBridge d
   have hD1 := c13_layer1_light_d1 pkSeed pkRoot message sig sigParsed d.root0 d.lsig1
     hParse d.hLayer1 hStepSeed hCurrent0Root
   have hAdrs1 := c13_layer1_light_adrs1 pkSeed pkRoot message sig sigParsed hParse
